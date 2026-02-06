@@ -137,4 +137,10 @@ lazy val docs = project
     ),
     mdocIn  := file("mechanoid-docs") / "docs",
     mdocOut := file("."),
+    // ZIO deps are "provided" at root level, so mdoc needs them explicitly
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"         % zioVersion,
+      "dev.zio" %% "zio-streams" % zioVersion,
+      "dev.zio" %% "zio-json"    % "0.8.0",
+    ),
   )
