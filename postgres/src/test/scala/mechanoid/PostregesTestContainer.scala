@@ -1,7 +1,7 @@
 package mechanoid
 import org.postgresql.ds.PGSimpleDataSource
 import org.testcontainers.containers.PostgreSQLContainer
-import saferis.{ConnectionProvider, Transactor}
+import saferis.{ConnectionProvider, SaferisError, Transactor}
 import mechanoid.persistence.postgres.PostgresSchema
 import zio.*
 
@@ -70,7 +70,7 @@ object PostgresTestContainer:
       PostgresTestContainer.default >>> provider
 
     /** Transactor layer with schema initialization using PostgresSchema.initialize. */
-    val transactor: ZLayer[Any, Throwable, Transactor] =
+    val transactor: ZLayer[Any, SaferisError, Transactor] =
       default >>> Transactor.default >>> ZLayer.fromZIO {
         PostgresSchema.initialize.flatMap { result =>
           ZIO.logInfo(s"PostgresSchema initialized: $result")

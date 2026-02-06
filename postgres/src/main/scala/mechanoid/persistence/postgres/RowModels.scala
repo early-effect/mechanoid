@@ -1,26 +1,33 @@
 package mechanoid.persistence.postgres
 
 import saferis.*
+import zio.json.*
 import java.time.Instant
 
-/** Row model for fsm_events table. */
+/** Row model for fsm_events table with properly typed event data. */
 @tableName("fsm_events")
-final case class EventRow(
+final case class EventRow[E](
     @generated @key id: Long,
     @label("instance_id") instanceId: String,
     @label("sequence_nr") sequenceNr: Long,
-    @label("event_data") eventData: String,
+    @label("event_data") eventData: Json[E],
     @label("created_at") createdAt: Instant,
-) derives Table
+)
 
-/** Row model for fsm_snapshots table. */
+object EventRow:
+  given [E: JsonCodec]: Table[EventRow[E]] = Table.derived[EventRow[E]]
+
+/** Row model for fsm_snapshots table with properly typed state data. */
 @tableName("fsm_snapshots")
-final case class SnapshotRow(
+final case class SnapshotRow[S](
     @key @label("instance_id") instanceId: String,
-    @label("state_data") stateData: String,
+    @label("state_data") stateData: Json[S],
     @label("sequence_nr") sequenceNr: Long,
     @label("created_at") createdAt: Instant,
-) derives Table
+)
+
+object SnapshotRow:
+  given [S: JsonCodec]: Table[SnapshotRow[S]] = Table.derived[SnapshotRow[S]]
 
 /** Row model for scheduled_timeouts table. */
 @tableName("scheduled_timeouts")
@@ -50,21 +57,4 @@ final case class LeaseRow(
     holder: String,
     @label("expires_at") expiresAt: Instant,
     @label("acquired_at") acquiredAt: Instant,
-) derives Table
-
-/** Row model for commands table. */
-@tableName("commands")
-final case class CommandRow(
-    @generated @key id: Long,
-    @label("instance_id") instanceId: String,
-    @label("command_data") commandData: String,
-    @label("idempotency_key") idempotencyKey: String,
-    @label("enqueued_at") enqueuedAt: Instant,
-    status: String,
-    attempts: Int,
-    @label("last_attempt_at") lastAttemptAt: Option[Instant],
-    @label("last_error") lastError: Option[String],
-    @label("next_retry_at") nextRetryAt: Option[Instant],
-    @label("claimed_by") claimedBy: Option[String],
-    @label("claimed_until") claimedUntil: Option[Instant],
 ) derives Table

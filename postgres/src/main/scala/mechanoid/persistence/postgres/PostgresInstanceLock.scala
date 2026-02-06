@@ -1,19 +1,17 @@
 package mechanoid.persistence.postgres
 
 import saferis.*
+import saferis.postgres.given
 import zio.*
 import mechanoid.core.{MechanoidError, PersistenceError}
 import mechanoid.persistence.lock.*
 import java.time.Instant
-import scala.annotation.unused
 
 /** PostgreSQL implementation of FSMInstanceLock using Saferis.
   *
   * Uses atomic INSERT ... ON CONFLICT to implement lease-based locking with automatic expiration for crash recovery.
   */
 class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[String]:
-
-  @unused private val locks = Table[LockRow]
 
   override def tryAcquire(
       instanceId: String,
@@ -22,41 +20,40 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
       now: Instant,
   ): ZIO[Any, MechanoidError, LockResult[String]] =
     val expiresAt = now.plusMillis(duration.toMillis)
+    val row       = LockRow(instanceId, nodeId, now, expiresAt)
     transactor
       .run {
-        sql"""
-        INSERT INTO fsm_instance_locks (instance_id, node_id, acquired_at, expires_at)
-        VALUES ($instanceId, $nodeId, $now, $expiresAt)
-        ON CONFLICT (instance_id) DO UPDATE SET
-          node_id = EXCLUDED.node_id,
-          acquired_at = EXCLUDED.acquired_at,
-          expires_at = EXCLUDED.expires_at
-        WHERE fsm_instance_locks.expires_at < $now
-           OR fsm_instance_locks.node_id = EXCLUDED.node_id
-        RETURNING instance_id, node_id, acquired_at, expires_at
-      """.queryOne[LockRow]
+        Upsert[LockRow]
+          .values(row)
+          .onConflict(_.instanceId)
+          .doUpdateAll
+          .where(_.expiresAt)
+          .lt(now)
+          .or(_.nodeId)
+          .eqExcluded
+          .returning
+          .queryOne
       }
       .flatMap {
-        case Some(row) =>
+        case Some(lockRow) =>
           ZIO.succeed[LockResult[String]](
-            LockResult.Acquired(LockToken(instanceId, row.nodeId, row.acquiredAt, row.expiresAt))
+            LockResult.Acquired(LockToken(instanceId, lockRow.nodeId, lockRow.acquiredAt, lockRow.expiresAt))
           )
         case None =>
           // Lock held by another node - get current holder info
           transactor
             .run {
-              sql"""
-            SELECT instance_id, node_id, acquired_at, expires_at
-            FROM fsm_instance_locks
-            WHERE instance_id = $instanceId
-          """.queryOne[LockRow]
+              Query[LockRow]
+                .where(_.instanceId)
+                .eq(instanceId)
+                .queryOne[LockRow]
             }
             .map {
-              case Some(row) => LockResult.Busy[String](row.nodeId, row.expiresAt)
-              case None      => LockResult.Busy[String]("unknown", now) // Shouldn't happen
+              case Some(lockRow) => LockResult.Busy[String](lockRow.nodeId, lockRow.expiresAt)
+              case None          => LockResult.Busy[String]("unknown", now) // Shouldn't happen
             }
       }
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
   end tryAcquire
 
   override def acquire(
@@ -88,14 +85,16 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
   override def release(token: LockToken[String]): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
-        sql"""
-        DELETE FROM fsm_instance_locks
-        WHERE instance_id = ${token.instanceId}
-          AND node_id = ${token.nodeId}
-      """.dml
+        Delete[LockRow]
+          .where(_.instanceId)
+          .eq(token.instanceId)
+          .where(_.nodeId)
+          .eq(token.nodeId)
+          .build
+          .dml
       }
       .map(_ > 0)
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   override def extend(
       token: LockToken[String],
@@ -105,31 +104,33 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
     val newExpiry = now.plusMillis(additionalDuration.toMillis)
     transactor
       .run {
-        sql"""
-        UPDATE fsm_instance_locks
-        SET expires_at = $newExpiry
-        WHERE instance_id = ${token.instanceId}
-          AND node_id = ${token.nodeId}
-          AND expires_at > $now
-        RETURNING instance_id, node_id, acquired_at, expires_at
-      """.queryOne[LockRow]
+        Update[LockRow]
+          .set(_.expiresAt, newExpiry)
+          .where(_.instanceId)
+          .eq(token.instanceId)
+          .where(_.nodeId)
+          .eq(token.nodeId)
+          .where(_.expiresAt)
+          .gt(now)
+          .returningAs
+          .queryOne
       }
-      .map(_.map(row => LockToken(token.instanceId, row.nodeId, row.acquiredAt, row.expiresAt)))
-      .mapError(PersistenceError(_))
+      .map(_.map(lockRow => LockToken(token.instanceId, lockRow.nodeId, lockRow.acquiredAt, lockRow.expiresAt)))
+      .mapError(PersistenceError.fromError)
   end extend
 
   override def get(instanceId: String, now: Instant): ZIO[Any, MechanoidError, Option[LockToken[String]]] =
     transactor
       .run {
-        sql"""
-        SELECT instance_id, node_id, acquired_at, expires_at
-        FROM fsm_instance_locks
-        WHERE instance_id = $instanceId
-          AND expires_at > $now
-      """.queryOne[LockRow]
+        Query[LockRow]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .where(_.expiresAt)
+          .gt(now)
+          .queryOne[LockRow]
       }
-      .map(_.map(row => LockToken(instanceId, row.nodeId, row.acquiredAt, row.expiresAt)))
-      .mapError(PersistenceError(_))
+      .map(_.map(lockRow => LockToken(instanceId, lockRow.nodeId, lockRow.acquiredAt, lockRow.expiresAt)))
+      .mapError(PersistenceError.fromError)
 end PostgresInstanceLock
 
 object PostgresInstanceLock:
