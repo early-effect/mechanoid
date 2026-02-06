@@ -1,12 +1,12 @@
 package mechanoid.persistence.postgres
 
 import saferis.*
+import saferis.postgres.given
 import zio.*
 import zio.json.*
 import zio.stream.*
 import mechanoid.core.*
 import mechanoid.persistence.*
-import java.time.Instant
 
 /** PostgreSQL implementation of EventStore using Saferis.
   *
@@ -32,48 +32,54 @@ import java.time.Instant
   */
 class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) extends EventStore[String, S, E]:
 
+  private val eventsTable = Table[EventRow[E]]
+
   override def append(
       instanceId: String,
       event: E,
       expectedSeqNr: Long,
   ): ZIO[Any, MechanoidError, Long] =
-    val eventJson = event.toJson
     // New sequence number is expectedSeqNr + 1
     // expectedSeqNr is the expected CURRENT highest sequence number
     val newSeqNr = expectedSeqNr + 1
 
-    transactor
-      .transact {
-        for
-          now <- Clock.instant
-          // Check current sequence number (optimistic locking)
-          currentSeqOpt <- sql"""
-          SELECT COALESCE(MAX(sequence_nr), 0)
-          FROM fsm_events
-          WHERE instance_id = $instanceId
-        """.queryValue[Long]
+    // First check current sequence outside transaction
+    val checkAndInsert = for
+      currentSeq <- transactor
+        .run {
+          Query[EventRow[E]]
+            .where(_.instanceId)
+            .eq(instanceId)
+            .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+            .queryValue[Long]
+        }
+        .map(_.getOrElse(0L))
 
-          currentSeq = currentSeqOpt.getOrElse(0L)
-
-          _ <- ZIO.when(currentSeq != expectedSeqNr) {
-            ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, currentSeq))
-          }
-
-          // Insert new event with next sequence number
-          _ <- sql"""
-          INSERT INTO fsm_events (instance_id, sequence_nr, event_data, created_at)
-          VALUES ($instanceId, $newSeqNr, $eventJson::jsonb, $now)
-        """.dml
-        yield newSeqNr
+      _ <- ZIO.when(currentSeq != expectedSeqNr) {
+        ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, currentSeq))
       }
+
+      now <- Clock.instant
+      _   <- transactor.run {
+        Insert[EventRow[E]]
+          .value(_.instanceId, instanceId)
+          .value(_.sequenceNr, newSeqNr)
+          .value(_.eventData, Json(event))
+          .value(_.createdAt, now)
+          .build
+          .dml
+      }
+    yield newSeqNr
+
+    checkAndInsert
       .catchSome {
         // Handle unique constraint violation from concurrent inserts
-        case e: java.sql.SQLException if e.getSQLState == "23505" =>
+        case _: SaferisError.ConstraintViolation =>
           ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, expectedSeqNr))
       }
       .mapError {
         case e: MechanoidError => e
-        case e: Throwable      => PersistenceError(e)
+        case e                 => PersistenceError.fromError(e)
       }
   end append
 
@@ -81,17 +87,14 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
     ZStream.fromIterableZIO {
       transactor
         .run {
-          sql"""
-          SELECT id, instance_id, sequence_nr, event_data, created_at
-          FROM fsm_events
-          WHERE instance_id = $instanceId
-          ORDER BY sequence_nr ASC
-        """.query[EventRow]
+          Query[EventRow[E]]
+            .where(_.instanceId)
+            .eq(instanceId)
+            .orderBy(eventsTable.sequenceNr.asc)
+            .query[EventRow[E]]
         }
-        .flatMap { rows =>
-          ZIO.foreach(rows)(rowToStoredEvent)
-        }
-        .mapError(PersistenceError(_))
+        .map(_.map(rowToStoredEvent))
+        .mapError(PersistenceError.fromError)
     }
 
   override def loadEventsFrom(
@@ -101,102 +104,86 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
     ZStream.fromIterableZIO {
       transactor
         .run {
-          sql"""
-          SELECT id, instance_id, sequence_nr, event_data, created_at
-          FROM fsm_events
-          WHERE instance_id = $instanceId
-            AND sequence_nr > $fromSequenceNr
-          ORDER BY sequence_nr ASC
-        """.query[EventRow]
+          Query[EventRow[E]]
+            .where(_.instanceId)
+            .eq(instanceId)
+            .where(_.sequenceNr)
+            .gt(fromSequenceNr)
+            .orderBy(eventsTable.sequenceNr.asc)
+            .query[EventRow[E]]
         }
-        .flatMap { rows =>
-          ZIO.foreach(rows)(rowToStoredEvent)
-        }
-        .mapError(PersistenceError(_))
+        .map(_.map(rowToStoredEvent))
+        .mapError(PersistenceError.fromError)
     }
 
   override def loadSnapshot(instanceId: String): ZIO[Any, MechanoidError, Option[FSMSnapshot[String, S]]] =
     transactor
       .run {
-        sql"""
-        SELECT instance_id, state_data, sequence_nr, created_at
-        FROM fsm_snapshots
-        WHERE instance_id = $instanceId
-      """.queryOne[SnapshotRow]
+        Query[SnapshotRow[S]]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .queryOne[SnapshotRow[S]]
       }
-      .flatMap {
-        case None      => ZIO.none
-        case Some(row) =>
-          ZIO
-            .fromEither(row.stateData.fromJson[S])
-            .mapError(e => new RuntimeException(s"Failed to decode state: $e"))
-            .map { state =>
-              Some(
-                FSMSnapshot(
-                  instanceId = row.instanceId,
-                  state = state,
-                  sequenceNr = row.sequenceNr,
-                  timestamp = row.createdAt,
-                )
-              )
-            }
-      }
-      .mapError(PersistenceError(_))
+      .map(_.map(rowToSnapshot))
+      .mapError(PersistenceError.fromError)
 
   override def saveSnapshot(snapshot: FSMSnapshot[String, S]): ZIO[Any, MechanoidError, Unit] =
-    val stateJson = snapshot.state.toJson
+    val row = SnapshotRow[S](snapshot.instanceId, Json(snapshot.state), snapshot.sequenceNr, snapshot.timestamp)
 
     transactor
       .run {
-        sql"""
-        INSERT INTO fsm_snapshots (instance_id, state_data, sequence_nr, created_at)
-        VALUES (${snapshot.instanceId}, $stateJson::jsonb, ${snapshot.sequenceNr}, ${snapshot.timestamp})
-        ON CONFLICT (instance_id) DO UPDATE SET
-          state_data = EXCLUDED.state_data,
-          sequence_nr = EXCLUDED.sequence_nr,
-          created_at = EXCLUDED.created_at
-      """.dml
+        Upsert[SnapshotRow[S]]
+          .values(row)
+          .onConflict(_.instanceId)
+          .doUpdateAll
+          .build
+          .dml
       }
       .unit
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
   end saveSnapshot
 
   override def deleteEventsTo(instanceId: String, toSequenceNr: Long): ZIO[Any, MechanoidError, Unit] =
     transactor
       .run {
-        sql"""
-        DELETE FROM fsm_events
-        WHERE instance_id = $instanceId
-          AND sequence_nr <= $toSequenceNr
-      """.dml
+        Delete[EventRow[E]]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .where(_.sequenceNr)
+          .lte(toSequenceNr)
+          .build
+          .dml
       }
       .unit
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   override def highestSequenceNr(instanceId: String): ZIO[Any, MechanoidError, Long] =
     transactor
       .run {
-        sql"""
-        SELECT COALESCE(MAX(sequence_nr), 0)
-        FROM fsm_events
-        WHERE instance_id = $instanceId
-      """.queryValue[Long]
+        Query[EventRow[E]]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+          .queryValue[Long]
       }
       .map(_.getOrElse(0L))
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
-  private def rowToStoredEvent(row: EventRow): ZIO[Any, Throwable, StoredEvent[String, E]] =
-    ZIO
-      .fromEither(row.eventData.fromJson[E])
-      .mapError(e => new RuntimeException(s"Failed to decode event: $e"))
-      .map { event =>
-        StoredEvent(
-          instanceId = row.instanceId,
-          sequenceNr = row.sequenceNr,
-          event = event,
-          timestamp = row.createdAt,
-        )
-      }
+  private def rowToStoredEvent(row: EventRow[E]): StoredEvent[String, E] =
+    StoredEvent(
+      instanceId = row.instanceId,
+      sequenceNr = row.sequenceNr,
+      event = row.eventData.value,
+      timestamp = row.createdAt,
+    )
+
+  private def rowToSnapshot(row: SnapshotRow[S]): FSMSnapshot[String, S] =
+    FSMSnapshot(
+      instanceId = row.instanceId,
+      state = row.stateData.value,
+      sequenceNr = row.sequenceNr,
+      timestamp = row.createdAt,
+    )
 end PostgresEventStore
 
 object PostgresEventStore:

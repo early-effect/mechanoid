@@ -1,11 +1,11 @@
 package mechanoid.persistence.postgres
 
 import saferis.*
+import saferis.postgres.given
 import zio.*
 import mechanoid.core.{MechanoidError, PersistenceError}
 import mechanoid.persistence.timeout.*
 import java.time.Instant
-import scala.annotation.unused
 
 /** PostgreSQL implementation of TimeoutStore using Saferis.
   *
@@ -14,7 +14,7 @@ import scala.annotation.unused
   */
 class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
 
-  @unused private val timeouts = Table[TimeoutRow]
+  private val timeouts = Table[TimeoutRow]
 
   override def schedule(
       instanceId: String,
@@ -24,45 +24,43 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
   ): ZIO[Any, MechanoidError, ScheduledTimeout[String]] =
     (for
       now <- Clock.instant
-      _   <- transactor.run {
-        sql"""
-          INSERT INTO scheduled_timeouts (instance_id, state_hash, sequence_nr, deadline, created_at)
-          VALUES ($instanceId, $stateHash, $sequenceNr, $deadline, $now)
-          ON CONFLICT (instance_id) DO UPDATE SET
-            state_hash = EXCLUDED.state_hash,
-            sequence_nr = EXCLUDED.sequence_nr,
-            deadline = EXCLUDED.deadline,
-            claimed_by = NULL,
-            claimed_until = NULL
-        """.dml
+      row = TimeoutRow(instanceId, stateHash, sequenceNr, deadline, now, None, None)
+      _ <- transactor.run {
+        Upsert[TimeoutRow]
+          .values(row)
+          .onConflict(_.instanceId)
+          .doUpdateAll
+          .build
+          .dml
       }
-    yield ScheduledTimeout(instanceId, stateHash, sequenceNr, deadline, now, None, None)).mapError(PersistenceError(_))
+    yield ScheduledTimeout(instanceId, stateHash, sequenceNr, deadline, now, None, None))
+      .mapError(PersistenceError.fromError)
 
   override def cancel(instanceId: String): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
-        sql"""
-        DELETE FROM scheduled_timeouts
-        WHERE instance_id = $instanceId
-      """.dml
+        Delete[TimeoutRow]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .build
+          .dml
       }
       .map(_ > 0)
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   override def queryExpired(limit: Int, now: Instant): ZIO[Any, MechanoidError, List[ScheduledTimeout[String]]] =
     transactor
       .run {
-        sql"""
-        SELECT instance_id, state_hash, sequence_nr, deadline, created_at, claimed_by, claimed_until
-        FROM scheduled_timeouts
-        WHERE deadline <= $now
-          AND (claimed_by IS NULL OR claimed_until < $now)
-        ORDER BY deadline ASC
-        LIMIT $limit
-      """.query[TimeoutRow]
+        Query[TimeoutRow]
+          .where(_.deadline)
+          .lte(now)
+          .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
+          .orderBy(timeouts.deadline.asc)
+          .limit(limit)
+          .query[TimeoutRow]
       }
       .map(_.map(rowToTimeout).toList)
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   override def claim(
       instanceId: String,
@@ -73,13 +71,14 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
     val claimedUntil = now.plusMillis(claimDuration.toMillis)
     transactor
       .run {
-        sql"""
-        UPDATE scheduled_timeouts
-        SET claimed_by = $nodeId, claimed_until = $claimedUntil
-        WHERE instance_id = $instanceId
-          AND (claimed_by IS NULL OR claimed_until < $now)
-        RETURNING instance_id, state_hash, sequence_nr, deadline, created_at, claimed_by, claimed_until
-      """.queryOne[TimeoutRow]
+        Update[TimeoutRow]
+          .set(_.claimedBy, Some(nodeId))
+          .set(_.claimedUntil, Some(claimedUntil))
+          .where(_.instanceId)
+          .eq(instanceId)
+          .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
+          .returningAs
+          .queryOne
       }
       .flatMap {
         case Some(row) =>
@@ -98,45 +97,48 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       }
       .mapError {
         case e: MechanoidError => e
-        case e: Throwable      => PersistenceError(e)
+        case e                 => PersistenceError.fromError(e)
       }
   end claim
 
   override def complete(instanceId: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
-        sql"""
-        DELETE FROM scheduled_timeouts
-        WHERE instance_id = $instanceId
-          AND sequence_nr = $sequenceNr
-      """.dml
+        Delete[TimeoutRow]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .where(_.sequenceNr)
+          .eq(sequenceNr)
+          .build
+          .dml
       }
       .map(_ > 0)
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   override def release(instanceId: String): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
-        sql"""
-        UPDATE scheduled_timeouts
-        SET claimed_by = NULL, claimed_until = NULL
-        WHERE instance_id = $instanceId
-      """.dml
+        Update[TimeoutRow]
+          .set(_.claimedBy, Option.empty[String])
+          .set(_.claimedUntil, Option.empty[Instant])
+          .where(_.instanceId)
+          .eq(instanceId)
+          .build
+          .dml
       }
       .map(_ > 0)
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   override def get(instanceId: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[String]]] =
     transactor
       .run {
-        sql"""
-        SELECT instance_id, state_hash, sequence_nr, deadline, created_at, claimed_by, claimed_until
-        FROM scheduled_timeouts
-        WHERE instance_id = $instanceId
-      """.queryOne[TimeoutRow]
+        Query[TimeoutRow]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .queryOne[TimeoutRow]
       }
       .map(_.map(rowToTimeout))
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   private def rowToTimeout(row: TimeoutRow): ScheduledTimeout[String] =
     ScheduledTimeout(

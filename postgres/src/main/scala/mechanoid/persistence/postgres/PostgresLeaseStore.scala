@@ -1,11 +1,11 @@
 package mechanoid.persistence.postgres
 
 import saferis.*
+import saferis.postgres.given
 import zio.*
 import mechanoid.core.{MechanoidError, PersistenceError}
 import mechanoid.persistence.timeout.*
 import java.time.Instant
-import scala.annotation.unused
 
 /** PostgreSQL implementation of LeaseStore using Saferis.
   *
@@ -14,8 +14,6 @@ import scala.annotation.unused
   */
 class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
 
-  @unused private val leases = Table[LeaseRow]
-
   override def tryAcquire(
       key: String,
       holder: String,
@@ -23,22 +21,22 @@ class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
       now: Instant,
   ): ZIO[Any, MechanoidError, Option[Lease]] =
     val expiresAt = now.plusMillis(duration.toMillis)
+    val row       = LeaseRow(key, holder, expiresAt, now)
     transactor
       .run {
-        sql"""
-        INSERT INTO leases (key, holder, expires_at, acquired_at)
-        VALUES ($key, $holder, $expiresAt, $now)
-        ON CONFLICT (key) DO UPDATE SET
-          holder = EXCLUDED.holder,
-          expires_at = EXCLUDED.expires_at,
-          acquired_at = EXCLUDED.acquired_at
-        WHERE leases.expires_at < $now
-           OR leases.holder = EXCLUDED.holder
-        RETURNING key, holder, expires_at, acquired_at
-      """.queryOne[LeaseRow]
+        Upsert[LeaseRow]
+          .values(row)
+          .onConflict(_.key)
+          .doUpdateAll
+          .where(_.expiresAt)
+          .lt(now)
+          .or(_.holder)
+          .eqExcluded
+          .returning
+          .queryOne
       }
       .map(_.map(rowToLease))
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
   end tryAcquire
 
   override def renew(
@@ -50,41 +48,45 @@ class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
     val newExpiry = now.plusMillis(duration.toMillis)
     transactor
       .run {
-        sql"""
-        UPDATE leases
-        SET expires_at = $newExpiry
-        WHERE key = $key
-          AND holder = $holder
-          AND expires_at > $now
-      """.dml
+        Update[LeaseRow]
+          .set(_.expiresAt, newExpiry)
+          .where(_.key)
+          .eq(key)
+          .where(_.holder)
+          .eq(holder)
+          .where(_.expiresAt)
+          .gt(now)
+          .build
+          .dml
       }
       .map(_ > 0)
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
   end renew
 
   override def release(key: String, holder: String): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
-        sql"""
-        DELETE FROM leases
-        WHERE key = $key
-          AND holder = $holder
-      """.dml
+        Delete[LeaseRow]
+          .where(_.key)
+          .eq(key)
+          .where(_.holder)
+          .eq(holder)
+          .build
+          .dml
       }
       .map(_ > 0)
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   override def get(key: String): ZIO[Any, MechanoidError, Option[Lease]] =
     transactor
       .run {
-        sql"""
-        SELECT key, holder, expires_at, acquired_at
-        FROM leases
-        WHERE key = $key
-      """.queryOne[LeaseRow]
+        Query[LeaseRow]
+          .where(_.key)
+          .eq(key)
+          .queryOne[LeaseRow]
       }
       .map(_.map(rowToLease))
-      .mapError(PersistenceError(_))
+      .mapError(PersistenceError.fromError)
 
   private def rowToLease(row: LeaseRow): Lease =
     Lease(

@@ -84,7 +84,7 @@ lazy val postgres = project
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
     libraryDependencies ++= Seq(
-      "io.github.russwyte" %% "saferis"      % "0.1.2",
+      "io.github.russwyte" %% "saferis"      % "0.11.0",
       "org.postgresql"      % "postgresql"   % "42.7.9",
       "org.testcontainers"  % "postgresql"   % "1.21.4"   % Test,
       "dev.zio"            %% "zio-test"     % zioVersion % Test,
@@ -137,4 +137,10 @@ lazy val docs = project
     ),
     mdocIn  := file("mechanoid-docs") / "docs",
     mdocOut := file("."),
+    // ZIO deps are "provided" at root level, so mdoc needs them explicitly
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"         % zioVersion,
+      "dev.zio" %% "zio-streams" % zioVersion,
+      "dev.zio" %% "zio-json"    % "0.8.0",
+    ),
   )

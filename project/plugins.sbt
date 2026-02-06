@@ -7,12 +7,12 @@ addSbtPlugin("com.github.sbt" % "sbt-pgp"       % "2.3.2-M1")
 addSbtPlugin("org.xerial.sbt" % "sbt-sonatype"  % "3.12.2")
 addSbtPlugin("org.scoverage"  % "sbt-scoverage" % "2.4.4")
 
-val overrideSemanticDbVersion = "4.14.5"
+// val overrideSemanticDbVersion = "4.14.5"
 
-// Override semanticdb version for Metals 2.0.0-M2 compatibility
-dependencyOverrides ++= Seq(
-  "org.scalameta" % "semanticdb-scalac_2.12.18" % overrideSemanticDbVersion,
-  "org.scalameta" % "semanticdb-scalac_2.12.19" % overrideSemanticDbVersion,
-  "org.scalameta" % "semanticdb-scalac_2.12.20" % overrideSemanticDbVersion,
-  "org.scalameta" % "semanticdb-scalac_2.12.21" % overrideSemanticDbVersion,
-)
+// // Override semanticdb version for Metals 2.0.0-M2 compatibility
+// dependencyOverrides ++= Seq(
+//   "org.scalameta" % "semanticdb-scalac_2.12.18" % overrideSemanticDbVersion,
+//   "org.scalameta" % "semanticdb-scalac_2.12.19" % overrideSemanticDbVersion,
+//   "org.scalameta" % "semanticdb-scalac_2.12.20" % overrideSemanticDbVersion,
+//   "org.scalameta" % "semanticdb-scalac_2.12.21" % overrideSemanticDbVersion,
+// )

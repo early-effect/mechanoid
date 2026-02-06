@@ -3,7 +3,7 @@ package mechanoid
 import zio.*
 import zio.test.*
 import zio.json.*
-import saferis.Transactor
+import saferis.{SaferisError, Transactor}
 import mechanoid.machine.*
 import mechanoid.persistence.*
 import mechanoid.persistence.postgres.PostgresEventStore
@@ -65,10 +65,10 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
   val lockingLayer: ULayer[LockingStrategy[String]] = LockingStrategy.optimistic[String]
 
   /** PostgreSQL store for integration tests (with schema initialization). */
-  val xaLayer: ZLayer[Any, Throwable, Transactor] =
+  val xaLayer: ZLayer[Any, SaferisError, Transactor] =
     PostgresTestContainer.DataSourceProvider.transactor
 
-  val postgresStoreLayer: ZLayer[Any, Throwable, EventStore[String, OrderState, OrderEvent]] =
+  val postgresStoreLayer: ZLayer[Any, SaferisError, EventStore[String, OrderState, OrderEvent]] =
     xaLayer >>> PostgresEventStore.makeLayer[OrderState, OrderEvent]
 
   // ============================================
