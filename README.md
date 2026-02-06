@@ -30,10 +30,10 @@ Add to your `build.sbt`:
 
 ```scala
 // Core library
-libraryDependencies += "io.github.russwyte" %% "mechanoid" % "0.2.0+1-93127db1+20260118-1042"
+libraryDependencies += "io.github.russwyte" %% "mechanoid" % "0.3.2"
 
 // PostgreSQL persistence (optional)
-libraryDependencies += "io.github.russwyte" %% "mechanoid-postgres" % "0.2.0+1-93127db1+20260118-1042"
+libraryDependencies += "io.github.russwyte" %% "mechanoid-postgres" % "0.3.2"
 ```
 
 ## Quick Start
