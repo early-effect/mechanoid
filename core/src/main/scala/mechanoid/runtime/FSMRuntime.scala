@@ -301,9 +301,6 @@ object FSMRuntime:
 
       _ <- runtimeRef.set(Some(runtime))
 
-      // Run entry action for initial state (only if this is a new instance, not recovery)
-      _ <- ZIO.when(events.isEmpty && snapshot.isEmpty)(runtime.runEntryAction(initialState).ignore)
-
       // Start timeout for current state if configured
       _ <- runtime.startTimeout(rebuiltState.current)
     yield runtime
@@ -414,7 +411,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
         case _                        => fsmState.current
 
       // Update state
-      _ <- handleTransitionResult(fsmState, result)
+      _ <- handleTransitionResult(fsmState, event, result)
 
       // Run per-transition entry effect (sync)
       _ <- runTransitionEntryEffect(stateHash, eventHash, event, targetState)
@@ -471,6 +468,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
 
   private def handleTransitionResult(
       fsmState: FSMState[S],
+      event: E,
       result: TransitionResult[S],
   ): ZIO[Any, MechanoidError, Unit] =
     result match
@@ -478,13 +476,13 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
         for
           // Cancel any pending timeout for the current state
           _ <- cancelTimeout
-          // Run exit action for current state
-          _ <- runExitAction(fsmState.current)
+          // Run exit effect for current state
+          _ <- runStateExitEffect(event, fsmState.current)
           // Update state
           now = Instant.now()
           _ <- stateRef.update(_.transitionTo(newState, now))
-          // Run entry action for new state
-          _ <- runEntryAction(newState)
+          // Run entry effect for new state
+          _ <- runStateEntryEffect(event, newState)
           // Start timeout for new state if configured
           _ <- startTimeout(newState)
         yield ()
@@ -495,15 +493,21 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       case TransitionResult.Stop(_) =>
         for
           _ <- cancelTimeout
-          _ <- runExitAction(fsmState.current)
+          _ <- runStateExitEffect(event, fsmState.current)
           _ <- runningRef.set(false)
         yield ()
 
-  private[mechanoid] def runEntryAction(state: S): ZIO[Any, MechanoidError, Unit] =
-    machine.lifecycles.get(machine.stateEnum.caseHash(state)).flatMap(_.onEntry).getOrElse(ZIO.unit)
+  private def runStateEntryEffect(event: E, state: S): ZIO[Any, MechanoidError, Unit] =
+    machine.stateEntryEffects.get(machine.stateEnum.caseHash(state)) match
+      case Some(effect) =>
+        effect(event, state).catchAll(e => ZIO.fail(ActionFailedError("state entry effect", e))).unit
+      case None => ZIO.unit
 
-  private def runExitAction(state: S): ZIO[Any, MechanoidError, Unit] =
-    machine.lifecycles.get(machine.stateEnum.caseHash(state)).flatMap(_.onExit).getOrElse(ZIO.unit)
+  private def runStateExitEffect(event: E, state: S): ZIO[Any, MechanoidError, Unit] =
+    machine.stateExitEffects.get(machine.stateEnum.caseHash(state)) match
+      case Some(effect) =>
+        effect(event, state).catchAll(e => ZIO.fail(ActionFailedError("state exit effect", e))).unit
+      case None => ZIO.unit
 
   /** Cancel any pending timeout for this FSM instance.
     *

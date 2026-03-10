@@ -9,7 +9,6 @@ import mechanoid.visualization.{TransitionMeta, TransitionKind}
   *
   * Machine holds all runtime data for an FSM:
   *   - Transitions map (state hash, event hash) → action
-  *   - State lifecycles (entry/exit actions)
   *   - State timeouts
   *   - Per-transition effects (entry effects and producing effects)
   *   - Visualization metadata
@@ -22,16 +21,17 @@ import mechanoid.visualization.{TransitionMeta, TransitionKind}
 final class Machine[S, E] private[machine] (
     // Runtime data - events are just E now (no Timed wrapper)
     private[mechanoid] val transitions: Map[(Int, Int), Transition[S, E, S]],
-    private[mechanoid] val lifecycles: Map[Int, StateLifecycle[S]],
     private[mechanoid] val timeouts: Map[Int, Duration],
     private[mechanoid] val timeoutEvents: Map[Int, E], // state hash -> event to fire on timeout
     private[mechanoid] val transitionMeta: List[TransitionMeta],
     // Per-transition effects: (event, targetState) => effect
     private[mechanoid] val entryEffects: Map[(Int, Int), EntryEffect[E, S]],
     private[mechanoid] val producingEffects: Map[(Int, Int), ProducingEffect[E, S, E]],
+    // Per-state effects: state hash -> effect (from Assembly.onEnter/onExit)
+    private[mechanoid] val stateEntryEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]],
+    private[mechanoid] val stateExitEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]],
     // Spec data for compile-time validation and introspection
     private[machine] val specs: List[TransitionSpec[S, E, ?]],
-    private[machine] val timeoutSpecs: List[TimeoutSpec[S, E]],
 )(using
     private[mechanoid] val stateEnum: Finite[S],
     private[mechanoid] val eventEnum: Finite[E], // Just E, no Timed wrapper
@@ -50,60 +50,6 @@ final class Machine[S, E] private[machine] (
   /** Get event names for visualization (caseHash -> name, includes Timeout). */
   def eventNames: Map[Int, String] = eventEnum.caseNames
 
-  /** Add an entry action for a state.
-    *
-    * The action runs when the FSM enters the specified state. Multiple calls for the same state will replace the
-    * previous action.
-    *
-    * Note: This is a per-state entry action that runs for ALL transitions entering the state. For per-transition
-    * effects, use `.onEntry` in the DSL.
-    *
-    * Usage:
-    * {{{
-    * val machine = build[State, Event](
-    *   Idle via Start to Running
-    * ).withEntry(Running)(ZIO.logInfo("Entered running state"))
-    * }}}
-    */
-  def withEntry(state: S)(action: ZIO[Any, MechanoidError, Unit]): Machine[S, E] =
-    val stateHash = stateEnum.caseHash(state)
-    updateLifecycle(stateHash, lc => lc.copy(onEntry = Some(action)))
-
-  /** Add an exit action for a state.
-    *
-    * The action runs when the FSM exits the specified state. Multiple calls for the same state will replace the
-    * previous action.
-    *
-    * Usage:
-    * {{{
-    * val machine = build[State, Event](
-    *   Idle via Start to Running
-    * ).withExit(Idle)(ZIO.logInfo("Exited idle state"))
-    * }}}
-    */
-  def withExit(state: S)(action: ZIO[Any, MechanoidError, Unit]): Machine[S, E] =
-    val stateHash = stateEnum.caseHash(state)
-    updateLifecycle(stateHash, lc => lc.copy(onExit = Some(action)))
-
-  /** Add both entry and exit actions for a state.
-    *
-    * Convenience method combining `withEntry` and `withExit`.
-    */
-  def withLifecycle(state: S)(
-      onEntry: Option[ZIO[Any, MechanoidError, Unit]] = None,
-      onExit: Option[ZIO[Any, MechanoidError, Unit]] = None,
-  ): Machine[S, E] =
-    val stateHash = stateEnum.caseHash(state)
-    updateLifecycle(
-      stateHash,
-      lc =>
-        lc.copy(
-          onEntry = onEntry.orElse(lc.onEntry),
-          onExit = onExit.orElse(lc.onExit),
-        ),
-    )
-  end withLifecycle
-
   // ============================================
   // Internal mutation methods (for building)
   // ============================================
@@ -117,34 +63,15 @@ final class Machine[S, E] private[machine] (
   ): Machine[S, E] =
     new Machine(
       transitions + ((fromCaseHash, eventCaseHash) -> transition),
-      lifecycles,
       timeouts,
       timeoutEvents,
       transitionMeta :+ meta,
       entryEffects,
       producingEffects,
+      stateEntryEffects,
+      stateExitEffects,
       specs,
-      timeoutSpecs,
     )
-
-  /** Update lifecycle for a state. */
-  private[mechanoid] def updateLifecycle(
-      stateCaseHash: Int,
-      f: StateLifecycle[S] => StateLifecycle[S],
-  ): Machine[S, E] =
-    val current = lifecycles.getOrElse(stateCaseHash, StateLifecycle.empty[S])
-    new Machine(
-      transitions,
-      lifecycles + (stateCaseHash -> f(current)),
-      timeouts,
-      timeoutEvents,
-      transitionMeta,
-      entryEffects,
-      producingEffects,
-      specs,
-      timeoutSpecs,
-    )
-  end updateLifecycle
 
   /** Set timeout for a state. */
   private[mechanoid] def setStateTimeout(
@@ -153,14 +80,14 @@ final class Machine[S, E] private[machine] (
   ): Machine[S, E] =
     new Machine(
       transitions,
-      lifecycles,
       timeouts + (stateCaseHash -> timeout),
       timeoutEvents,
       transitionMeta,
       entryEffects,
       producingEffects,
+      stateEntryEffects,
+      stateExitEffects,
       specs,
-      timeoutSpecs,
     )
 end Machine
 
@@ -205,48 +132,27 @@ object Machine:
 
   /** Create a Machine from validated specs.
     *
-    * This is an internal method used by Machine.apply. It converts TransitionSpecs to runtime data.
-    *
-    * Performs runtime duplicate detection for machine composition:
-    *   - Duplicates without isOverride = true cause an IllegalArgumentException
-    *   - Duplicates with isOverride = true are allowed; later spec wins
+    * This is an internal method used by `MachineMacros.applyImpl`. All specs reaching this method have already passed
+    * compile-time duplicate detection in the `assembly`/`assemblyAll`/`combine` macros.
     */
   private[machine] def fromSpecs[S: Finite, E: Finite](
       specs: List[TransitionSpec[S, E, ?]],
-      timeoutSpecs: List[TimeoutSpec[S, E]] = Nil,
+      stateEntryEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
+      stateExitEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
   ): Machine[S, E] =
     var transitions         = Map.empty[(Int, Int), Transition[S, E, S]]
     var transitionMetaList  = List.empty[TransitionMeta]
     var stateTimeouts       = Map.empty[Int, Duration]
-    var stateTimeoutEvents  = Map.empty[Int, E] // state hash -> event to fire on timeout
+    var stateTimeoutEvents  = Map.empty[Int, E]
     var entryEffectsMap     = Map.empty[(Int, Int), EntryEffect[E, S]]
     var producingEffectsMap = Map.empty[(Int, Int), ProducingEffect[E, S, E]]
 
-    // Track which (state, event) pairs we've seen for duplicate detection
-    // Maps key -> (first spec index, first spec description)
-    var seenTransitions = Map.empty[(Int, Int), (Int, String)]
-
     val stateEnumInstance = summon[Finite[S]]
-    val eventEnumInstance = summon[Finite[E]]
 
-    // First pass: collect all state/event pairs that have any override marker
-    // If ANY spec for a given pair has override, all duplicates for that pair are allowed
-    val overridePairs: Set[(Int, Int)] = specs.flatMap { spec =>
-      if spec.isOverride then
-        for
-          stateHash <- spec.stateHashes
-          eventHash <- spec.eventHashes
-        yield (stateHash, eventHash)
-      else Set.empty[(Int, Int)]
-    }.toSet
-
-    // Convert each TransitionSpec to runtime data
-    // Handler[?] uses existential type - we know targets are S because DSL enforces it,
-    // but the type system sees ? (existential) when specs have different target types.
-    for (spec, specIdx) <- specs.zipWithIndex do
+    for spec <- specs do
       val transition = spec.handler match
         case Handler.Goto(target) =>
-          val targetState = target.asInstanceOf[S] // Safe: existential erases to S via DSL
+          val targetState = target.asInstanceOf[S]
           Transition[S, E, S](
             (_, _) => ZIO.succeed(TransitionResult.Goto(targetState)),
             None,
@@ -262,10 +168,9 @@ object Machine:
             None,
           )
 
-      // Determine target hash for metadata
       val targetHash = spec.handler match
         case Handler.Goto(target) =>
-          Some(stateEnumInstance.caseHash(target.asInstanceOf[S])) // Safe: same reasoning as above
+          Some(stateEnumInstance.caseHash(target.asInstanceOf[S]))
         case _ => None
 
       val kind = spec.handler match
@@ -273,43 +178,15 @@ object Machine:
         case Handler.Stay         => TransitionKind.Stay
         case Handler.Stop(reason) => TransitionKind.Stop(reason)
 
-      // Add transition for each (state, event) pair
       for
         stateHash <- spec.stateHashes
         eventHash <- spec.eventHashes
       do
-        val key = (stateHash, eventHash)
-
-        // Check for duplicates
-        // Allow if: (1) this spec has override, OR (2) any spec for this pair has override
-        val hasOverride = spec.isOverride || overridePairs.contains(key)
-        seenTransitions.get(key) match
-          case Some((firstIdx, firstDesc)) if !hasOverride =>
-            // Duplicate without any override - error
-            val stateName = stateEnumInstance.caseNames.getOrElse(stateHash, s"state#$stateHash")
-            val eventName = eventEnumInstance.caseNames.getOrElse(eventHash, s"event#$eventHash")
-            throw new IllegalArgumentException(
-              s"""Duplicate transition without override!
-                 |  Transition: $stateName via $eventName
-                 |  First defined at spec #${firstIdx + 1}: $firstDesc
-                 |  Duplicate at spec #${specIdx + 1}: ${spec.targetDesc}
-                 |
-                 |  To override, use: @@ Aspect.overriding""".stripMargin
-            )
-          case _ =>
-            // Either no duplicate, or has override somewhere - allow it
-            ()
-        end match
-
-        // Track this transition
-        val specDesc = s"${spec.stateNames.mkString(",")} via ${spec.eventNames.mkString(",")} ${spec.targetDesc}"
-        seenTransitions = seenTransitions + (key -> (specIdx, specDesc))
-
+        val key  = (stateHash, eventHash)
         val meta = TransitionMeta(stateHash, eventHash, targetHash, kind)
         transitions = transitions + (key -> transition)
         transitionMetaList = transitionMetaList :+ meta
 
-        // Extract effects - no casts needed, opaque types handle variance
         spec.entryEffect.foreach { f =>
           entryEffectsMap = entryEffectsMap + (key -> f)
         }
@@ -318,40 +195,31 @@ object Machine:
         }
       end for
 
-      // Configure timeout on target state if specified via TimedTarget
       (spec.targetTimeout, spec.handler) match
         case (Some(duration), Handler.Goto(target)) =>
-          val targetStateHash = stateEnumInstance.caseHash(target.asInstanceOf[S]) // Safe: DSL-created
+          val targetStateHash = stateEnumInstance.caseHash(target.asInstanceOf[S])
           stateTimeouts = stateTimeouts + (targetStateHash -> duration)
-          // Store the user-defined timeout event if provided
           spec.targetTimeoutConfig.foreach { config =>
-            // Safe: TimeoutEventConfig[?] erases TE <: E, but event was created with valid type
             stateTimeoutEvents = stateTimeoutEvents + (targetStateHash -> config.event.asInstanceOf[E])
           }
-        case _ => // No timeout or not a goto transition
+        case _ =>
       end match
     end for
 
-    // Convert TimeoutSpecs to state timeouts (legacy support)
-    for timeoutSpec <- timeoutSpecs do
-      for stateHash <- timeoutSpec.stateHashes do
-        stateTimeouts = stateTimeouts + (stateHash           -> timeoutSpec.duration)
-        stateTimeoutEvents = stateTimeoutEvents + (stateHash -> timeoutSpec.eventInstance)
-
     new Machine(
       transitions,
-      Map.empty,
       stateTimeouts,
       stateTimeoutEvents,
       transitionMetaList,
       entryEffectsMap,
       producingEffectsMap,
+      stateEntryEffects,
+      stateExitEffects,
       specs,
-      timeoutSpecs,
     )
   end fromSpecs
 
   /** Create an empty Machine. */
   def empty[S: Finite, E: Finite]: Machine[S, E] =
-    new Machine(Map.empty, Map.empty, Map.empty, Map.empty, Nil, Map.empty, Map.empty, Nil, Nil)
+    new Machine(Map.empty, Map.empty, Map.empty, Nil, Map.empty, Map.empty, Map.empty, Map.empty, Nil)
 end Machine

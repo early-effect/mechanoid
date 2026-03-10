@@ -74,13 +74,13 @@ val program = ZIO.scoped {
 
 See the [full documentation](docs/DOCUMENTATION.md) for:
 
-- [Core Concepts](docs/DOCUMENTATION.md#core-concepts) - States, events, transitions
-- [Defining FSMs](docs/DOCUMENTATION.md#defining-fsms) - Entry/exit actions, timeouts
-- [Running FSMs](docs/DOCUMENTATION.md#running-fsms) - Runtime, sending events
-- [Side Effects](docs/DOCUMENTATION.md#side-effects) - Entry effects, producing effects
-- [Persistence](docs/DOCUMENTATION.md#persistence) - Event sourcing, snapshots, recovery
-- [Durable Timeouts](docs/DOCUMENTATION.md#durable-timeouts) - TimeoutStore, sweepers, leader election
-- [Distributed Locking](docs/DOCUMENTATION.md#distributed-locking) - Exactly-once transitions, FSMInstanceLock
+- [Core Concepts](docs/core-concepts.md) - States, events, transitions
+- [Defining FSMs](docs/defining-fsms.md) - Entry/exit actions, timeouts
+- [Running FSMs](docs/running-fsms.md) - Runtime, sending events
+- [Side Effects](docs/side-effects.md) - Entry effects, producing effects
+- [Persistence](docs/persistence.md) - Event sourcing, snapshots, recovery
+- [Durable Timeouts](docs/durable-timeouts.md) - TimeoutStore, sweepers, leader election
+- [Distributed Locking](docs/distributed.md#distributed-locking) - Exactly-once transitions, FSMInstanceLock
 
 ## Key Components
 
@@ -89,7 +89,7 @@ See the [full documentation](docs/DOCUMENTATION.md) for:
 | `assembly[S, E](...)` | Create reusable transition fragments with compile-time validation |
 | `assemblyAll[S, E]: ...` | Block syntax for assemblies (no commas between specs) |
 | `Machine(assembly)` | Create a runnable Machine from a validated Assembly |
-| `include(assembly)` | Include an assembly's specs in another assembly |
+| `combine(a1, a2)` / `a1 ++ a2` | Combine two assemblies with compile-time duplicate detection |
 | `Machine[S, E]` | The FSM definition that can be started and run |
 | `Assembly[S, E]` | Composable transition fragments (cannot run directly) |
 | `FSMRuntime[Id, S, E]` | Unified FSM execution (in-memory or persistent) |

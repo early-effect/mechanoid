@@ -9,7 +9,6 @@ export core.Finite
 export core.TransitionResult
 export core.TransitionOutcome
 export core.Transition
-export core.StateLifecycle
 export core.StateTimeout
 export core.FSMState
 export core.MechanoidError
@@ -24,7 +23,8 @@ export machine.Machine
 export machine.Assembly
 export machine.assembly
 export machine.assemblyAll
-export machine.include
+export machine.combine
+export machine.++
 export machine.all
 export machine.anyOf
 export machine.via
@@ -32,7 +32,6 @@ export machine.Aspect
 export machine.stay
 export machine.stop
 export machine.TransitionSpec as MachineTransitionSpec
-export machine.TimeoutSpec
 export machine.ViaBuilder
 export machine.AllMatcher
 export machine.AnyOfMatcher

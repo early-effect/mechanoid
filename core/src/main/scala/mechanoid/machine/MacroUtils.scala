@@ -5,7 +5,7 @@ import scala.quoted.*
 /** Shared utilities for mechanoid macro implementations.
   *
   * This object provides common helpers for AST extraction, type checking, and validation that are used across
-  * `assemblyImpl`, `assemblyAllImpl`, `includeImpl`, and `applyImpl` macros.
+  * `assemblyImpl`, `assemblyAllImpl`, `combineImpl`, and `applyImpl` macros.
   *
   * ==Organization==
   *
@@ -23,8 +23,6 @@ private[machine] object MacroUtils:
   val AssemblyTypeName: String       = "mechanoid.machine.Assembly"
   val MachineTypeName: String        = "mechanoid.machine.Machine"
   val TransitionSpecTypeName: String = "TransitionSpec"
-  val IncludedTypeName: String       = "mechanoid.machine.Included"
-
   // ====== Type Checking Predicates ======
 
   /** Check if a type is Assembly[_, _, _] */
@@ -49,14 +47,6 @@ private[machine] object MacroUtils:
     tpe.dealias.widen match
       case AppliedType(base, _) =>
         base.typeSymbol.fullName.contains(TransitionSpecTypeName)
-      case _ => false
-
-  /** Check if a type is Included[_, _, _] */
-  def isIncludedType(using Quotes)(tpe: quotes.reflect.TypeRepr): Boolean =
-    import quotes.reflect.*
-    tpe.dealias.widen match
-      case AppliedType(base, _) =>
-        base.typeSymbol.fullName == IncludedTypeName
       case _ => false
 
   // ====== AST Unwrapping & Extraction ======
@@ -219,79 +209,6 @@ private[machine] object MacroUtils:
         else Nil
     result
   end extractListElements
-
-  /** Extract specs from Assembly constructor: `Assembly.apply(List(...))` or `new Assembly(List(...))`.
-    *
-    * This is key for compile-time visibility - the assembly macro generates literal constructor calls that can be
-    * pattern matched.
-    */
-  def extractAssemblySpecTerms(using Quotes)(term: quotes.reflect.Term): List[quotes.reflect.Term] =
-    import quotes.reflect.*
-
-    val result = term match
-      // Assembly.apply(List(...)) - various patterns
-      case Apply(TypeApply(Select(Ident("Assembly"), "apply"), _), List(listArg)) =>
-        extractListElements(listArg)
-      case Apply(TypeApply(Select(Select(_, "Assembly"), "apply"), _), List(listArg)) =>
-        extractListElements(listArg)
-      case Apply(Select(Ident("Assembly"), "apply"), List(listArg)) =>
-        extractListElements(listArg)
-      case Apply(Select(Select(_, "Assembly"), "apply"), List(listArg)) =>
-        extractListElements(listArg)
-      // Match by type - if term shows Assembly.apply
-      case Apply(fn, List(listArg)) if fn.show.contains("Assembly") && fn.show.contains("apply") =>
-        extractListElements(listArg)
-      // new Assembly(List(...))
-      case Apply(Select(New(tpt), "<init>"), List(listArg)) if tpt.show.contains("Assembly") =>
-        extractListElements(listArg)
-      case Apply(TypeApply(Select(New(tpt), "<init>"), _), List(listArg)) if tpt.show.contains("Assembly") =>
-        extractListElements(listArg)
-      // Inlined wrapper - the actual content might be in bindings or the call tree
-      case Inlined(call, bindings, inner) =>
-        // First try to extract from inner
-        val fromInner = extractAssemblySpecTerms(inner)
-        if fromInner.nonEmpty then fromInner
-        else
-          // If inner didn't work, try bindings
-          bindings.flatMap {
-            case ValDef(_, _, Some(rhs)) if isAssemblyType(rhs.tpe) =>
-              extractAssemblySpecTerms(rhs)
-            case _ => Nil
-          }
-      // Block wrapper
-      case Block(_, expr) => extractAssemblySpecTerms(expr)
-      // Typed wrapper
-      case Typed(inner, _) => extractAssemblySpecTerms(inner)
-      // Val reference
-      case Ident(name) =>
-        try
-          term.symbol.tree match
-            case ValDef(_, _, Some(rhs)) =>
-              extractAssemblySpecTerms(rhs)
-            case _ =>
-              Nil
-        catch
-          case _: Exception =>
-            Nil
-      // Assembly with @@ applied
-      case Apply(Select(base, "@@"), _) => extractAssemblySpecTerms(base)
-      // new Included(assembly) - extract from wrapped assembly
-      case Apply(Select(New(tpt), "<init>"), List(assemblyArg)) if tpt.show.contains("Included") =>
-        extractAssemblySpecTerms(assemblyArg)
-      case Apply(TypeApply(Select(New(tpt), "<init>"), _), List(assemblyArg)) if tpt.show.contains("Included") =>
-        extractAssemblySpecTerms(assemblyArg)
-      case _ =>
-        Nil
-    result
-  end extractAssemblySpecTerms
-
-  /** Check if assembly has `@@ Aspect.overriding` applied. */
-  def hasAssemblyOverride(using Quotes)(term: quotes.reflect.Term): Boolean =
-    import quotes.reflect.*
-    term match
-      case Apply(Select(_, "@@"), List(aspectArg)) => aspectArg.show.contains("overriding")
-      case Inlined(_, _, inner)                    => hasAssemblyOverride(inner)
-      case _                                       => false
 
   // ====== Hash Info Extraction ======
 
@@ -623,119 +540,6 @@ private[machine] object MacroUtils:
 
     HashFinder.foldTree(None, term)(Symbol.spliceOwner)
   end extractHashInfo
-
-  /** For val references, try to get the definition tree.
-    *
-    * This allows extracting hash info from `val t1 = A via E to B` when `t1` is referenced.
-    */
-  def getDefinitionTree(using Quotes)(term: quotes.reflect.Term): Option[quotes.reflect.Term] =
-    import quotes.reflect.*
-    term match
-      case Ident(_) =>
-        val sym = term.symbol
-        try
-          sym.tree match
-            case ValDef(_, _, Some(rhs)) => Some(rhs)
-            case _                       => None
-        catch case _: Exception => None
-      case Apply(Select(base, "@@"), _) =>
-        // For t1 @@ Aspect.overriding, get the definition of t1
-        getDefinitionTree(base)
-      case _ => None
-    end match
-  end getDefinitionTree
-
-  /** Walk the entire AST and collect ALL hash infos from ViaBuilder/TransitionSpec constructors.
-    *
-    * This is used by `includeImpl` to extract hash info from an assembly expression. Since inline macros have been
-    * expanded, the hash values are embedded in the constructors somewhere in the tree.
-    */
-  def collectAllHashInfos(using Quotes)(term: quotes.reflect.Term): List[SpecHashInfo] =
-    import quotes.reflect.*
-    val infos = scala.collection.mutable.ListBuffer[SpecHashInfo]()
-
-    object HashCollector extends TreeAccumulator[Unit]:
-      def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
-        tree match
-          // Match new ViaBuilder(...) constructor - this has the hash values!
-          case Apply(TypeApply(Select(New(tpt), "<init>"), _), args)
-              if args.length >= 4 && tpt.show.contains("ViaBuilder") =>
-            val stateHashes = extractSetInts(args(0))
-            val eventHashes = extractSetInts(args(1))
-            val stateNames  = extractListStrings(args(2))
-            val eventNames  = extractListStrings(args(3))
-            if stateHashes.nonEmpty && eventHashes.nonEmpty then
-              infos += SpecHashInfo(stateHashes, eventHashes, stateNames, eventNames, "?", false, "?")
-            foldOverTree((), tree)(owner)
-
-          // Match TransitionSpec.goto/stay/stop calls
-          case Apply(Select(_, methodName), args)
-              if (methodName == "goto" || methodName == "stay" || methodName == "stop") && args.length >= 4 =>
-            val stateHashes = extractSetInts(args(0))
-            val eventHashes = extractSetInts(args(1))
-            val stateNames  = extractListStrings(args(2))
-            val eventNames  = extractListStrings(args(3))
-            val targetDesc  = methodName match
-              case "goto" => if args.length >= 5 then s"-> ${extractTargetName(args(4))}" else "-> ?"
-              case "stay" => "stay"
-              case "stop" => "stop"
-              case _      => "?"
-            if stateHashes.nonEmpty && eventHashes.nonEmpty then
-              infos += SpecHashInfo(stateHashes, eventHashes, stateNames, eventNames, targetDesc, false, "?")
-            foldOverTree((), tree)(owner)
-
-          // Match new AllMatcher(...) - for all[T] patterns
-          // AllMatcher only has state hashes; event hashes will be added by ViaBuilder
-          // Don't add incomplete info here - it will be captured by ViaBuilder/TransitionSpec
-          case Apply(TypeApply(Select(New(tpt), "<init>"), _), _) if tpt.show.contains("AllMatcher") =>
-            foldOverTree((), tree)(owner)
-
-          // Match @@ for override detection - update most recent info
-          case Apply(Apply(inner, _), aspectArgs) if isAtAtMethod(inner) && aspectArgs.nonEmpty =>
-            val isOverride = aspectArgs.head.show.contains("overriding")
-            if isOverride && infos.nonEmpty then
-              val last = infos.remove(infos.length - 1)
-              infos += last.copy(isOverride = true)
-            foldOverTree((), tree)(owner)
-
-          case Apply(Select(_, "@@"), List(aspectArg)) =>
-            val isOverride = aspectArg.show.contains("overriding")
-            if isOverride && infos.nonEmpty then
-              val last = infos.remove(infos.length - 1)
-              infos += last.copy(isOverride = true)
-            foldOverTree((), tree)(owner)
-
-          // Follow val references to find assembly definitions
-          case ident @ Ident(_) if ident.symbol.exists =>
-            try
-              ident.symbol.tree match
-                case ValDef(_, _, Some(rhs)) =>
-                  foldTree((), rhs)(owner)
-                case _ =>
-                  foldOverTree((), tree)(owner)
-            catch
-              case _: Exception =>
-                foldOverTree((), tree)(owner)
-
-          // Handle Inlined nodes - the expansion might be here
-          case Inlined(_, bindings, inner) =>
-            bindings.foreach(b => foldTree((), b)(owner))
-            foldTree((), inner)(owner)
-
-          case _ =>
-            foldOverTree((), tree)(owner)
-    end HashCollector
-
-    HashCollector.foldTree((), term)(Symbol.spliceOwner)
-
-    // Deduplicate based on state+event hash pairs (keep last occurrence for override handling)
-    val seen = scala.collection.mutable.Map[(Set[Int], Set[Int]), SpecHashInfo]()
-    for info <- infos do
-      val key = (info.stateHashes, info.eventHashes)
-      seen(key) = info
-
-    seen.values.toList
-  end collectAllHashInfos
 
   // ====== Expression Generation Helpers ======
 

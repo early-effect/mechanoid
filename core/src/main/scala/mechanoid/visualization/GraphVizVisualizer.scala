@@ -54,16 +54,13 @@ object GraphVizVisualizer:
       .distinct
       .sorted
 
-    // Define state nodes with labels showing timeout/lifecycle info
+    // Define state nodes with labels showing timeout info
     allStates.foreach { stateCaseHash =>
       val stateName = fsm.stateEnum.nameFor(stateCaseHash)
       val timeout   = fsm.timeouts.get(stateCaseHash)
-      val lifecycle = fsm.lifecycles.get(stateCaseHash)
 
       val annotations = List(
-        timeout.map(d => s"timeout: ${formatDuration(d)}"),
-        lifecycle.flatMap(lc => lc.onEntry.map(_ => lc.onEntryDescription.getOrElse("entry"))),
-        lifecycle.flatMap(lc => lc.onExit.map(_ => lc.onExitDescription.getOrElse("exit"))),
+        timeout.map(d => s"timeout: ${formatDuration(d)}")
       ).flatten
 
       val label =
@@ -148,12 +145,9 @@ object GraphVizVisualizer:
     allStates.foreach { stateCaseHash =>
       val stateName = fsm.stateEnum.nameFor(stateCaseHash)
       val timeout   = fsm.timeouts.get(stateCaseHash)
-      val lifecycle = fsm.lifecycles.get(stateCaseHash)
 
       val annotations = List(
-        timeout.map(d => s"timeout: ${formatDuration(d)}"),
-        lifecycle.flatMap(lc => lc.onEntry.map(_ => lc.onEntryDescription.getOrElse("entry"))),
-        lifecycle.flatMap(lc => lc.onExit.map(_ => lc.onExitDescription.getOrElse("exit"))),
+        timeout.map(d => s"timeout: ${formatDuration(d)}")
       ).flatten
 
       val label =

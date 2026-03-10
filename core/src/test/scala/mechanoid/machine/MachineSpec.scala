@@ -176,6 +176,75 @@ object MachineSpec extends ZIOSpecDefault:
         yield assertTrue(result.isLeft)
       },
     ),
+    suite("State entry/exit effects via Assembly")(
+      test("Machine accepts assembly with onEnter") {
+        val machine = Machine(
+          assembly[TestState, TestEvent](
+            A via E1 to B,
+            B via E2 to C,
+          ).onEnter(B) { (_, _) =>
+            ZIO.unit
+          }
+        )
+        assertTrue(machine.stateEntryEffects.nonEmpty)
+      },
+      test("Machine accepts assembly with onExit") {
+        val machine = Machine(
+          assembly[TestState, TestEvent](
+            A via E1 to B,
+            B via E2 to C,
+          ).onExit(A) { (_, _) =>
+            ZIO.unit
+          }
+        )
+        assertTrue(machine.stateExitEffects.nonEmpty)
+      },
+      test("Machine accepts assembly with both onEnter and onExit") {
+        val machine = Machine(
+          assembly[TestState, TestEvent](
+            A via E1 to B,
+            B via E2 to C,
+          ).onEnter(B) { (_, _) =>
+            ZIO.unit
+          }.onExit(A) { (_, _) =>
+            ZIO.unit
+          }
+        )
+        assertTrue(machine.stateEntryEffects.nonEmpty, machine.stateExitEffects.nonEmpty)
+      },
+      test("state entry effect runs on transition") {
+        for
+          ref     <- Ref.make(false)
+          runtime <- Machine(
+            assembly[TestState, TestEvent](
+              A via E1 to B,
+              B via E2 to C,
+            ).onEnter(B) { (_, _) =>
+              ref.set(true)
+            }
+          ).start(A)
+          _       <- runtime.send(E1)
+          state   <- runtime.currentState
+          entered <- ref.get
+        yield assertTrue(state == B, entered)
+      },
+      test("state exit effect runs on transition") {
+        for
+          ref     <- Ref.make(false)
+          runtime <- Machine(
+            assembly[TestState, TestEvent](
+              A via E1 to B,
+              B via E2 to C,
+            ).onExit(A) { (_, _) =>
+              ref.set(true)
+            }
+          ).start(A)
+          _      <- runtime.send(E1)
+          state  <- runtime.currentState
+          exited <- ref.get
+        yield assertTrue(state == B, exited)
+      },
+    ),
   ).provideLayer(ZLayer.succeed(zio.Scope.global)) @@ TestAspect.sequential
 
 end MachineSpec

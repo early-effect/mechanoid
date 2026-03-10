@@ -126,5 +126,21 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
         result <- PostgresSchema.verify.either
       yield assertTrue(result.isRight)
     }.provide(plainXaLayer),
+    test("init.sql produces schema compatible with PostgresSchema.verify") {
+      for
+        xa      <- ZIO.service[Transactor]
+        initSql <- ZIO.attempt {
+          val stream = getClass.getResourceAsStream("/init.sql")
+          try scala.io.Source.fromInputStream(stream).mkString
+          finally stream.close()
+        }.orDie
+        // Execute each statement from init.sql
+        _ <- ZIO.foreach(initSql.split(";").map(_.trim).filter(_.nonEmpty)) { stmt =>
+          xa.run(SqlFragment(stmt, Seq.empty).dml)
+        }
+        // Verify the schema created by init.sql passes Saferis verification
+        result <- PostgresSchema.verify.either
+      yield assertTrue(result.isRight)
+    }.provide(plainXaLayer),
   ) @@ TestAspect.sequential
 end PostgresSchemaSpec

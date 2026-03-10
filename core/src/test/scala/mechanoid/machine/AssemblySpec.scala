@@ -65,31 +65,37 @@ object AssemblySpec extends ZIOSpecDefault:
         assertTrue(asm.specs.size == 3)
       },
     ),
-    suite("include composition")(
-      test("include flattens assembly specs") {
-        val base     = assembly[TestState, TestEvent](A via E1 to B)
-        val combined = assembly[TestState, TestEvent](
-          include(base),
-          B via E2 to C,
+    suite("combine/++ composition")(
+      test("combine flattens assembly specs") {
+        val combined = combine(
+          assembly[TestState, TestEvent](A via E1 to B),
+          assembly[TestState, TestEvent](B via E2 to C),
         )
         assertTrue(combined.specs.size == 2)
       },
-      test("include multiple assemblies") {
-        val asm1     = assembly[TestState, TestEvent](A via E1 to B)
-        val asm2     = assembly[TestState, TestEvent](B via E2 to C)
-        val combined = assembly[TestState, TestEvent](
-          include(asm1),
-          include(asm2),
+      test("++ flattens assembly specs") {
+        val combined = assembly[TestState, TestEvent](A via E1 to B) ++
+          assembly[TestState, TestEvent](B via E2 to C)
+        assertTrue(combined.specs.size == 2)
+      },
+      test("combine with override") {
+        val combined = combine(
+          assembly[TestState, TestEvent](A via E1 to B),
+          assembly[TestState, TestEvent]((A via E1 to C) @@ Aspect.overriding),
         )
         assertTrue(combined.specs.size == 2)
       },
-      test("include with spec-level @@ Aspect.overriding") {
-        // When both assemblies are defined inline, the override flag should be properly detected
-        val combined = assembly[TestState, TestEvent](
-          include(assembly[TestState, TestEvent](A via E1 to B)),
-          include(assembly[TestState, TestEvent]((A via E1 to C) @@ Aspect.overriding)),
-        )
+      test("++ with override") {
+        val combined = assembly[TestState, TestEvent](A via E1 to B) ++
+          assembly[TestState, TestEvent]((A via E1 to C) @@ Aspect.overriding)
         assertTrue(combined.specs.size == 2)
+      },
+      test("combine three assemblies via chaining") {
+        val combined = combine(
+          assembly[TestState, TestEvent](A via E1 to B),
+          assembly[TestState, TestEvent](B via E2 to C),
+        ) ++ assembly[TestState, TestEvent](C via E3 to A)
+        assertTrue(combined.specs.size == 3)
       },
     ),
     suite("hierarchical matching")(
@@ -172,69 +178,6 @@ object AssemblySpec extends ZIOSpecDefault:
           t1,
         )
         assertTrue(asm.specs.size == 2)
-      },
-      test("val-based assembly with include") {
-        val t1       = A via E1 to B
-        val base     = assembly[TestState, TestEvent](t1)
-        val t2       = B via E2 to C
-        val combined = assembly[TestState, TestEvent](
-          include(base),
-          t2,
-        )
-        assertTrue(combined.specs.size == 2)
-      },
-    ),
-    suite("val-based assembly composition")(
-      test("include assembly defined via val") {
-        val base     = assembly[TestState, TestEvent](A via E1 to B)
-        val combined = assembly[TestState, TestEvent](
-          include(base),
-          B via E2 to C,
-        )
-        assertTrue(combined.specs.size == 2)
-      },
-      test("include multiple assemblies via vals") {
-        val asm1     = assembly[TestState, TestEvent](A via E1 to B)
-        val asm2     = assembly[TestState, TestEvent](B via E2 to C)
-        val combined = assembly[TestState, TestEvent](
-          include(asm1),
-          include(asm2),
-        )
-        assertTrue(combined.specs.size == 2)
-      },
-      test("mix of inline and val assemblies") {
-        val base     = assembly[TestState, TestEvent](A via E1 to B)
-        val combined = assembly[TestState, TestEvent](
-          include(base),
-          include(assembly[TestState, TestEvent](B via E2 to C)),
-        )
-        assertTrue(combined.specs.size == 2)
-      },
-      test("nested val assembly composition") {
-        val inner    = assembly[TestState, TestEvent](A via E1 to B)
-        val middle   = assembly[TestState, TestEvent](include(inner), B via E2 to C)
-        val combined = assembly[TestState, TestEvent](
-          include(middle),
-          C via E3 to A,
-        )
-        assertTrue(combined.specs.size == 3)
-      },
-      test("val assembly with override in inner assembly") {
-        val base      = assembly[TestState, TestEvent](A via E1 to B)
-        val override_ = assembly[TestState, TestEvent]((A via E1 to C) @@ Aspect.overriding)
-        val combined  = assembly[TestState, TestEvent](
-          include(base),
-          include(override_),
-        )
-        assertTrue(combined.specs.size == 2)
-      },
-      test("val assembly included with additional override") {
-        val base     = assembly[TestState, TestEvent](A via E1 to B)
-        val combined = assembly[TestState, TestEvent](
-          include(base),
-          (A via E1 to C) @@ Aspect.overriding,
-        )
-        assertTrue(combined.specs.size == 2)
       },
     ),
   )
