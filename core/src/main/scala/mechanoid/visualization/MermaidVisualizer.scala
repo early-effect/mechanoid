@@ -53,7 +53,9 @@ object MermaidVisualizer:
     // Add state notes for timeouts
     fsm.timeouts.foreach { case (stateCaseHash, duration) =>
       val stateName = fsm.stateEnum.nameFor(stateCaseHash)
-      sb.append(s"    note right of $stateName: timeout: ${formatDuration(duration)}\n")
+      sb.append(s"    note right of $stateName\n")
+      sb.append(s"      timeout: ${formatDuration(duration)}\n")
+      sb.append(s"    end note\n")
     }
 
     sb.toString

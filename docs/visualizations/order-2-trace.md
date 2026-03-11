@@ -10,7 +10,7 @@ sequenceDiagram
     Note over FSM: Created
     FSM->>FSM: InitiatePayment(...)
     Note over FSM: PaymentProcessing
-    FSM->>FSM: PaymentFailed(2,CardDeclined(Generic decline))
+    FSM->>FSM: PaymentFailed(2,FraudCheckFailed)
     Note over FSM: Cancelled
     Note over FSM: Current: Cancelled
 
