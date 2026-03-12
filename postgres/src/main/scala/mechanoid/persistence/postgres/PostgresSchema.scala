@@ -84,10 +84,8 @@ object PostgresSchema:
     *
     * Does not create tables - only validates existing structure.
     */
-  def verify: ZIO[Transactor, SaferisError, Unit] =
+  val verify: ZIO[Transactor, SaferisError, Unit] =
     ZIO.serviceWithZIO[Transactor](verifyAllSchemas)
-
-  // ==================== Private Implementation ====================
 
   private def createSchema(xa: Transactor): ZIO[Any, SaferisError, Unit] =
     for

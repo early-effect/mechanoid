@@ -31,35 +31,6 @@ object Transition:
   def stay[S, E]: Transition[S, E, S] =
     Transition((_, _) => ZIO.succeed(TransitionResult.Stay), None)
 
-/** Entry and exit actions for a state.
-  *
-  * All lifecycle actions return `MechanoidError` as the error type. User errors are wrapped in `ActionFailedError`.
-  *
-  * These are per-state lifecycle actions that run for ALL transitions entering/exiting the state. For per-transition
-  * effects, use `.onEntry` and `.producing` in the DSL.
-  *
-  * @tparam S
-  *   The state type
-  * @param onEntry
-  *   Action to execute when entering this state
-  * @param onExit
-  *   Action to execute when exiting this state
-  * @param onEntryDescription
-  *   Human-readable description of entry action (for visualization)
-  * @param onExitDescription
-  *   Human-readable description of exit action (for visualization)
-  */
-final case class StateLifecycle[-S](
-    onEntry: Option[ZIO[Any, MechanoidError, Unit]] = None,
-    onExit: Option[ZIO[Any, MechanoidError, Unit]] = None,
-    onEntryDescription: Option[String] = None,
-    onExitDescription: Option[String] = None,
-)
-
-object StateLifecycle:
-  def empty[S]: StateLifecycle[S] =
-    StateLifecycle(None, None, None, None)
-
 /** Timeout configuration for a state.
   *
   * When the FSM enters a state with a timeout, if no event is received within the duration, the timeout action is

@@ -110,16 +110,15 @@ object DocExamples:
 
   val fullWorkflow = Machine(
     assembly[DocumentState, DocumentEvent](
-      include(cancelableBehaviors),
+      all[InReview] via CancelReview to Draft,
+      all[Approval] via Abandon to Cancelled,
+    ) ++ assembly[DocumentState, DocumentEvent](
       Draft via SubmitForReview to PendingReview,
       PendingReview via AssignReviewer to UnderReview,
     )
   )
 
   // ============================================
-  // Entry/Exit Actions Example (from DOCUMENTATION)
-  // ============================================
-
   enum SimpleState derives Finite:
     case Idle, Running
 
@@ -127,14 +126,6 @@ object DocExamples:
     case Start, Stop
 
   import SimpleState.*, SimpleEvent.*
-
-  val machineWithActions = Machine(
-    assembly[SimpleState, SimpleEvent](
-      Idle via Start to Running,
-      Running via Stop to Idle,
-    )
-  ).withEntry(Running)(ZIO.logInfo("Entered Running state"))
-    .withExit(Running)(ZIO.logInfo("Exiting Running state"))
 
   // ============================================
   // onEntry Example (from DOCUMENTATION)

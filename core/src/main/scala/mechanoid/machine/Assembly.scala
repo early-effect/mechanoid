@@ -1,5 +1,8 @@
 package mechanoid.machine
 
+import mechanoid.core.Finite
+import zio.ZIO
+
 /** A compile-time composable collection of transition specifications.
   *
   * Assembly provides a way to define reusable transition fragments that can be composed together with full compile-time
@@ -7,11 +10,11 @@ package mechanoid.machine
   *
   * ==Key Properties==
   *
-  *   - '''Compile-time composable''': Assemblies can be combined with `include` with full duplicate detection at
+  *   - '''Compile-time composable''': Assemblies can be combined with `combine`/`++` with full duplicate detection at
   *     compile time
   *   - '''Cannot run''': Assemblies are fragments, not complete FSMs. Use `Machine(assembly)` to create a runnable
   *     Machine
-  *   - '''Nested composition''': Assemblies can include other assemblies, flattened at compile time
+  *   - '''Nested composition''': Assemblies can be combined, flattened at compile time
   *
   * ==Duplicate Detection==
   *
@@ -30,44 +33,13 @@ package mechanoid.machine
   * )
   * }}}
   *
-  * ==Composition with Include==
+  * ==Composition with combine/++==
   *
-  * Assemblies can include other assemblies. Override conflicts must be resolved at the transition level:
+  * Assemblies can be combined using `combine()` or `++`. Override conflicts must be resolved at the transition level:
   * {{{
-  * val base = assembly[S, E](A via E1 to B)
-  * val override_ = assembly[S, E](
-  *   (A via E1 to C) @@ Aspect.overriding  // Override at transition level
-  * )
-  *
-  * val combined = assembly[S, E](
-  *   include(base),
-  *   include(override_),
-  * )
+  * val combined = assembly[S, E](A via E1 to B) ++
+  *   assembly[S, E]((A via E1 to C) @@ Aspect.overriding)
   * }}}
-  *
-  * @example
-  *   {{{
-  * import mechanoid.Mechanoid.*
-  *
-  * // Define reusable transition fragments
-  * val errorHandling = assembly[State, Event](
-  *   all[ErrorState] via Reset to Idle,
-  *   all[ErrorState] via Retry to Retrying,
-  * )
-  *
-  * val happyPath = assembly[State, Event](
-  *   Idle via Start to Running,
-  *   Running via Complete to Done,
-  * )
-  *
-  * // Compose into a runnable machine
-  * val machine = Machine(assembly[State, Event](
-  *   include(errorHandling),
-  *   include(happyPath),
-  *   // Override specific behavior at transition level
-  *   (Running via Cancel to Cancelled) @@ Aspect.overriding,
-  * ))
-  *   }}}
   *
   * @tparam S
   *   The state type for this assembly
@@ -87,61 +59,31 @@ final class Assembly[S, E] private[machine] (
     val specs: List[TransitionSpec[S, E, ?]],
     val hashInfos: List[IncludedHashInfo],
     val orphanOverrides: Set[OrphanInfo] = Set.empty,
+    val stateEntryEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
+    val stateExitEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
 ):
 
-  /** Validate the assembly for duplicate transitions.
+  /** Register an effect that runs whenever the FSM enters the given state, regardless of which transition caused it.
     *
-    * This performs runtime validation that complements compile-time detection. Use this when combining assemblies via
-    * `include()` to catch duplicates that can't be detected at compile time.
-    *
-    * @throws IllegalArgumentException
-    *   if duplicate transitions are found without override markers
-    * @return
-    *   this assembly (for chaining)
+    * @param state
+    *   The state to attach the entry effect to
+    * @param f
+    *   Effect receiving (triggering event, entered state)
     */
-  def validated: Assembly[S, E] =
-    // Track (stateHash, eventHash) -> (specIndex, description)
-    var seenTransitions = Map.empty[(Int, Int), (Int, String)]
+  def onEnter(state: S)(f: (E, S) => ZIO[Any, Any, Unit])(using finite: Finite[S]): Assembly[S, E] =
+    val hash = finite.caseHash(state)
+    new Assembly(specs, hashInfos, orphanOverrides, stateEntryEffects + (hash -> f), stateExitEffects)
 
-    // First pass: collect all pairs that have any override marker
-    val overridePairs: Set[(Int, Int)] = specs.zipWithIndex.flatMap { case (spec, _) =>
-      if spec.isOverride then
-        for
-          stateHash <- spec.stateHashes
-          eventHash <- spec.eventHashes
-        yield (stateHash, eventHash)
-      else Set.empty[(Int, Int)]
-    }.toSet
-
-    // Second pass: check for duplicates
-    for (spec, idx) <- specs.zipWithIndex do
-      val specDesc = s"${spec.stateNames.mkString(",")} via ${spec.eventNames.mkString(",")} ${spec.targetDesc}"
-
-      for
-        stateHash <- spec.stateHashes
-        eventHash <- spec.eventHashes
-      do
-        val key         = (stateHash, eventHash)
-        val hasOverride = spec.isOverride || overridePairs.contains(key)
-
-        seenTransitions.get(key) match
-          case Some((firstIdx, firstDesc)) if !hasOverride =>
-            throw new IllegalArgumentException(
-              s"""Duplicate transition without override!
-                 |  Transition: $specDesc
-                 |  First defined at spec #${firstIdx + 1}: $firstDesc
-                 |  Duplicate at spec #${idx + 1}: $specDesc
-                 |
-                 |  To override, use: (...) @@ Aspect.overriding""".stripMargin
-            )
-          case _ =>
-            seenTransitions = seenTransitions + (key -> (idx, specDesc))
-        end match
-      end for
-    end for
-
-    this
-  end validated
+  /** Register an effect that runs whenever the FSM exits the given state, regardless of which transition caused it.
+    *
+    * @param state
+    *   The state to attach the exit effect to
+    * @param f
+    *   Effect receiving (triggering event, exited state)
+    */
+  def onExit(state: S)(f: (E, S) => ZIO[Any, Any, Unit])(using finite: Finite[S]): Assembly[S, E] =
+    val hash = finite.caseHash(state)
+    new Assembly(specs, hashInfos, orphanOverrides, stateEntryEffects, stateExitEffects + (hash -> f))
 
 end Assembly
 
@@ -150,32 +92,22 @@ object Assembly:
   /** Create an assembly from a list of specs with compile-time hash info.
     *
     * This factory method is used by the `assembly` macro to construct Assembly instances. The hashInfos parameter
-    * carries compile-time computed hash values for duplicate detection.
-    *
-    * @tparam S
-    *   The state type
-    * @tparam E
-    *   The event type
-    * @param specs
-    *   The list of transition specifications
-    * @param hashInfos
-    *   Compile-time computed hash info for duplicate detection in include()
-    * @return
-    *   An Assembly containing the specs
+    * carries compile-time computed hash values for duplicate detection in `combine`/`++`.
     */
   def apply[S, E](
       specs: List[TransitionSpec[S, E, ?]],
       hashInfos: List[IncludedHashInfo],
       orphanOverrides: Set[OrphanInfo] = Set.empty,
+      stateEntryEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
+      stateExitEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
   ): Assembly[S, E] =
-    new Assembly(specs, hashInfos, orphanOverrides)
+    new Assembly(specs, hashInfos, orphanOverrides, stateEntryEffects, stateExitEffects)
 
 end Assembly
 
 /** Hash info for a single transition spec, used for compile-time duplicate detection.
   *
-  * This is stored in `Included` by the `include` macro so that the `assembly` macro can detect duplicates across
-  * included assemblies without needing to traverse val references.
+  * Stored in Assembly by the `assembly` macro so that `combine`/`++` can detect duplicates across composed assemblies.
   */
 final case class IncludedHashInfo(
     stateHashes: Set[Int],
@@ -199,28 +131,3 @@ final case class OrphanInfo(
 ):
   /** Human-readable description for warning messages. */
   def description: String = s"${stateNames.mkString(",")} via ${eventNames.mkString(",")}"
-
-/** Wrapper for an assembly that has been explicitly included via `include()`.
-  *
-  * This type marker allows macros to distinguish between:
-  *   - Direct `Assembly` references (which require `include()` wrapper in buildAll blocks)
-  *   - Explicitly included assemblies via `include(assembly)`
-  *
-  * The wrapper preserves the assembly's type parameters and provides access to specs at runtime. It also carries
-  * compile-time hash info for duplicate detection across includes.
-  *
-  * @tparam S
-  *   The state type
-  * @tparam E
-  *   The event type
-  * @param assembly
-  *   The wrapped assembly
-  * @param hashInfos
-  *   Hash info for each spec in the assembly, used for compile-time duplicate detection
-  */
-final class Included[S, E](
-    val assembly: Assembly[S, E],
-    val hashInfos: List[IncludedHashInfo],
-):
-  /** Get the specs from the wrapped assembly. */
-  def specs: List[TransitionSpec[S, E, ?]] = assembly.specs

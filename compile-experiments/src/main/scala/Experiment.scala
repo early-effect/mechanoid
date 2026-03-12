@@ -18,83 +18,101 @@ object Experiment:
   import TestState.*
   import TestEvent.*
 
-  // Test case 1: Top-level vals with include and override
-  val base     = assembly[TestState, TestEvent](A via E1 to B)
-  val combined = assembly[TestState, TestEvent](
-    include(base),
-    (A via E1 to C) @@ Aspect.overriding,
+  // Test case 1: combine with override
+  val combinedWithOverride = combine(
+    assembly[TestState, TestEvent](A via E1 to B),
+    assembly[TestState, TestEvent]((A via E1 to C) @@ Aspect.overriding),
   )
 
-  // Test case 2: Local vals with include (no duplicate)
-  def localTest(): Unit =
-    val base     = assembly[TestState, TestEvent](A via E1 to B)
-    val combined = assembly[TestState, TestEvent](
-      include(base),
-      B via E2 to C,
-    )
-    val _ = combined // suppress unused warning
-    ()
+  // Test case 2: ++ with no duplicates
+  val combinedPlusPlus = assembly[TestState, TestEvent](A via E1 to B) ++
+    assembly[TestState, TestEvent](B via E2 to C)
 
-  // Test case 3: Local vals with include and override (the previously failing case)
-  def localOverrideTest(): Unit =
-    val base     = assembly[TestState, TestEvent](A via E1 to B)
-    val combined = assembly[TestState, TestEvent](
-      include(base),
-      (A via E1 to C) @@ Aspect.overriding,
-    )
-    val _ = combined // suppress unused warning
-    ()
-
-  // Test case 4: Orphan override via inline def - should work!
+  // Test case 3: Orphan override via inline def - should emit warning
   inline def orphanAssemblyInline = assembly[TestState, TestEvent](
     (A via E1 to B) @@ Aspect.overriding // No duplicate - orphan!
   )
-  val machineWithOrphanInline = Machine(orphanAssemblyInline) // Should emit warning with inline def
+  val machineWithOrphanInline = Machine(orphanAssemblyInline)
 
-  // Test case 4a: Regular val would cause compile error (commented out to allow compilation)
-  // val orphanAssembly = assembly[TestState, TestEvent](
-  //   (A via E1 to B) @@ Aspect.overriding
-  // )
-  // val machineWithOrphan = Machine(orphanAssembly) // ERROR: must use inline
-
-  // Test case 4b: Inline orphan override - should emit compile-time warning
+  // Test case 4: Inline orphan override - should emit compile-time warning
   val machineWithInlineOrphan = Machine(
     assembly[TestState, TestEvent](
       (A via E1 to B) @@ Aspect.overriding // No duplicate - orphan!
     )
   )
 
-  // Test case 4c: Local val with inline Machine call - should emit warning
-  def localOrphanTest(): Unit =
-    val localOrphan = assembly[TestState, TestEvent](
-      (B via E2 to C) @@ Aspect.overriding // No duplicate - orphan!
-    )
-    // Inline assembly in Machine - should warn
-    val localMachine = Machine(
-      assembly[TestState, TestEvent](
-        (B via E2 to C) @@ Aspect.overriding
-      )
-    )
-    val _ = (localOrphan, localMachine)
-    ()
-  end localOrphanTest
-
-  // Test case 5: Non-orphan override (composed) - should NOT warn
-  // Only the composed assembly needs to be inline! The included assemblies can be regular vals.
-  val baseForCompose          = assembly[TestState, TestEvent](A via E1 to B)
-  val overrideFragment        = assembly[TestState, TestEvent]((A via E1 to C) @@ Aspect.overriding)
-  inline def composedAssembly = assembly[TestState, TestEvent](
-    include(baseForCompose),
-    include(overrideFragment),
+  // Test case 5: Non-orphan override (composed via ++) - should NOT warn
+  val machineComposed = Machine(
+    assembly[TestState, TestEvent](A via E1 to B) ++
+      assembly[TestState, TestEvent]((A via E1 to C) @@ Aspect.overriding)
   )
-  val machineComposed = Machine(composedAssembly) // No warning - orphan resolved!
 
   // Test case 6: Inline composed assembly - should NOT warn (orphan resolved)
   val machineInlineComposed = Machine(
-    assembly[TestState, TestEvent](
-      include(assembly[TestState, TestEvent](A via E2 to B)),
-      include(assembly[TestState, TestEvent]((A via E2 to C) @@ Aspect.overriding)),
+    assembly[TestState, TestEvent](A via E2 to B) ++
+      assembly[TestState, TestEvent]((A via E2 to C) @@ Aspect.overriding)
+  )
+
+  // ========================================================================
+  // Compile-time duplicate rejection tests
+  // Uncomment one at a time to verify compile error, then re-comment.
+  // ========================================================================
+
+  // EXPECTED COMPILE ERROR: direct duplicate without override in assembly()
+  // val dupDirect = assembly[TestState, TestEvent](
+  //   A via E1 to B,
+  //   A via E1 to C,
+  // )
+
+  // EXPECTED COMPILE ERROR: duplicate in assemblyAll block syntax
+  // val dupAll = assemblyAll[TestState, TestEvent]:
+  //   A via E1 to B
+  //   A via E1 to C
+
+  // EXPECTED COMPILE ERROR: combine with non-overridden duplicate
+  // val combinedDup = combine(
+  //   assembly[TestState, TestEvent](A via E3 to B),
+  //   assembly[TestState, TestEvent](A via E3 to C),
+  // )
+
+  // EXPECTED COMPILE ERROR: ++ with non-overridden duplicate
+  // val combinedPlusPlusDup = assembly[TestState, TestEvent](A via E3 to B) ++
+  //   assembly[TestState, TestEvent](A via E3 to C)
+
+  // ========================================================================
+  // combine() combinator tests
+  // ========================================================================
+
+  // Test: combine with no duplicates (should compile)
+  val combinedNoDup = combine(
+    assembly[TestState, TestEvent](A via E3 to B),
+    assembly[TestState, TestEvent](B via E3 to C),
+  )
+
+  // Test: combine with override (should compile)
+  val combinedOverride = combine(
+    assembly[TestState, TestEvent](A via E3 to B),
+    assembly[TestState, TestEvent]((A via E3 to C) @@ Aspect.overriding),
+  )
+
+  // Test: Machine(a ++ b) - compose then wrap in Machine
+  val machineFromCombined = Machine(
+    assembly[TestState, TestEvent](A via E1 to B) ++
+      assembly[TestState, TestEvent](B via E2 to C)
+  )
+
+  // Test: Machine(combine(a, b)) - same via combine
+  val machineFromCombine = Machine(
+    combine(
+      assembly[TestState, TestEvent](A via E1 to B),
+      assembly[TestState, TestEvent](B via E2 to C),
     )
   )
+
+  // EXPECTED COMPILE ERROR: duplicate through Machine(assembly(...))
+  // val dupMachine = Machine(assembly[TestState, TestEvent](
+  //   A via E1 to B,
+  //   A via E1 to C,
+  // ))
 
 end Experiment

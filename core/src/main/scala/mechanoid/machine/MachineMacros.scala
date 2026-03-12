@@ -52,7 +52,13 @@ private[machine] object MachineMacros:
           report.warning(
             s"${orphan.description}: marked @@ Aspect.overriding but no duplicate to override"
           )
-        '{ Machine.fromSpecs[S, E]($assemblyExpr.specs)(using $finiteS, $finiteE) }
+        '{
+          Machine.fromSpecs[S, E](
+            $assemblyExpr.specs,
+            $assemblyExpr.stateEntryEffects,
+            $assemblyExpr.stateExitEffects,
+          )(using $finiteS, $finiteE)
+        }
     end match
   end applyImpl
 
@@ -96,6 +102,11 @@ private[machine] object MachineMacros:
           extractFromTerm(expr)
         case Typed(inner, _) =>
           extractFromTerm(inner)
+        // Follow through method calls on Assembly (e.g. .onEnter(...), .onExit(...))
+        // These may have multiple curried parameter lists producing nested Apply nodes.
+        // Recursively peel Apply layers to find the Select(receiver, method) at the core.
+        case t if peelApplies(t).isDefined =>
+          extractFromTerm(peelApplies(t).get)
         // Fallback: try to follow val references if symbol exists
         // Note: For object/class member vals, the rhs is typically erased after type-checking,
         // so orphan detection only works reliably for inline vals.
@@ -110,6 +121,20 @@ private[machine] object MachineMacros:
                 case _ => None
             catch case _: Exception => None
           else None
+
+    // Peel nested Apply layers to find a Select(receiver, methodName) at the core.
+    // Returns Some(receiver) if a method call pattern is found, None otherwise.
+    // Avoids matching Assembly.apply / new Assembly constructors (handled by earlier cases).
+    def peelApplies(term: Term): Option[Term] =
+      term match
+        case Apply(inner, _) =>
+          inner match
+            case Select(receiver, name) if name != "apply" && name != "<init>" =>
+              Some(receiver)
+            case TypeApply(Select(receiver, name), _) if name != "apply" && name != "<init>" =>
+              Some(receiver)
+            case _ => peelApplies(inner)
+        case _ => None
 
     extractFromTerm(assemblyExpr.asTerm)
   end extractOrphanOverrides

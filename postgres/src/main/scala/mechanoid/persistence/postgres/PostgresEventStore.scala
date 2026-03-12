@@ -7,6 +7,7 @@ import zio.json.*
 import zio.stream.*
 import mechanoid.core.*
 import mechanoid.persistence.*
+import scala.deriving.Mirror
 
 /** PostgreSQL implementation of EventStore using Saferis.
   *
@@ -208,12 +209,10 @@ object PostgresEventStore:
     * }}}
     */
   @scala.annotation.nowarn("msg=unused implicit parameter")
-  transparent inline def makeLayer[S: Tag, E: Tag](using
-      inline fs: mechanoid.core.Finite[S],
-      inline fe: mechanoid.core.Finite[E],
-      inline ms: scala.deriving.Mirror.Of[S],
-      inline me: scala.deriving.Mirror.Of[E],
-  ): ZLayer[Transactor, Nothing, EventStore[String, S, E]] =
+  transparent inline def makeLayer[
+      S: Tag: Finite: Mirror.Of,
+      E: Tag: Finite: Mirror.Of,
+  ]: ZLayer[Transactor, Nothing, EventStore[String, S, E]] =
     given JsonCodec[S] = JsonCodec.derived[S]
     given JsonCodec[E] = JsonCodec.derived[E]
     ZLayer.fromFunction((xa: Transactor) => new PostgresEventStore[S, E](xa))

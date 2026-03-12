@@ -16,7 +16,7 @@ sequenceDiagram
     Note over FSM: ShippingRequested
     FSM->>FSM: ShipmentDispatched(...)
     Note over FSM: Shipped
-    FSM->>FSM: DeliveryConfirmed(4,2026-01-18T15:11:44.020488159Z)
+    FSM->>FSM: DeliveryConfirmed(4,2026-03-11T20:43:53.692154120Z)
     Note over FSM: Delivered
     Note over FSM: Current: Delivered
 

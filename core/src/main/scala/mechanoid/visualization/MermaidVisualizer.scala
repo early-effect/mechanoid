@@ -50,20 +50,12 @@ object MermaidVisualizer:
       }
     }
 
-    // Add state notes for timeouts and lifecycles
+    // Add state notes for timeouts
     fsm.timeouts.foreach { case (stateCaseHash, duration) =>
       val stateName = fsm.stateEnum.nameFor(stateCaseHash)
-      sb.append(s"    note right of $stateName: timeout: ${formatDuration(duration)}\n")
-    }
-
-    // Add notes for states with entry/exit actions
-    fsm.lifecycles.foreach { case (stateCaseHash, lifecycle) =>
-      val stateName   = fsm.stateEnum.nameFor(stateCaseHash)
-      val annotations = List(
-        lifecycle.onEntry.map(_ => simplifyFunctionName(lifecycle.onEntryDescription.getOrElse("entry action"))),
-        lifecycle.onExit.map(_ => simplifyFunctionName(lifecycle.onExitDescription.getOrElse("exit action"))),
-      ).flatten
-      if annotations.nonEmpty then sb.append(s"    note left of $stateName: ${annotations.mkString(", ")}\n")
+      sb.append(s"    note right of $stateName\n")
+      sb.append(s"      timeout: ${formatDuration(duration)}\n")
+      sb.append(s"    end note\n")
     }
 
     sb.toString

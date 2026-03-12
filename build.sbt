@@ -84,8 +84,8 @@ lazy val postgres = project
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
     libraryDependencies ++= Seq(
-      "io.github.russwyte" %% "saferis"      % "0.11.0",
-      "org.postgresql"      % "postgresql"   % "42.7.9",
+      "io.github.russwyte" %% "saferis"      % "0.12.0",
+      "org.postgresql"      % "postgresql"   % "42.7.10",
       "org.testcontainers"  % "postgresql"   % "1.21.4"   % Test,
       "dev.zio"            %% "zio-test"     % zioVersion % Test,
       "dev.zio"            %% "zio-test-sbt" % zioVersion % Test,
@@ -99,9 +99,16 @@ lazy val examples = project
   .settings(
     name           := "mechanoid-examples",
     publish / skip := true,
+    // ZIO deps are "provided" at root level, so examples needs them explicitly
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-test"     % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
+      "dev.zio" %% "zio"                      % zioVersion,
+      "dev.zio" %% "zio-streams"              % zioVersion,
+      "dev.zio" %% "zio-json"                 % "0.8.0",
+      "dev.zio" %% "zio-logging"              % "2.5.3",
+      "dev.zio" %% "zio-logging-slf4j"        % "2.5.3",
+      "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3",
+      "dev.zio" %% "zio-test"                 % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt"             % zioVersion % Test,
     ),
     assembly / mainClass             := Some("mechanoid.examples.heartbeat.Main"),
     assembly / assemblyJarName       := "app.jar",

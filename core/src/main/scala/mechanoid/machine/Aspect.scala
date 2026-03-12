@@ -65,29 +65,4 @@ end Aspect
   */
 final case class TimedTarget[S, E](state: S, duration: Duration, timeoutEvent: E)
 
-/** Timeout configuration for a state (internal, used by Machine.fromSpecs).
-  *
-  * @tparam S
-  *   The source state type(s) this timeout applies to
-  * @tparam E
-  *   The timeout event type
-  * @param stateHashes
-  *   Hashes of states that have this timeout
-  * @param stateNames
-  *   Names of states for error messages
-  * @param duration
-  *   How long before timeout fires
-  * @param eventHash
-  *   Hash of the event to fire on timeout
-  * @param eventInstance
-  *   The actual event instance to fire (stored for runtime use)
-  */
-final case class TimeoutSpec[S, E](
-    stateHashes: Set[Int],
-    stateNames: List[String],
-    duration: Duration,
-    eventHash: Int,
-    eventInstance: E,
-)
-
 // Extension methods for @@ are defined in Macros.scala to keep all extensions together

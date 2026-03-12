@@ -15,8 +15,12 @@ stateDiagram-v2
     ShippingRequested --> ShippingRequested: ShippingTimeout
     Paid --> ShippingRequested: RequestShipping
     Created --> PaymentProcessing: InitiatePayment
-    note right of PaymentProcessing: timeout: 5m
-    note right of ShippingRequested: timeout: 24h
+    note right of PaymentProcessing
+      timeout: 5m
+    end note
+    note right of ShippingRequested
+      timeout: 24h
+    end note
 
 ```
 

@@ -457,11 +457,11 @@ inline def anyOfEvents[E](inline first: E, inline rest: E*): AnyOfEventMatcher[E
   * @see
   *   [[assemblyAll]] for block syntax without commas
   * @see
-  *   [[include]] for including other assemblies
+  *   [[combine]] for composing assemblies with compile-time duplicate detection
   */
 transparent inline def assembly[S, E](
-    inline first: TransitionSpec[S, E, ?] | Included[S, E],
-    inline rest: (TransitionSpec[S, E, ?] | Included[S, E])*
+    inline first: TransitionSpec[S, E, ?],
+    inline rest: TransitionSpec[S, E, ?]*
 ): Assembly[S, E] =
   ${ AssemblyMacros.assemblyImpl[S, E]('first, 'rest) }
 
@@ -492,39 +492,53 @@ transparent inline def assembly[S, E](
   * @see
   *   [[assembly]] for comma-separated syntax
   * @see
-  *   [[include]] for including other assemblies
+  *   [[combine]] for composing assemblies with compile-time duplicate detection
   */
 transparent inline def assemblyAll[S, E](
     inline block: Any
 ): Assembly[S, E] =
   ${ AssemblyMacros.assemblyAllImpl[S, E]('block) }
 
-/** Include an assembly's specs in another assembly.
+/** Combine two assemblies into a flattened assembly with compile-time duplicate detection.
   *
-  * Use this to compose multiple assemblies together. The included assembly's specs are flattened into the parent
-  * assembly at compile time, enabling full duplicate detection across composed assemblies.
+  * Both assemblies must be inline expressions (either literal `assembly(...)` calls or `inline def` references). This
+  * ensures the macro can inspect both sides for duplicate transitions at compile time.
   *
   * @example
   *   {{{
-  * val errorHandling = assembly[S, E](all[Error] via Reset to Idle)
-  * val happyPath = assembly[S, E](Idle via Start to Running)
-  *
-  * val combined = Machine(assembly[S, E](
-  *   include(errorHandling),
-  *   include(happyPath),
-  * ))
+  * val base = assembly[S, E](Idle via Start to Running)
+  * val extra = assembly[S, E](Running via Stop to Idle)
+  * val combined = combine(base, extra)
   *   }}}
   *
   * @tparam S
   *   The state type
   * @tparam E
   *   The event type
-  * @param a
-  *   The assembly to include
+  * @param left
+  *   The first assembly
+  * @param right
+  *   The second assembly
   * @return
-  *   An Included wrapper for compile-time tracking
+  *   A flattened Assembly containing all specs from both sides
   */
-transparent inline def include[S, E](
-    inline a: Assembly[S, E]
-): Included[S, E] =
-  ${ AssemblyMacros.includeImpl[S, E]('a) }
+transparent inline def combine[S, E](
+    inline left: Assembly[S, E],
+    inline right: Assembly[S, E],
+): Assembly[S, E] =
+  ${ AssemblyMacros.combineImpl[S, E]('left, 'right) }
+
+extension [S, E](inline self: Assembly[S, E])
+  /** Combine this assembly with another using `++`, with compile-time duplicate detection.
+    *
+    * Both sides must be inline expressions (either literal `assembly(...)` calls or `inline def` references).
+    *
+    * @example
+    *   {{{
+    * val combined = assembly[S, E](Idle via Start to Running) ++
+    *   assembly[S, E](Running via Stop to Idle)
+    *   }}}
+    */
+  transparent inline def ++(inline other: Assembly[S, E]): Assembly[S, E] =
+    ${ AssemblyMacros.combineImpl[S, E]('self, 'other) }
+end extension
