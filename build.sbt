@@ -90,6 +90,12 @@ lazy val postgres = project
       "dev.zio"            %% "zio-test"     % zioVersion % Test,
       "dev.zio"            %% "zio-test-sbt" % zioVersion % Test,
     ),
+    // Override vulnerable transitive deps from testcontainers -> docker-java
+    dependencyOverrides ++= Seq(
+      "com.fasterxml.jackson.core" % "jackson-core"        % "2.18.6",
+      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.18.6",
+      "org.apache.commons"         % "commons-compress"    % "1.28.0",
+    ),
   )
 
 lazy val examples = project
@@ -150,4 +156,6 @@ lazy val docs = project
       "dev.zio" %% "zio-streams" % zioVersion,
       "dev.zio" %% "zio-json"    % "0.8.0",
     ),
+    // Override vulnerable transitive dep from mdoc -> undertow
+    dependencyOverrides += "io.undertow" % "undertow-core" % "2.2.39.Final",
   )
