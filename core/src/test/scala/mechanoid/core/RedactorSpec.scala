@@ -1,9 +1,8 @@
-package mechanoid
+package mechanoid.core
 
 import zio.*
 import zio.test.*
-import mechanoid.core.*
-import mechanoid.core.Redactor.redacted
+import Redactor.{redacted, redactedPretty}
 
 object RedactorSpec extends ZIOSpecDefault:
 

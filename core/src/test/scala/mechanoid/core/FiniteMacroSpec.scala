@@ -1,8 +1,7 @@
-package mechanoid
+package mechanoid.core
 
 import zio.*
 import zio.test.*
-import mechanoid.core.{CaseHasher, Finite}
 import mechanoid.macros.FiniteMacros
 import mechanoid.macros.FiniteMacros.CaseInfo
 
@@ -30,7 +29,7 @@ object FiniteMacroSpec extends ZIOSpecDefault:
         assertTrue(
           infos.length == 3,
           infos.map(_.simpleName).toSet == Set("One", "Two", "Three"),
-          infos.forall(_.fullName.startsWith("mechanoid.FiniteMacroSpec")),
+          infos.forall(_.fullName.startsWith("mechanoid.core.FiniteMacroSpec")),
           infos.forall(_.fullName.contains("TestEnum")),
         )
       },
@@ -39,7 +38,7 @@ object FiniteMacroSpec extends ZIOSpecDefault:
         assertTrue(
           infos.length == 3,
           infos.map(_.simpleName).toSet == Set("StateA", "StateB", "StateC"),
-          infos.forall(_.fullName.startsWith("mechanoid.FiniteMacroSpec")),
+          infos.forall(_.fullName.startsWith("mechanoid.core.FiniteMacroSpec")),
         )
       },
       test("extracts case info from event enum with case classes") {
