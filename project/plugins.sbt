@@ -12,6 +12,7 @@ addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.4.4")
 excludeDependencies ++= Seq(
   ExclusionRule("org.scala-lang.modules", "scala-xml_2.13"),
   ExclusionRule("org.scala-lang.modules", "scala-collection-compat_2.13"),
+  ExclusionRule("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
 )
 
 // val overrideSemanticDbVersion = "4.14.5"

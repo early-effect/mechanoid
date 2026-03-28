@@ -1,6 +1,7 @@
-
 val scala3Version = "3.7.4"
 val zioVersion    = "2.1.24"
+// lets enable semanticdb
+ThisBuild / semanticdbEnabled := true
 
 ThisBuild / dependencyOverrides += "org.scalameta" % "semanticdb-scalac_2.12.21" % "4.14.4"
 ThisBuild / scalaVersion                          := scala3Version
@@ -23,7 +24,7 @@ ThisBuild / developers := List(
     url = url("https://github.com/russwyte"),
   )
 )
-ThisBuild / versionScheme          := Some("early-semver")
+ThisBuild / versionScheme := Some("early-semver")
 
 // --- Fork publishing support (GitHub Packages) ---
 // Forks set PUBLISH_PACKAGES_REPO and GITHUB_TOKEN in CI to publish to their own GitHub Packages.
@@ -31,16 +32,20 @@ ThisBuild / versionScheme          := Some("early-semver")
 val githubPackagesRepo: Option[MavenRepository] =
   sys.env.get("PUBLISH_PACKAGES_REPO").map("GitHub Packages" at _)
 
-ThisBuild / credentials ++= sys.env.get("GITHUB_TOKEN").map { token =>
-  Credentials("GitHub Package Registry", "maven.pkg.github.com", "_", token)
-}.toSeq
+ThisBuild / credentials ++= sys.env
+  .get("GITHUB_TOKEN")
+  .map { token =>
+    Credentials("GitHub Package Registry", "maven.pkg.github.com", "_", token)
+  }
+  .toSeq
 
 ThisBuild / resolvers ++= githubPackagesRepo.toSeq
 
 // PGP signing: only when publishing to Maven Central (forks targeting GitHub Packages won't have the key)
-githubPackagesRepo match
+githubPackagesRepo match {
   case None    => usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
   case Some(_) => Seq.empty
+}
 
 ThisBuild / libraryDependencies ++= Seq(
   "dev.zio" %% "zio"                      % zioVersion % "provided",
