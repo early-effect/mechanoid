@@ -175,12 +175,11 @@ val program = ZIO.scoped {
 ### Lock Configuration
 
 ```scala
-val config = LockConfig()
+val config = LockConfig.withNodeId("node-1")     // Unique node identifier
   .withLockDuration(Duration.fromSeconds(30))    // How long to hold locks
   .withAcquireTimeout(Duration.fromSeconds(10))  // Max wait when acquiring
   .withRetryInterval(Duration.fromMillis(100))   // Retry frequency when busy
   .withValidateBeforeOperation(true)             // Double-check lock before each op
-  .withNodeId("node-1")                          // Unique node identifier
 ```
 
 **Preset configurations:**

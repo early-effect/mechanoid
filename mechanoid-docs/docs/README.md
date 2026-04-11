@@ -278,4 +278,4 @@ This enables a pre-commit hook that runs `sbt scalafmtCheckAll`. If formatting f
 
 ## License
 
-[Apache 2.0](LICENSE)
+Apache 2.0 - see [LICENSE](https://github.com/Iterable/mechanoid/blob/main/LICENSE)

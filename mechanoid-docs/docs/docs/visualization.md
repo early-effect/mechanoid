@@ -193,8 +193,6 @@ def generateVisualizations[S, E](
 
 ## Example Outputs
 
-See the [visualizations directory](visualizations/) for complete examples:
-
 - [Order FSM Structure](visualizations/order-fsm-structure.md) - FSM definition with state diagram, flowchart, and GraphViz
 - [Order 1 Trace](visualizations/order-1-trace.md) - Successful order execution trace
 - [Order 5 Trace](visualizations/order-5-trace.md) - Failed order (payment declined) trace

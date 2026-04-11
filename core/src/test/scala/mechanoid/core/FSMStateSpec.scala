@@ -50,5 +50,20 @@ object FSMStateSpec extends ZIOSpecDefault:
         state.getData("missing").isEmpty,
       )
     },
+    test("direct construction with defaults") {
+      // Exercise the default parameter accessors by using FSMState directly
+      // with only required params, letting others default
+      val now   = Instant.now()
+      val state = FSMState(
+        current = A,
+        startedAt = now,
+        lastTransitionAt = now,
+      )
+      assertTrue(
+        state.current == A,
+        state.history.isEmpty,  // default: Nil
+        state.stateData.isEmpty, // default: Map.empty
+      )
+    },
   )
 end FSMStateSpec

@@ -42,7 +42,10 @@ final class FiberTimeoutStrategy[Id] private (
       // Cancel any existing timeout first
       _ <- cancel(instanceId)
       // Fork a new timeout fiber (stateHash/sequenceNr not used - we use onTimeout callback directly)
-      fiber <- (ZIO.sleep(duration) *> onTimeout).forkDaemon
+      // Using forkDaemon so timeout fibers survive parent scope closure
+      // IMPORTANT: Remove fiber from map BEFORE running callback to prevent self-interruption
+      // when the callback triggers a state transition that calls cancelTimeout
+      fiber <- (ZIO.sleep(duration) *> fibers.update(_ - instanceId) *> onTimeout).forkDaemon
       // Track the fiber for potential cancellation
       _ <- fibers.update(_ + (instanceId -> fiber))
     yield ()

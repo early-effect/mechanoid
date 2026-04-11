@@ -55,19 +55,37 @@ object Macros:
       first: Expr[S],
       rest: Expr[Seq[S]],
   )(using Quotes): Expr[AnyOfMatcher[S]] =
+    import quotes.reflect.*
+
+    // Extract symbol and compute hash at compile time (same as Finite.caseHash)
+    def extractSymbolHash(expr: Expr[?]): Int =
+      val term                        = expr.asTerm
+      def findSymbol(t: Term): Symbol = t match
+        case Ident(_)             => t.symbol
+        case Select(_, _)         => t.symbol
+        case Inlined(_, _, inner) => findSymbol(inner)
+        case Apply(fn, _)         => findSymbol(fn)
+        case TypeApply(fn, _)     => findSymbol(fn)
+        case _                    => t.symbol
+
+      val sym = findSymbol(term)
+      if sym.exists then sym.fullName.hashCode
+      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
+    end extractSymbolHash
+
+    // Extract values from varargs at compile time
+    val restExprs: List[Expr[S]] = rest match
+      case Varargs(exprs) => exprs.toList
+      case _              => report.errorAndAbort("anyOf requires inline arguments")
+
+    val allExprs  = first :: restExprs
+    val hashes    = allExprs.map(extractSymbolHash)
+    val hashesSet = Expr(hashes.toSet)
+
     '{
       val allValues = $first +: $rest
-      val hashes    = allValues.map { v =>
-        val className = v.getClass.getName.stripSuffix("$").replace('$', '.')
-        v match
-          case _: scala.reflect.Enum =>
-            val caseName = v.toString
-            s"$className.$caseName".hashCode
-          case _ =>
-            className.hashCode
-      }.toSet
-      val names = allValues.map(_.toString).toList
-      new AnyOfMatcher[S](allValues, hashes, names)
+      val names     = allValues.map(_.toString).toList
+      new AnyOfMatcher[S](allValues, $hashesSet, names)
     }
   end anyOfStatesImplMacro
 
@@ -79,19 +97,37 @@ object Macros:
       first: Expr[E],
       rest: Expr[Seq[E]],
   )(using Quotes): Expr[AnyOfEventMatcher[E]] =
+    import quotes.reflect.*
+
+    // Extract symbol and compute hash at compile time (same as Finite.caseHash)
+    def extractSymbolHash(expr: Expr[?]): Int =
+      val term                        = expr.asTerm
+      def findSymbol(t: Term): Symbol = t match
+        case Ident(_)             => t.symbol
+        case Select(_, _)         => t.symbol
+        case Inlined(_, _, inner) => findSymbol(inner)
+        case Apply(fn, _)         => findSymbol(fn)
+        case TypeApply(fn, _)     => findSymbol(fn)
+        case _                    => t.symbol
+
+      val sym = findSymbol(term)
+      if sym.exists then sym.fullName.hashCode
+      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
+    end extractSymbolHash
+
+    // Extract values from varargs at compile time
+    val restExprs: List[Expr[E]] = rest match
+      case Varargs(exprs) => exprs.toList
+      case _              => report.errorAndAbort("anyOfEvents requires inline arguments")
+
+    val allExprs  = first :: restExprs
+    val hashes    = allExprs.map(extractSymbolHash)
+    val hashesSet = Expr(hashes.toSet)
+
     '{
       val allValues = $first +: $rest
-      val hashes    = allValues.map { v =>
-        val className = v.getClass.getName.stripSuffix("$").replace('$', '.')
-        v match
-          case _: scala.reflect.Enum =>
-            val caseName = v.toString
-            s"$className.$caseName".hashCode
-          case _ =>
-            className.hashCode
-      }.toSet
-      val names = allValues.map(_.toString).toList
-      new AnyOfEventMatcher[E](allValues, hashes, names)
+      val names     = allValues.map(_.toString).toList
+      new AnyOfEventMatcher[E](allValues, $hashesSet, names)
     }
   end anyOfEventsImplMacro
 

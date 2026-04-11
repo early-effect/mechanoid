@@ -1,6 +1,6 @@
 package mechanoid.persistence.lock
 
-import zio.{Duration, ULayer, ZLayer}
+import zio.{Duration, UIO, ULayer, ZIO, ZLayer}
 
 /** Configuration for FSM instance locking.
   *
@@ -48,12 +48,12 @@ import zio.{Duration, ULayer, ZLayer}
   * @param nodeId
   *   Unique identifier for this node (auto-generated if not set)
   */
-final case class LockConfig(
-    lockDuration: Duration = Duration.fromSeconds(30),
-    acquireTimeout: Duration = Duration.fromSeconds(10),
-    retryInterval: Duration = Duration.fromMillis(100),
-    validateBeforeOperation: Boolean = true,
-    nodeId: String = LockConfig.generateNodeId(),
+final case class LockConfig private (
+    lockDuration: Duration,
+    acquireTimeout: Duration,
+    retryInterval: Duration,
+    validateBeforeOperation: Boolean,
+    nodeId: String,
 ):
   require(
     lockDuration.toMillis > 0,
@@ -89,25 +89,46 @@ final case class LockConfig(
 end LockConfig
 
 object LockConfig:
+
   /** Generate a unique node ID using hostname and random suffix. */
-  def generateNodeId(): String =
-    val hostname =
-      try java.net.InetAddress.getLocalHost.getHostName
-      catch case _: Exception => "unknown"
-    val suffix = java.util.UUID.randomUUID().toString.take(8)
-    s"$hostname-$suffix"
+  def generateNodeId: UIO[String] =
+    for
+      hostname <- ZIO.attempt(java.net.InetAddress.getLocalHost.getHostName).orElseSucceed("unknown")
+      suffix   <- ZIO.succeed(java.util.UUID.randomUUID().toString.take(8))
+    yield s"$hostname-$suffix"
+
+  /** Create a LockConfig with default settings and auto-generated nodeId. */
+  def make(
+      lockDuration: Duration = Duration.fromSeconds(30),
+      acquireTimeout: Duration = Duration.fromSeconds(10),
+      retryInterval: Duration = Duration.fromMillis(100),
+      validateBeforeOperation: Boolean = true,
+  ): UIO[LockConfig] =
+    generateNodeId.map(nodeId =>
+      LockConfig(lockDuration, acquireTimeout, retryInterval, validateBeforeOperation, nodeId)
+    )
+
+  /** Create a LockConfig with a specific nodeId (no ZIO effect needed). */
+  def withNodeId(
+      nodeId: String,
+      lockDuration: Duration = Duration.fromSeconds(30),
+      acquireTimeout: Duration = Duration.fromSeconds(10),
+      retryInterval: Duration = Duration.fromMillis(100),
+      validateBeforeOperation: Boolean = true,
+  ): LockConfig =
+    LockConfig(lockDuration, acquireTimeout, retryInterval, validateBeforeOperation, nodeId)
 
   /** Default configuration suitable for most use cases. */
-  val default: LockConfig = LockConfig()
+  val default: UIO[LockConfig] = make()
 
   /** Configuration for fast operations with short lock duration. */
-  val fast: LockConfig = LockConfig(
+  val fast: UIO[LockConfig] = make(
     lockDuration = Duration.fromSeconds(10),
     acquireTimeout = Duration.fromSeconds(5),
   )
 
   /** Configuration for long-running operations. */
-  val longRunning: LockConfig = LockConfig(
+  val longRunning: UIO[LockConfig] = make(
     lockDuration = Duration.fromSeconds(300),
     acquireTimeout = Duration.fromSeconds(30),
   )
@@ -117,13 +138,13 @@ object LockConfig:
   // ============================================
 
   /** Layer providing the default lock configuration. */
-  val defaultLayer: ULayer[LockConfig] = ZLayer.succeed(default)
+  val defaultLayer: ULayer[LockConfig] = ZLayer.fromZIO(default)
 
   /** Layer providing the fast lock configuration. */
-  val fastLayer: ULayer[LockConfig] = ZLayer.succeed(fast)
+  val fastLayer: ULayer[LockConfig] = ZLayer.fromZIO(fast)
 
   /** Layer providing the long-running lock configuration. */
-  val longRunningLayer: ULayer[LockConfig] = ZLayer.succeed(longRunning)
+  val longRunningLayer: ULayer[LockConfig] = ZLayer.fromZIO(longRunning)
 
   /** Create a layer from a custom configuration.
     *

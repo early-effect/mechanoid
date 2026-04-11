@@ -99,7 +99,7 @@ val program = ZIO.scoped {
   for
     fsm <- FSMRuntime(orderId, machine, Pending)
     lock <- ZIO.service[FSMInstanceLock[OrderId]]
-    lockedFsm = LockedFSMRuntime(fsm, lock)
+    lockedFsm <- LockedFSMRuntime(fsm, lock)
     _ <- lockedFsm.withAtomicTransitions() { ctx =>
       for
         outcome1 <- ctx.send(ValidateOrder)      // First transition
@@ -134,7 +134,7 @@ val badProgram = ZIO.scoped {
   for
     fsm <- FSMRuntime(orderId, machine, Pending)
     lock <- ZIO.service[FSMInstanceLock[OrderId]]
-    lockedFsm = LockedFSMRuntime(fsm, lock)
+    lockedFsm <- LockedFSMRuntime(fsm, lock)
     _ <- lockedFsm.withAtomicTransitions() { ctx =>
       for
         _ <- ctx.send(ValidateOrder)

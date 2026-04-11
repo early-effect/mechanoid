@@ -176,7 +176,22 @@ end LockedFSMRuntime
 
 object LockedFSMRuntime:
 
-  /** Wrap an FSMRuntime with distributed locking.
+  /** Wrap an FSMRuntime with distributed locking using default configuration.
+    *
+    * @param underlying
+    *   The runtime to wrap
+    * @param lock
+    *   The distributed lock service
+    * @return
+    *   A new runtime that acquires locks around event processing
+    */
+  def apply[Id, S, E](
+      underlying: FSMRuntime[Id, S, E],
+      lock: FSMInstanceLock[Id],
+  ): UIO[LockedFSMRuntime[Id, S, E]] =
+    LockConfig.default.map(config => new LockedFSMRuntime(underlying, lock, config))
+
+  /** Wrap an FSMRuntime with distributed locking using explicit configuration.
     *
     * @param underlying
     *   The runtime to wrap
@@ -187,10 +202,10 @@ object LockedFSMRuntime:
     * @return
     *   A new runtime that acquires locks around event processing
     */
-  def apply[Id, S, E](
+  def withConfig[Id, S, E](
       underlying: FSMRuntime[Id, S, E],
       lock: FSMInstanceLock[Id],
-      config: LockConfig = LockConfig.default,
+      config: LockConfig,
   ): LockedFSMRuntime[Id, S, E] =
     new LockedFSMRuntime(underlying, lock, config)
 end LockedFSMRuntime

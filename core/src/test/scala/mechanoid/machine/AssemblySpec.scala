@@ -180,6 +180,115 @@ object AssemblySpec extends ZIOSpecDefault:
         assertTrue(asm.specs.size == 2)
       },
     ),
+    suite("Assembly.apply factory")(
+      test("creates assembly with all parameters") {
+        import zio.ZIO
+        val specs     = List.empty[TransitionSpec[TestState, TestEvent, ?]]
+        val hashInfos = List.empty[IncludedHashInfo]
+        val orphans   = Set.empty[OrphanInfo]
+        val entryEffects: Map[Int, (TestEvent, TestState) => ZIO[Any, Any, Unit]] = Map.empty
+        val exitEffects: Map[Int, (TestEvent, TestState) => ZIO[Any, Any, Unit]]  = Map.empty
+        val asm = Assembly(specs, hashInfos, orphans, entryEffects, exitEffects)
+        assertTrue(
+          asm.specs.isEmpty,
+          asm.hashInfos.isEmpty,
+          asm.orphanOverrides.isEmpty,
+          asm.stateEntryEffects.isEmpty,
+          asm.stateExitEffects.isEmpty,
+        )
+      },
+      test("creates assembly with default parameters") {
+        val specs     = List.empty[TransitionSpec[TestState, TestEvent, ?]]
+        val hashInfos = List.empty[IncludedHashInfo]
+        // Call Assembly constructor with only required params to exercise default parameter branches
+        val asm = Assembly(specs, hashInfos)
+        assertTrue(
+          asm.specs.isEmpty,
+          asm.orphanOverrides == Set.empty,   // Uses default Set.empty
+          asm.stateEntryEffects == Map.empty, // Uses default Map.empty
+          asm.stateExitEffects == Map.empty,  // Uses default Map.empty
+        )
+      },
+    ),
+    suite("onEnter and onExit effects")(
+      test("onEnter adds state entry effect") {
+        import zio.ZIO
+        val asm = assembly[TestState, TestEvent](A via E1 to B)
+          .onEnter(B) { (_, _) => ZIO.unit }
+        assertTrue(asm.stateEntryEffects.nonEmpty)
+      },
+      test("onExit adds state exit effect") {
+        import zio.ZIO
+        val asm = assembly[TestState, TestEvent](A via E1 to B)
+          .onExit(A) { (_, _) => ZIO.unit }
+        assertTrue(asm.stateExitEffects.nonEmpty)
+      },
+      test("multiple onEnter effects for different states") {
+        import zio.ZIO
+        val asm = assembly[TestState, TestEvent](
+          A via E1 to B,
+          B via E2 to C,
+        ).onEnter(B) { (_, _) => ZIO.unit }
+          .onEnter(C) { (_, _) => ZIO.unit }
+        assertTrue(asm.stateEntryEffects.size == 2)
+      },
+      test("multiple onExit effects for different states") {
+        import zio.ZIO
+        val asm = assembly[TestState, TestEvent](
+          A via E1 to B,
+          B via E2 to C,
+        ).onExit(A) { (_, _) => ZIO.unit }
+          .onExit(B) { (_, _) => ZIO.unit }
+        assertTrue(asm.stateExitEffects.size == 2)
+      },
+      test("onEnter overwrites existing effect for same state") {
+        import zio.ZIO
+        val asm = assembly[TestState, TestEvent](A via E1 to B)
+          .onEnter(B) { (_, _) => ZIO.unit }
+          .onEnter(B) { (_, _) => ZIO.unit }
+        assertTrue(asm.stateEntryEffects.size == 1)
+      },
+    ),
+    suite("IncludedHashInfo")(
+      test("stores all fields correctly") {
+        val info = IncludedHashInfo(
+          stateHashes = Set(1, 2),
+          eventHashes = Set(3),
+          stateNames = List("A", "B"),
+          eventNames = List("E1"),
+          targetDesc = "-> C",
+          isOverride = true,
+        )
+        assertTrue(
+          info.stateHashes == Set(1, 2),
+          info.eventHashes == Set(3),
+          info.stateNames == List("A", "B"),
+          info.eventNames == List("E1"),
+          info.targetDesc == "-> C",
+          info.isOverride,
+        )
+      }
+    ),
+    suite("OrphanInfo")(
+      test("description formats correctly for single state/event") {
+        val info = OrphanInfo(
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = List("A"),
+          eventNames = List("E1"),
+        )
+        assertTrue(info.description == "A via E1")
+      },
+      test("description formats correctly for multiple states/events") {
+        val info = OrphanInfo(
+          stateHashes = Set(1, 2),
+          eventHashes = Set(3, 4),
+          stateNames = List("A", "B"),
+          eventNames = List("E1", "E2"),
+        )
+        assertTrue(info.description == "A,B via E1,E2")
+      },
+    ),
   )
 
 end AssemblySpec

@@ -39,6 +39,8 @@ export machine.AnyOfEventMatcher
 export machine.event
 export machine.anyOfEvents
 export machine.EventMatcher
+export machine.state
+export machine.StateMatcher
 
 // Re-export runtime
 export runtime.FSMRuntime

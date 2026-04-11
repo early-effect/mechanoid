@@ -225,10 +225,4 @@ object MermaidVisualizer:
       .replace("<", "#60;")
       .replace(">", "#62;")
 
-  /** Simplify a fully qualified function name to just the method name for cleaner display. */
-  private def simplifyFunctionName(fqn: String): String =
-    // Extract just the method name from fully qualified names like
-    // "mechanoid.examples.PetStoreApp$.OrderFSMManager.someFunction"
-    fqn.split('.').lastOption.getOrElse(fqn)
-
 end MermaidVisualizer

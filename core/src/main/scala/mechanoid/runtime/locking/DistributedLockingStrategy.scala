@@ -119,10 +119,10 @@ object DistributedLockingStrategy:
     * @param lock
     *   The distributed lock service
     * @return
-    *   A new strategy instance
+    *   A new strategy instance wrapped in ZIO (for nodeId generation)
     */
-  def make[Id](lock: FSMInstanceLock[Id]): DistributedLockingStrategy[Id] =
-    new DistributedLockingStrategy(lock, LockConfig.default)
+  def make[Id](lock: FSMInstanceLock[Id]): UIO[DistributedLockingStrategy[Id]] =
+    LockConfig.default.map(config => new DistributedLockingStrategy(lock, config))
 
   /** Create a distributed locking strategy with custom configuration.
     *
@@ -141,7 +141,7 @@ object DistributedLockingStrategy:
     * Requires `FSMInstanceLock[Id]` in the environment.
     */
   def layer[Id: Tag]: URLayer[FSMInstanceLock[Id], LockingStrategy[Id]] =
-    ZLayer.fromFunction((lock: FSMInstanceLock[Id]) => make(lock))
+    ZLayer.fromZIO(ZIO.serviceWithZIO[FSMInstanceLock[Id]](lock => make(lock)))
 
   /** Layer providing a distributed locking strategy with explicit configuration.
     *

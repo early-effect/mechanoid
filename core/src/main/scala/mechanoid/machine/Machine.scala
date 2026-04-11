@@ -50,45 +50,6 @@ final class Machine[S, E] private[machine] (
   /** Get event names for visualization (caseHash -> name, includes Timeout). */
   def eventNames: Map[Int, String] = eventEnum.caseNames
 
-  // ============================================
-  // Internal mutation methods (for building)
-  // ============================================
-
-  /** Add a transition using event hash directly (for multi-event builders). */
-  private[mechanoid] def addTransitionWithMetaByHash(
-      fromCaseHash: Int,
-      eventCaseHash: Int,
-      transition: Transition[S, E, S],
-      meta: TransitionMeta,
-  ): Machine[S, E] =
-    new Machine(
-      transitions + ((fromCaseHash, eventCaseHash) -> transition),
-      timeouts,
-      timeoutEvents,
-      transitionMeta :+ meta,
-      entryEffects,
-      producingEffects,
-      stateEntryEffects,
-      stateExitEffects,
-      specs,
-    )
-
-  /** Set timeout for a state. */
-  private[mechanoid] def setStateTimeout(
-      stateCaseHash: Int,
-      timeout: Duration,
-  ): Machine[S, E] =
-    new Machine(
-      transitions,
-      timeouts + (stateCaseHash -> timeout),
-      timeoutEvents,
-      transitionMeta,
-      entryEffects,
-      producingEffects,
-      stateEntryEffects,
-      stateExitEffects,
-      specs,
-    )
 end Machine
 
 object Machine:

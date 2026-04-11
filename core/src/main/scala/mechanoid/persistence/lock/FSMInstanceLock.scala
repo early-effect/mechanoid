@@ -200,7 +200,7 @@ trait FSMInstanceLock[Id]:
         }
         .mapError {
           case e: LockError => e
-          case e: Throwable => LockError.LockAcquisitionFailed(instanceId.toString, e)
+          case e            => LockError.LockAcquisitionFailed(instanceId.toString, new RuntimeException(e.toString))
         }
     )(token => release(token).ignore)(_ => effect)
 
@@ -280,7 +280,7 @@ trait FSMInstanceLock[Id]:
           }
           .mapError {
             case e: LockError => e
-            case e: Throwable => LockError.LockAcquisitionFailed(instanceId.toString, e)
+            case e            => LockError.LockAcquisitionFailed(instanceId.toString, new RuntimeException(e.toString))
           }
 
         // Track current token and main fiber

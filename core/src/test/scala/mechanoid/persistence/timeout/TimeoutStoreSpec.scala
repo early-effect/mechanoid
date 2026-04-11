@@ -281,5 +281,5 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
         assertTrue(timeout.canBeClaimed(now))
       },
     ),
-  ) @@ TestAspect.sequential @@ TestAspect.timeout(Duration.fromSeconds(30)) @@ TestAspect.withLiveClock
+  ) @@ TestAspect.sequential @@ TestAspect.timeout(Duration.fromSeconds(30))
 end TimeoutStoreSpec

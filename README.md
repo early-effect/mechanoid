@@ -30,10 +30,10 @@ Add to your `build.sbt`:
 
 ```scala
 // Core library
-libraryDependencies += "io.github.russwyte" %% "mechanoid" % "0.3.2+9-910288da+20260326-1502"
+libraryDependencies += "io.github.russwyte" %% "mechanoid" % "0.3.2+12-3c291c15+20260410-1328"
 
 // PostgreSQL persistence (optional)
-libraryDependencies += "io.github.russwyte" %% "mechanoid-postgres" % "0.3.2+9-910288da+20260326-1502"
+libraryDependencies += "io.github.russwyte" %% "mechanoid-postgres" % "0.3.2+12-3c291c15+20260410-1328"
 ```
 
 ## Quick Start
@@ -278,4 +278,4 @@ This enables a pre-commit hook that runs `sbt scalafmtCheckAll`. If formatting f
 
 ## License
 
-[Apache 2.0](LICENSE)
+Apache 2.0 - see [LICENSE](https://github.com/Iterable/mechanoid/blob/main/LICENSE)

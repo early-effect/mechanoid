@@ -542,8 +542,9 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
         // Create callback that fires timeout event if still in same state (for FiberTimeoutStrategy)
         onTimeout: UIO[Unit] = stateRef.get.flatMap { currentFsmState =>
           // Compare by caseHash (shape) not exact value - timeout fires if still in same state shape
+          val currentHash = machine.stateEnum.caseHash(currentFsmState.current)
           ZIO
-            .when(machine.stateEnum.caseHash(currentFsmState.current) == stateHash)(
+            .when(currentHash == stateHash)(
               send(timeoutEvent).ignore
             )
             .unit

@@ -1,16 +1,15 @@
-val scala3Version = "3.7.4"
+val scala3Version = "3.8.2"
 val zioVersion    = "2.1.24"
 // lets enable semanticdb
 ThisBuild / semanticdbEnabled := true
 
-ThisBuild / dependencyOverrides += "org.scalameta" % "semanticdb-scalac_2.12.21" % "4.14.4"
-ThisBuild / scalaVersion                          := scala3Version
-ThisBuild / organization                          := sys.env.getOrElse("PUBLISH_ORG", "io.github.russwyte")
-ThisBuild / organizationName                      := sys.env.getOrElse("PUBLISH_ORG_NAME", "russwyte")
-ThisBuild / organizationHomepage                  := Some(url("https://github.com/russwyte"))
-ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage := Some(url("https://github.com/russwyte/mechanoid"))
-ThisBuild / scmInfo  := Some(
+ThisBuild / scalaVersion         := scala3Version
+ThisBuild / organization         := sys.env.getOrElse("PUBLISH_ORG", "io.github.russwyte")
+ThisBuild / organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "russwyte")
+ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
+ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
+ThisBuild / homepage             := Some(url("https://github.com/russwyte/mechanoid"))
+ThisBuild / scmInfo              := Some(
   ScmInfo(
     url("https://github.com/russwyte/mechanoid"),
     "scm:git@github.com:russwyte/mechanoid.git",
@@ -58,7 +57,7 @@ ThisBuild / libraryDependencies ++= Seq(
   "dev.zio" %% "zio-test"          % zioVersion % Test,
   "dev.zio" %% "zio-test-sbt"      % zioVersion % Test,
   "dev.zio" %% "zio-test-magnolia" % zioVersion % Test,
-)
+  )
 
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
@@ -67,6 +66,14 @@ lazy val commonSettings = Seq(
     "-feature",
   ),
   scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.23",
+  // Exclude macros, inline methods, and export-only package objects from coverage
+  // - Macros/inline run at compile time, incompatible with scoverage
+  // - Mechanoid$package is just type re-exports with no runtime code
+  coverageExcludedPackages := "mechanoid\\.macros\\..*;mechanoid\\.machine\\.Macros.*;mechanoid\\.machine\\.MacroUtils.*;mechanoid\\.machine\\.AssemblyMacros.*;mechanoid\\.machine\\.MachineMacros.*;mechanoid\\.machine\\.ProducingMacros.*;mechanoid\\.core\\.Finite.*;mechanoid\\.core\\.Redactor.*;mechanoid\\.Mechanoid\\$package.*",
+  // Minimum coverage thresholds - fail build if coverage drops below these
+  coverageFailOnMinimum := true,
+  coverageMinimumStmtTotal := 95,
+  coverageMinimumBranchTotal := 95,
 )
 
 lazy val publishSettings = Seq(
@@ -75,9 +82,17 @@ lazy val publishSettings = Seq(
   publishTo            := githubPackagesRepo.map(r => r: Resolver).orElse(localStaging.value),
 )
 
+addCommandAlias("testCoverage", "clean; coverage; test; coverageAggregate; coverageReport")
+
+// Parameterized coverage command: moduleCoverage <module>
+// Example: sbt "moduleCoverage core" or sbt "moduleCoverage postgres"
+commands += Command.single("moduleCoverage") { (state, module) =>
+  s"clean; coverage; $module/test; $module/coverageReport" :: state
+}
+
 lazy val root = project
   .in(file("."))
-  .aggregate(core, postgres, examples)
+  .aggregate(core, postgres, examples, compileTimeChecks)
   .settings(
     name           := "mechanoid-root",
     publish / skip := true,
@@ -153,6 +168,25 @@ lazy val compileExperiments = project
   .settings(
     name           := "compile-experiments",
     publish / skip := true,
+  )
+
+lazy val compileTimeChecks = project
+  .in(file("compile-time-checks"))
+  .dependsOn(core)
+  .settings(
+    name           := "compile-time-checks",
+    publish / skip := true,
+    // Turn warnings into errors so typeCheck can catch them
+    scalacOptions ++= Seq(
+      "-Werror",
+      "-deprecation",
+      "-feature",
+    ),
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
 
 lazy val docs = project

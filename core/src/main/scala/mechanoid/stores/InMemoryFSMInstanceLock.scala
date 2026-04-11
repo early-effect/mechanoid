@@ -75,7 +75,7 @@ final class InMemoryFSMInstanceLock[Id] private (
       finalResult <- result match
         case acquired @ LockResult.Acquired(_) =>
           ZIO.succeed(acquired)
-        case LockResult.Busy(_, until) if now.isAfter(deadline) =>
+        case LockResult.Busy(_, _) if now.isAfter(deadline) =>
           ZIO.succeed(LockResult.TimedOut[Id]())
         case LockResult.Busy(_, until) =>
           // Wait a bit and retry with exponential backoff
@@ -83,8 +83,9 @@ final class InMemoryFSMInstanceLock[Id] private (
             math.min(100L, java.time.Duration.between(now, until).toMillis / 2).max(10L)
           )
           ZIO.sleep(waitTime) *> attemptAcquire(instanceId, nodeId, duration, deadline)
-        case timedOut @ LockResult.TimedOut() =>
-          ZIO.succeed(timedOut)
+        case LockResult.TimedOut() =>
+          // tryAcquire never returns TimedOut, but handle for exhaustivity
+          ZIO.succeed(result)
     yield finalResult
 
   override def release(token: LockToken[Id]): ZIO[Any, MechanoidError, Boolean] =

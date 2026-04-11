@@ -208,5 +208,55 @@ object DuplicateDetectionSpec extends ZIOSpecDefault:
         assertTrue(desc == "spec #3")
       },
     ),
+    suite("TransitionKey.transitionDesc")(
+      test("returns formatted desc when both names present") {
+        val tk = TransitionKey(
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = List("A", "B"),
+          eventNames = List("E1", "E2"),
+          targetDesc = "-> C",
+          isOverride = false,
+          sourceDesc = "fallback",
+        )
+        assertTrue(tk.transitionDesc == "A,B via E1,E2")
+      },
+      test("falls back to sourceDesc when stateNames empty") {
+        val tk = TransitionKey(
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = Nil,
+          eventNames = List("E1"),
+          targetDesc = "-> C",
+          isOverride = false,
+          sourceDesc = "fallback description",
+        )
+        assertTrue(tk.transitionDesc == "fallback description")
+      },
+      test("falls back to sourceDesc when eventNames empty") {
+        val tk = TransitionKey(
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = List("A"),
+          eventNames = Nil,
+          targetDesc = "-> C",
+          isOverride = false,
+          sourceDesc = "fallback description",
+        )
+        assertTrue(tk.transitionDesc == "fallback description")
+      },
+      test("falls back to sourceDesc when both names empty") {
+        val tk = TransitionKey(
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = Nil,
+          eventNames = Nil,
+          targetDesc = "-> C",
+          isOverride = false,
+          sourceDesc = "complete fallback",
+        )
+        assertTrue(tk.transitionDesc == "complete fallback")
+      },
+    ),
   )
 end DuplicateDetectionSpec

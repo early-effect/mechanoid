@@ -29,5 +29,13 @@ object TransitionResultSpec extends ZIOSpecDefault:
         case TransitionResult.Stop(None) => assertTrue(true)
         case _                           => assertTrue(false)
     },
+    test("Transition case class with default description") {
+      import zio.ZIO
+      // Exercise Transition with default description parameter
+      val transition = Transition[String, String, String](
+        action = (_, _) => ZIO.succeed(TransitionResult.Stay)
+      )
+      assertTrue(transition.description.isEmpty)
+    },
   )
 end TransitionResultSpec

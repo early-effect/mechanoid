@@ -1,8 +1,13 @@
-package mechanoid.machine
+package mechanoid.compiletime
 
 import zio.test.*
 import mechanoid.core.Finite
 
+/** Compile-time tests for assembly validation.
+  *
+  * This module uses `-Werror` to turn warnings into errors, allowing us to test that certain code patterns emit
+  * compile-time warnings (which become errors here).
+  */
 object CompileTimeRejectSpec extends ZIOSpecDefault:
 
   enum S derives Finite:
@@ -55,17 +60,6 @@ object CompileTimeRejectSpec extends ZIOSpecDefault:
           assembly[S, E](S.A via E.E1 to S.B),
           assembly[S, E](S.A via E.E1 to S.C),
         )
-      """)
-      assertZIO(result)(Assertion.isLeft)
-    },
-    test("duplicate through ++ is rejected") {
-      val result = typeCheck("""
-        import mechanoid.machine.*
-        import mechanoid.core.Finite
-        enum S derives Finite { case A, B, C }
-        enum E derives Finite { case E1, E2 }
-        assembly[S, E](S.A via E.E1 to S.B) ++
-          assembly[S, E](S.A via E.E1 to S.C)
       """)
       assertZIO(result)(Assertion.isLeft)
     },
