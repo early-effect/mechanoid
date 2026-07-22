@@ -30,7 +30,7 @@ jobs:
 
     - name: Build and test
       shell: bash
-      run: sbt -v "clean; scalafmtCheckAll; test"
+      run: sbt -v "cleanFull; scalafmtCheckAll; testFull"
 
   docs:
     runs-on: ubuntu-latest
