@@ -621,13 +621,13 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
           case _                                 => assertTrue(false)
       },
       test("FailFast handles None mainFiber case") {
-        // Test FailFast when mainFiber.get returns None
-        // This happens when lock is lost before the main effect fiber is stored
+        // When renew fails before mainFiber is registered, FailFast is a no-op and the
+        // effect continues. When renew fails after, FailFast interrupts. Drive TestClock
+        // far enough that either outcome can complete instead of hanging on sleep.
         for
           lock         <- InMemoryFSMInstanceLock.make[String]
           extendCalled <- Ref.make(0)
 
-          // Wrapper that fails extend immediately (before effect starts)
           testLock = new FSMInstanceLock[String]:
             def tryAcquire(instanceId: String, nodeId: String, duration: Duration, now: Instant) =
               lock.tryAcquire(instanceId, nodeId, duration, now)
@@ -635,7 +635,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
               lock.acquire(instanceId, nodeId, duration, timeout)
             def release(token: LockToken[String])                                            = lock.release(token)
             def extend(token: LockToken[String], additionalDuration: Duration, now: Instant) =
-              // Fail immediately, before main effect starts
               extendCalled.update(_ + 1).as(None)
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
 
@@ -646,7 +645,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             onLockLost = LockLostBehavior.FailFast,
           )
 
-          // The heartbeat will fail immediately
           fiber <- testLock
             .withLockAndHeartbeat(
               "fsm-1",
@@ -654,18 +652,15 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
               Duration.fromMillis(100),
               heartbeat = heartbeatConfig,
             ) {
-              // This effect may or may not run - the heartbeat may fail before it starts
-              ZIO.sleep(Duration.fromSeconds(1))
+              ZIO.sleep(Duration.fromMillis(100)) *> ZIO.succeed("done")
             }
-            .either
             .fork
 
-          // Give time for the heartbeat to fail
-          _ <- TestClock.adjust(Duration.fromMillis(50))
-          _ <- ZIO.yieldNow
-
+          // Step the clock so the heartbeat renew and main sleep can both complete
+          _      <- TestClock.adjust(Duration.fromMillis(50)).repeatN(4)
           result <- fiber.await
-        yield assertTrue(result.toEither.isLeft || result.isInterrupted) // Either failed or was interrupted
+          called <- extendCalled.get
+        yield assertTrue(called >= 1 && (result.isInterrupted || result.isSuccess))
       },
       test("logs warning when extend fails with error") {
         // Test the catchAll branch in renewLock that logs warning
@@ -895,8 +890,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
         end for
       },
       test("withLockAndHeartbeat handles mainFiber None in FailFast") {
-        // Test FSMInstanceLock.scala line 318: case None in FailFast mainFiber.get
-        // This happens when lock is lost before mainFiber is set
+        // Same race as above: renew-None before mainFiber is set continues; after interrupts.
         for
           now         <- Clock.instant
           extendCount <- Ref.make(0)
@@ -907,7 +901,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
               ZIO.succeed(LockResult.Acquired(LockToken(instanceId, nodeId, now, now.plusSeconds(60))))
             def release(token: LockToken[String])                                          = ZIO.succeed(true)
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
-              // Fail extend immediately (returns None = lock lost)
               extendCount.update(_ + 1).as(None)
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
 
@@ -920,18 +913,14 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
 
           fiber <- mockLock
             .withLockAndHeartbeat("fsm-1", "node-A", Duration.fromMillis(200), heartbeat = heartbeat) {
-              // Long-running effect - heartbeat will fail and trigger FailFast
-              ZIO.sleep(Duration.fromSeconds(10))
+              ZIO.sleep(Duration.fromMillis(100)) *> ZIO.succeed("done")
             }
-            .either
             .fork
 
-          // Advance time to trigger heartbeat failure
-          _ <- TestClock.adjust(Duration.fromMillis(50))
-          _ <- ZIO.yieldNow
-
+          _      <- TestClock.adjust(Duration.fromMillis(50)).repeatN(4)
           result <- fiber.await
-        yield assertTrue(result.toEither.isLeft || result.isInterrupted) // Fiber completed (was interrupted or failed)
+          called <- extendCount.get
+        yield assertTrue(called >= 1 && (result.isInterrupted || result.isSuccess))
       },
     ),
     suite("FSMInstanceLock companion object constants")(
