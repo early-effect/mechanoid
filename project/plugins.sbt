@@ -1,7 +1,7 @@
-addSbtPlugin("org.scalameta"  % "sbt-scalafmt" % "2.6.1")
-addSbtPlugin("org.scalameta"  % "sbt-mdoc"     % "2.8.2")
+addSbtPlugin("org.scalameta"  % "sbt-scalafmt" % "2.6.2")
+addSbtPlugin("org.scalameta"  % "sbt-mdoc"     % "2.9.1")
 addSbtPlugin("com.eed3si9n"   % "sbt-assembly" % "2.3.1")
-addSbtPlugin("ch.epfl.scala"  % "sbt-scalafix" % "0.14.6")
+addSbtPlugin("ch.epfl.scala"  % "sbt-scalafix" % "0.14.7")
 addSbtPlugin("com.github.sbt" % "sbt-dynver"   % "5.1.1")
 addSbtPlugin("com.github.sbt" % "sbt-pgp"      % "2.3.1")
 

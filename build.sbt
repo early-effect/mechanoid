@@ -1,5 +1,5 @@
-val scala3Version = "3.8.2"
-val zioVersion    = "2.1.24"
+val scala3Version = "3.8.4"
+val zioVersion    = "2.1.26"
 // lets enable semanticdb
 ThisBuild / semanticdbEnabled := true
 
@@ -53,7 +53,7 @@ ThisBuild / libraryDependencies ++= Seq(
   "dev.zio" %% "zio-logging-slf4j"        % "2.5.3"    % "provided",
   "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3"    % "provided",
 
-  "dev.zio" %% "zio-json"          % "0.8.0"    % "provided",
+  "dev.zio" %% "zio-json"          % "0.9.2"    % "provided",
   "dev.zio" %% "zio-test"          % zioVersion % Test,
   "dev.zio" %% "zio-test-sbt"      % zioVersion % Test,
   "dev.zio" %% "zio-test-magnolia" % zioVersion % Test,
@@ -116,8 +116,8 @@ lazy val postgres = project
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
     libraryDependencies ++= Seq(
-      "io.github.russwyte" %% "saferis"      % "0.12.0",
-      "org.postgresql"      % "postgresql"   % "42.7.10",
+      "io.github.russwyte" %% "saferis"      % "0.17.0",
+      "org.postgresql"      % "postgresql"   % "42.7.13",
       "org.testcontainers"  % "postgresql"   % "1.21.4"   % Test,
       "dev.zio"            %% "zio-test"     % zioVersion % Test,
       "dev.zio"            %% "zio-test-sbt" % zioVersion % Test,
@@ -141,7 +141,7 @@ lazy val examples = project
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"                      % zioVersion,
       "dev.zio" %% "zio-streams"              % zioVersion,
-      "dev.zio" %% "zio-json"                 % "0.8.0",
+      "dev.zio" %% "zio-json"                 % "0.9.2",
       "dev.zio" %% "zio-logging"              % "2.5.3",
       "dev.zio" %% "zio-logging-slf4j"        % "2.5.3",
       "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3",
@@ -205,7 +205,7 @@ lazy val docs = project
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % zioVersion,
       "dev.zio" %% "zio-streams" % zioVersion,
-      "dev.zio" %% "zio-json"    % "0.8.0",
+      "dev.zio" %% "zio-json"    % "0.9.2",
     ),
     // Override vulnerable transitive dep from mdoc -> undertow
     dependencyOverrides += "io.undertow" % "undertow-core" % "2.2.39.Final",
