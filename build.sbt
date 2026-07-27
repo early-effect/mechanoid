@@ -3,16 +3,17 @@ val zioVersion    = "2.1.26"
 // lets enable semanticdb
 ThisBuild / semanticdbEnabled := true
 
+// Global settings. Iterable/mechanoid overrides group via PUBLISH_ORG from ZipxGitHubPackages.
 ThisBuild / scalaVersion         := scala3Version
-ThisBuild / organization         := sys.env.getOrElse("PUBLISH_ORG", "io.github.russwyte")
-ThisBuild / organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "russwyte")
-ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
+ThisBuild / organization         := sys.env.getOrElse("PUBLISH_ORG", "rocks.earlyeffect")
+ThisBuild / organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "Early Effect")
+ThisBuild / organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
 ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage             := Some(url("https://github.com/russwyte/mechanoid"))
+ThisBuild / homepage             := Some(url("https://github.com/early-effect/mechanoid"))
 ThisBuild / scmInfo              := Some(
   ScmInfo(
-    url("https://github.com/russwyte/mechanoid"),
-    "scm:git@github.com:russwyte/mechanoid.git",
+    url("https://github.com/early-effect/mechanoid"),
+    "scm:git@github.com:early-effect/mechanoid.git",
   )
 )
 ThisBuild / developers := List(
@@ -25,11 +26,9 @@ ThisBuild / developers := List(
 )
 ThisBuild / versionScheme := Some("early-semver")
 
-// --- Fork publishing support (GitHub Packages) ---
-// Forks set PUBLISH_PACKAGES_REPO and GITHUB_TOKEN in CI to publish to their own GitHub Packages.
-// Optionally set PUBLISH_ORG and PUBLISH_ORG_NAME to change the Maven group ID.
+// Dual publish: Central by default; GitHub Packages when CI sets PUBLISH_PACKAGES_REPO.
 val githubPackagesRepo: Option[MavenRepository] =
-  sys.env.get("PUBLISH_PACKAGES_REPO").map("GitHub Packages" at _)
+  sys.env.get("PUBLISH_PACKAGES_REPO").map("GitHub Package Registry" at _)
 
 ThisBuild / credentials ++= sys.env
   .get("GITHUB_TOKEN")
@@ -40,10 +39,65 @@ ThisBuild / credentials ++= sys.env
 
 ThisBuild / resolvers ++= githubPackagesRepo.toSeq
 
-// PGP signing: only when publishing to Maven Central (forks targeting GitHub Packages won't have the key)
+ThisBuild / publishTo := githubPackagesRepo.orElse {
+  val centralSnapshots =
+    "https://central.sonatype.com/repository/maven-snapshots/"
+  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
+  else localStaging.value
+}
+
+// CI-only Central signing. Fork Packages publishes are unsigned (token auth).
 githubPackagesRepo match {
-  case None    => usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
+  case None    => usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
   case Some(_) => Seq.empty
+}
+
+// zipx: Aggregate verify + dual publish by repo + Steward.
+zipxJavaVersion  := "21"
+zipxScalaSteward := true
+zipxCapabilities ++= {
+  val upstream = JobCondition.repositoryIs("early-effect/mechanoid")
+  Seq(
+    Capability.once("fmt", "scalafmtCheckAll"),
+    Capability.once(
+      name = "test",
+      command = "test; docs/mdoc",
+      needsCapabilities = List("fmt"),
+      // GHA VMs are disposable; skip Ryuk so Hub flakes on testcontainers/ryuk cannot fail CI.
+      env = Map("TESTCONTAINERS_RYUK_DISABLED" -> EnvValue.plain("true")),
+      extraSteps = _ =>
+        List(
+          Step(
+            name = Some("Pre-pull Postgres image"),
+            run = Some(
+              """|set -euo pipefail
+                 |image=postgres:latest
+                 |max=5
+                 |for attempt in $(seq 1 "$max"); do
+                 |  if docker pull "$image"; then
+                 |    exit 0
+                 |  fi
+                 |  if [ "$attempt" -eq "$max" ]; then
+                 |    echo "Failed to pull $image after $max attempts" >&2
+                 |    exit 1
+                 |  fi
+                 |  sleep $((attempt * 10))
+                 |done
+                 |""".stripMargin
+            ),
+          )
+        ),
+    ),
+    ZipxCentral.release
+      .copy(command = _ => "core/publishSigned; postgres/publishSigned; sonaRelease")
+      .withCondition(upstream),
+    ZipxGitHubPackages.sharedRegistry(
+      repository = Some("Iterable/mechanoid"),
+      packagesRepo = Some("https://maven.pkg.github.com/iterable/maven-packages"),
+      publishOrg = Some("com.iterable"),
+      publishOrgName = Some("Iterable"),
+    ),
+  )
 }
 
 ThisBuild / libraryDependencies ++= Seq(
@@ -79,7 +133,6 @@ lazy val commonSettings = Seq(
 lazy val publishSettings = Seq(
   publishMavenStyle    := true,
   pomIncludeRepository := { _ => false },
-  publishTo            := githubPackagesRepo.map(r => r: Resolver).orElse(localStaging.value),
 )
 
 addCommandAlias("testCoverage", "clean; coverage; test; coverageAggregate; coverageReport")
@@ -116,7 +169,7 @@ lazy val postgres = project
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
     libraryDependencies ++= Seq(
-      "io.github.russwyte" %% "saferis"      % "0.17.0",
+      "rocks.earlyeffect" %% "saferis"      % "0.19.0",
       "org.postgresql"      % "postgresql"   % "42.7.13",
       "org.testcontainers"  % "postgresql"   % "1.21.4"   % Test,
       "dev.zio"            %% "zio-test"     % zioVersion % Test,
@@ -137,6 +190,7 @@ lazy val examples = project
   .settings(
     name           := "mechanoid-examples",
     publish / skip := true,
+    zipxPublish    := Some(false),
     // ZIO deps are "provided" at root level, so examples needs them explicitly
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"                      % zioVersion,
@@ -168,6 +222,7 @@ lazy val compileExperiments = project
   .settings(
     name           := "compile-experiments",
     publish / skip := true,
+    zipxPublish    := Some(false),
   )
 
 lazy val compileTimeChecks = project
@@ -176,6 +231,7 @@ lazy val compileTimeChecks = project
   .settings(
     name           := "compile-time-checks",
     publish / skip := true,
+    zipxPublish    := Some(false),
     // Turn warnings into errors so typeCheck can catch them
     scalacOptions ++= Seq(
       "-Werror",
@@ -196,6 +252,7 @@ lazy val docs = project
   .settings(
     name           := "mechanoid-docs",
     publish / skip := true,
+    zipxPublish    := Some(false), // never join Central / Packages publish jobs
     mdocVariables  := Map(
       "VERSION" -> version.value
     ),

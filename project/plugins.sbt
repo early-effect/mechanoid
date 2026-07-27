@@ -1,11 +1,11 @@
-addSbtPlugin("org.scalameta"  % "sbt-scalafmt" % "2.6.2")
-addSbtPlugin("org.scalameta"  % "sbt-mdoc"     % "2.9.1")
-addSbtPlugin("com.eed3si9n"   % "sbt-assembly" % "2.3.1")
-addSbtPlugin("ch.epfl.scala"  % "sbt-scalafix" % "0.14.7")
-addSbtPlugin("com.github.sbt" % "sbt-dynver"   % "5.1.1")
-addSbtPlugin("com.github.sbt" % "sbt-pgp"      % "2.3.1")
-
-addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.4.4")
+addSbtPlugin("org.scalameta"     % "sbt-scalafmt"  % "2.6.2")
+addSbtPlugin("org.scalameta"     % "sbt-mdoc"      % "2.9.1")
+addSbtPlugin("com.eed3si9n"      % "sbt-assembly"  % "2.3.1")
+addSbtPlugin("ch.epfl.scala"     % "sbt-scalafix"  % "0.14.7")
+addSbtPlugin("com.github.sbt"    % "sbt-dynver"    % "5.1.1")
+addSbtPlugin("com.github.sbt"    % "sbt-pgp"       % "2.3.1")
+addSbtPlugin("org.scoverage"     % "sbt-scoverage" % "2.4.4")
+addSbtPlugin("rocks.earlyeffect" % "sbt-zipx"      % "0.0.12")
 
 // Workaround: sbt-scalafmt pulls in _2.13 variants via scalafmt-dynamic (for3Use2_13),
 // conflicting with _3 variants from sbt-scalafix and sbt-scoverage in sbt 2.x.

@@ -1,14 +1,14 @@
 # Mechanoid
 
-[![Scala CI](https://github.com/russwyte/mechanoid/actions/workflows/scala.yml/badge.svg)](https://github.com/russwyte/mechanoid/actions/workflows/scala.yml)
+[![CI](https://github.com/early-effect/mechanoid/actions/workflows/ci.yml/badge.svg)](https://github.com/early-effect/mechanoid/actions/workflows/ci.yml)
 
 On Maven Central
-[![Maven Central - Core](https://img.shields.io/maven-central/v/io.github.russwyte/mechanoid_3?logo=apachemaven&label=mechanoid-central)](https://central.sonatype.com/artifact/io.github.russwyte/mechanoid_3)
-[![Maven Central - Postgres](https://img.shields.io/maven-central/v/io.github.russwyte/mechanoid-postgres_3?logo=apachemaven&label=mechanoid-postgres-central)](https://central.sonatype.com/artifact/io.github.russwyte/mechanoid-postgres_3)
+[![Maven Central - Core](https://img.shields.io/maven-central/v/rocks.earlyeffect/mechanoid_3?logo=apachemaven&label=mechanoid-central)](https://central.sonatype.com/artifact/rocks.earlyeffect/mechanoid_3)
+[![Maven Central - Postgres](https://img.shields.io/maven-central/v/rocks.earlyeffect/mechanoid-postgres_3?logo=apachemaven&label=mechanoid-postgres-central)](https://central.sonatype.com/artifact/rocks.earlyeffect/mechanoid-postgres_3)
 
 On Maven Repo
-[![Maven Repository - Core](https://img.shields.io/maven-central/v/io.github.russwyte/mechanoid_3?logo=apachemaven&label=mechanoid-repo)](https://mvnrepository.com/artifact/io.github.russwyte/mechanoid)
-[![Maven Repository - Postgres](https://img.shields.io/maven-central/v/io.github.russwyte/mechanoid-postgres_3?logo=apachemaven&label=mechanoid-postgres-repo)](https://mvnrepository.com/artifact/io.github.russwyte/mechanoid-postgres)
+[![Maven Repository - Core](https://img.shields.io/maven-central/v/rocks.earlyeffect/mechanoid_3?logo=apachemaven&label=mechanoid-repo)](https://mvnrepository.com/artifact/rocks.earlyeffect/mechanoid)
+[![Maven Repository - Postgres](https://img.shields.io/maven-central/v/rocks.earlyeffect/mechanoid-postgres_3?logo=apachemaven&label=mechanoid-postgres-repo)](https://mvnrepository.com/artifact/rocks.earlyeffect/mechanoid-postgres)
 
 
 A type-safe, effect-oriented finite state machine library for Scala 3 built on ZIO.
@@ -30,10 +30,10 @@ Add to your `build.sbt`:
 
 ```scala
 // Core library
-libraryDependencies += "io.github.russwyte" %% "mechanoid" % "0.3.2+12-3c291c15+20260410-1328"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "0.3.2+15-e339bf45+20260727-1145"
 
 // PostgreSQL persistence (optional)
-libraryDependencies += "io.github.russwyte" %% "mechanoid-postgres" % "0.3.2+12-3c291c15+20260410-1328"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "0.3.2+15-e339bf45+20260727-1145"
 ```
 
 ## Quick Start

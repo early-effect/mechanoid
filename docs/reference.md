@@ -130,11 +130,11 @@ libraryDependencies ++= Seq(
 )
 ```
 
-For PostgreSQL persistence with [Saferis](https://github.com/russwyte/saferis):
+For PostgreSQL persistence with [Saferis](https://github.com/early-effect/saferis):
 
 ```scala
 libraryDependencies ++= Seq(
-  "io.github.russwyte" %% "saferis"       % "0.1.1",
+  "rocks.earlyeffect" %% "saferis"       % "0.19.0",
   "org.postgresql"      % "postgresql"    % "42.7.8"
 )
 ```
