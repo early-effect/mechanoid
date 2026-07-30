@@ -9,25 +9,6 @@ import zio.test.*
 
 object Reference extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, AwaitingPayment, Paid, Shipped, Delivered, Cancelled
-
-  enum OrderEvent derives Finite:
-    case RequestPayment, ConfirmPayment, Ship, Deliver, Cancel, PaymentTimeout
-
-  import OrderState.*, OrderEvent.*
-
-  val orderMachine = Machine(
-    assembly[OrderState, OrderEvent](
-      (Pending via RequestPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
-      AwaitingPayment via ConfirmPayment to Paid,
-      Paid via Ship to Shipped,
-      Shipped via Deliver to Delivered,
-      AwaitingPayment via PaymentTimeout to Cancelled,
-      anyOf(Pending, AwaitingPayment) via Cancel to Cancelled,
-    )
-  )
-
   type OrderId = String
 
   def doc = page("Reference")(
@@ -81,13 +62,52 @@ object Reference extends MechanoidDocSpecSuite:
 Timeout, cancel-from-many, and a durable timeout layer in one path:
 """,
       example {
+        enum OrderState derives Finite:
+          case Pending, AwaitingPayment, Paid, Shipped, Delivered, Cancelled
+
+        enum OrderEvent derives Finite:
+          case RequestPayment, ConfirmPayment, Ship, Deliver, Cancel, PaymentTimeout
+
+        import OrderState.*, OrderEvent.*
+
+        val orderMachine = Machine(
+          assembly[OrderState, OrderEvent](
+            (Pending via RequestPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
+            AwaitingPayment via ConfirmPayment to Paid,
+            Paid via Ship to Shipped,
+            Shipped via Deliver to Delivered,
+            AwaitingPayment via PaymentTimeout to Cancelled,
+            anyOf(Pending, AwaitingPayment) via Cancel to Cancelled,
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(orderMachine, Some(Pending)),
           DocsDiagrams.diagramConfig,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, AwaitingPayment, Paid, Shipped, Delivered, Cancelled
+
+        enum OrderEvent derives Finite:
+          case RequestPayment, ConfirmPayment, Ship, Deliver, Cancel, PaymentTimeout
+
+        import OrderState.*, OrderEvent.*
+
+        val orderMachine = Machine(
+          assembly[OrderState, OrderEvent](
+            (Pending via RequestPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
+            AwaitingPayment via ConfirmPayment to Paid,
+            Paid via Ship to Shipped,
+            Shipped via Deliver to Delivered,
+            AwaitingPayment via PaymentTimeout to Cancelled,
+            anyOf(Pending, AwaitingPayment) via Cancel to Cancelled,
+          )
+        )
+
         val orderId: OrderId = "order-ref-1"
+
         ZIO
           .scoped {
             for
@@ -105,7 +125,7 @@ Timeout, cancel-from-many, and a durable timeout layer in one path:
             LockingStrategy.optimistic[OrderId],
           )
           .asDoc
-      }.assert(state => assertTrue(state == Shipped)),
+      }.assert(state => assertTrue(state.toString == "Shipped")),
       md"""
 Dependencies: Scala 3, ZIO 2 (provided), optional `mechanoid-postgres`.
 

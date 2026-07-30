@@ -8,22 +8,6 @@ import zio.test.*
 
 object DurableTimeouts extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, Started, Done, Cancelled
-
-  enum OrderEvent derives Finite:
-    case StartPayment, Complete, PaymentTimeout
-
-  import OrderState.*, OrderEvent.*
-
-  val machine = Machine(
-    assembly[OrderState, OrderEvent](
-      (Pending via StartPayment to Started) @@ Aspect.timeout(1.hour, PaymentTimeout),
-      Started via Complete to Done,
-      Started via PaymentTimeout to Cancelled,
-    )
-  )
-
   type OrderId = String
 
   def doc = page("Durable Timeouts")(
@@ -32,8 +16,7 @@ object DurableTimeouts extends MechanoidDocSpecSuite:
 Fiber timeouts are fast and local. If the node dies while an FSM sits in a timed state, that
 fiber is gone. Durable timeouts store deadlines in a `TimeoutStore` so another node's sweeper
 can fire them.
-""",
-      md"""
+
 ```mermaid
 flowchart LR
   NodeA[Node A schedules] --> Store[TimeoutStore]
@@ -43,7 +26,7 @@ flowchart LR
   class NodeA,Store,Sweeper,NodeB happy
   class Gone warn
 ```
-""",
+"""
     ),
     section("TimeoutStrategy")(
       md"""
@@ -56,7 +39,24 @@ Schedule with durable strategy, then send the timeout event the sweeper would fi
 a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
 """,
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Started, Done, Cancelled
+
+        enum OrderEvent derives Finite:
+          case StartPayment, Complete, PaymentTimeout
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            (Pending via StartPayment to Started) @@ Aspect.timeout(1.hour, PaymentTimeout),
+            Started via Complete to Done,
+            Started via PaymentTimeout to Cancelled,
+          )
+        )
+
         val orderId: OrderId = "order-timeout-1"
+
         ZIO
           .scoped {
             for
@@ -73,7 +73,7 @@ a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
             LockingStrategy.optimistic[OrderId],
           )
           .asDoc
-      }.assert(state => assertTrue(state == Cancelled)),
+      }.assert(state => assertTrue(state.toString == "Cancelled")),
     ),
     section("TimeoutSweeper")(
       md"""

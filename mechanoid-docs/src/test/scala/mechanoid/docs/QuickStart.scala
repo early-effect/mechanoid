@@ -8,21 +8,6 @@ import zio.test.*
 
 object QuickStart extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, Paid, Shipped
-
-  enum OrderEvent derives Finite:
-    case Pay, Ship
-
-  import OrderState.*, OrderEvent.*
-
-  val orderMachine = Machine(
-    assembly[OrderState, OrderEvent](
-      Pending via Pay to Paid,
-      Paid via Ship to Shipped,
-    )
-  )
-
   def doc = page("Quick Start")(
     section("Install")(
       md"""
@@ -43,25 +28,28 @@ also track the latest publish.
     ),
     section("Define and run")(
       md"""
-```scala
-import mechanoid.*
-import zio.*
-
-enum OrderState derives Finite:
-  case Pending, Paid, Shipped
-
-enum OrderEvent derives Finite:
-  case Pay, Ship
-
-import OrderState.*, OrderEvent.*
-
-val orderMachine = Machine(assembly[OrderState, OrderEvent](
-  Pending via Pay to Paid,
-  Paid via Ship to Shipped,
-))
-```
+`assembly` validates transitions at compile time. `Machine(...)` makes the assembly runnable.
+`start` gives you an in-memory `FSMRuntime` scoped to the ZIO scope.
 """,
       exampleZIO {
+        import mechanoid.*
+        import zio.*
+
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val orderMachine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm   <- orderMachine.start(Pending)
@@ -70,11 +58,8 @@ val orderMachine = Machine(assembly[OrderState, OrderEvent](
             state <- fsm.currentState
           yield state
         }.asDoc
-      }.assert(state => assertTrue(state == Shipped)),
+      }.assert(state => assertTrue(state.toString == "Shipped")),
       md"""
-`assembly` validates transitions at compile time. `Machine(...)` makes the assembly runnable.
-`start` gives you an in-memory `FSMRuntime` scoped to the ZIO scope.
-
 Next: [Core Concepts](core-concepts.html) for states, events, and hierarchy, or
 [Testing](testing.html) for how DocSpecs assert.
 """,

@@ -7,21 +7,6 @@ import zio.test.*
 
 object Visualization extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Created, Processing, Completed
-
-  enum OrderEvent derives Finite:
-    case Start, Finish
-
-  import OrderState.*, OrderEvent.*
-
-  val machine = Machine(
-    assembly[OrderState, OrderEvent](
-      Created via Start to Processing,
-      Processing via Finish to Completed,
-    )
-  )
-
   def doc = page("Visualization")(
     md"""
 Mechanoid emits Mermaid (and GraphViz) from the same `Machine` you run. This site feeds that
@@ -34,6 +19,21 @@ if the Mermaid cannot parse.
 `machine.toMermaidStateDiagram(Some(Created))`):
 """,
       example {
+        enum OrderState derives Finite:
+          case Created, Processing, Completed
+
+        enum OrderEvent derives Finite:
+          case Start, Finish
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Created via Start to Processing,
+            Processing via Finish to Completed,
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(machine, Some(Created)),
           DocsDiagrams.diagramConfig,
@@ -45,6 +45,21 @@ if the Mermaid cannot parse.
 `MermaidVisualizer.flowchart(machine)` is often clearer for dense graphs (Domain pages use it):
 """,
       example {
+        enum OrderState derives Finite:
+          case Created, Processing, Completed
+
+        enum OrderEvent derives Finite:
+          case Start, Finish
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Created via Start to Processing,
+            Processing via Finish to Completed,
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.flowchart(machine),
           DocsDiagrams.diagramConfig,

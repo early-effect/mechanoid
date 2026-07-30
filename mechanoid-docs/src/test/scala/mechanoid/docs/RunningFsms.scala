@@ -9,44 +9,14 @@ import zio.test.*
 
 object RunningFsms extends MechanoidDocSpecSuite:
 
-  enum MyState derives Finite:
-    case Initial, Running, Done
-
-  enum MyEvent derives Finite:
-    case Start, Finish
-
-  import MyState.*, MyEvent.*
-
-  val machine = Machine(
-    assembly[MyState, MyEvent](
-      Initial via Start to Running,
-      Running via Finish to Done,
-    )
-  )
-
-  enum OrderState derives Finite:
-    case Pending, Paid, Shipped
-
-  enum OrderEvent derives Finite:
-    case Pay, Ship
-
-  import OrderState.*, OrderEvent.*
-
-  val orderMachine = Machine(
-    assembly[OrderState, OrderEvent](
-      Pending via Pay to Paid,
-      Paid via Ship to Shipped,
-    )
-  )
-
   type OrderId = String
 
   def doc = page("Running FSMs")(
     md"""
 `FSMRuntime[Id, S, E]` is the unified execution surface:
 
-- `Id` — instance id (`Unit` for simple FSMs, or `String` / `UUID` when persisted)
-- `S` / `E` — state and event types
+- `Id`: instance id (`Unit` for simple FSMs, or `String` / `UUID` when persisted)
+- `S` / `E`: state and event types
 """,
     section("Simple runtime")(
       md"""
@@ -55,26 +25,71 @@ object RunningFsms extends MechanoidDocSpecSuite:
 `InvalidTransitionError`.
 """,
       example {
+        enum MyState derives Finite:
+          case Initial, Running, Done
+
+        enum MyEvent derives Finite:
+          case Start, Finish
+
+        import MyState.*, MyEvent.*
+
+        val machine = Machine(
+          assembly[MyState, MyEvent](
+            Initial via Start to Running,
+            Running via Finish to Done,
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(machine, Some(Initial)),
           DocsDiagrams.diagramConfig,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
+        enum MyState derives Finite:
+          case Initial, Running, Done
+
+        enum MyEvent derives Finite:
+          case Start, Finish
+
+        import MyState.*, MyEvent.*
+
+        val machine = Machine(
+          assembly[MyState, MyEvent](
+            Initial via Start to Running,
+            Running via Finish to Done,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm     <- machine.start(Initial)
             outcome <- fsm.send(Start)
             state   <- fsm.currentState
             hist    <- fsm.history
-          yield (outcome.result, state, hist.length)
+          yield (outcome.result.toString, state.toString, hist.length)
         }.asDoc
       }.assert { case (result, state, histLen) =>
-        assertTrue(result == TransitionResult.Goto(Running)) &&
-        assertTrue(state == Running) &&
+        assertTrue(result.contains("Running")) &&
+        assertTrue(state == "Running") &&
         assertTrue(histLen >= 1)
       },
       exampleZIO {
+        enum MyState derives Finite:
+          case Initial, Running, Done
+
+        enum MyEvent derives Finite:
+          case Start, Finish
+
+        import MyState.*, MyEvent.*
+
+        val machine = Machine(
+          assembly[MyState, MyEvent](
+            Initial via Start to Running,
+            Running via Finish to Done,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm    <- machine.start(Initial)
@@ -95,17 +110,25 @@ object RunningFsms extends MechanoidDocSpecSuite:
 | `EventStore[Id, S, E]` | Events and snapshots |
 | `TimeoutStrategy[Id]` | Fiber or durable timeouts |
 | `LockingStrategy[Id]` | Optimistic or distributed locking |
-
-```scala
-FSMRuntime(orderId, machine, Pending).provide(
-  InMemoryEventStore.layer,
-  TimeoutStrategy.fiber[OrderId],
-  LockingStrategy.optimistic[OrderId],
-)
-```
 """,
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val orderMachine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
         val orderId: OrderId = "order-1"
+
         ZIO
           .scoped {
             for
@@ -120,7 +143,7 @@ FSMRuntime(orderId, machine, Pending).provide(
             LockingStrategy.optimistic[OrderId],
           )
           .asDoc
-      }.assert(state => assertTrue(state == Paid)),
+      }.assert(state => assertTrue(state.toString == "Paid")),
       md"""
 Next: [Persistence](persistence.html) for recover-on-construct and snapshots.
 """,

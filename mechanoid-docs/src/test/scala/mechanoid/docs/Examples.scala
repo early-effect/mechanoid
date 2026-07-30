@@ -16,7 +16,7 @@ full runnable mains (Postgres, sweepers, services).
 |------|-------|
 | [Document Workflow](document-workflow.html) | Nested sealed states, `all[T]`, `++` |
 | [Heartbeat](heartbeat.html) | `.producing` + `@@ Aspect.timeout` |
-| [Orders](orders.html) | `event[T]` payloads, `to stay` on timeout |
+| [Orders](orders.html) | `event[T]` payloads, shipping timeout self-loop |
 """
     ),
     section("In the repository")(
@@ -34,8 +34,8 @@ sbt "examples/runMain mechanoid.examples.heartbeat.Main"
     ),
     section("Where to go next")(
       md"""
-- [Overview](overview.html) — story and ladder
-- [Testing](testing.html) — how DocSpecs and unit tests share patterns
+- [Overview](overview.html) - story and ladder
+- [Testing](testing.html) - how DocSpecs and unit tests share patterns
 - Hub: [earlyeffect.rocks](https://www.earlyeffect.rocks)
 """
     ),

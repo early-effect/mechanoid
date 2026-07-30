@@ -45,7 +45,6 @@ object Orders extends MechanoidDocSpecSuite:
       (Paid via event[RequestShipping] to ShippingRequested)
         @@ Aspect.timeout(1.hour, ShippingTimeout),
       ShippingRequested via event[ShipmentDispatched] to Shipped,
-      // Explicit self-transition (same as `to stay`) so entry effects type-check cleanly.
       (ShippingRequested via ShippingTimeout to ShippingRequested)
         .onEntry { (_, _) =>
           ZIO.logWarning("shipping timeout - escalate to ops")
@@ -53,13 +52,50 @@ object Orders extends MechanoidDocSpecSuite:
     )
   )
 
+  private val machineSource =
+    md"""
+```scala
+enum OrderState derives Finite:
+  case Created, PaymentProcessing, Paid, ShippingRequested, Shipped, Cancelled
+
+enum OrderEvent derives Finite:
+  case InitiatePayment(orderId: Int, amount: BigDecimal)
+  case PaymentSucceeded(orderId: Int, txnId: String)
+  case PaymentFailed(orderId: Int, reason: String)
+  case RequestShipping(orderId: Int)
+  case ShipmentDispatched(orderId: Int, trackingId: String)
+  case PaymentTimeout, ShippingTimeout
+
+val machine = Machine(
+  assembly[OrderState, OrderEvent](
+    (Created via event[InitiatePayment] to PaymentProcessing)
+      .onEntry { (e, _) => /* log */ ZIO.unit }
+      .producing { (e, _) =>
+        e match
+          case InitiatePayment(id, _) => ZIO.succeed(PaymentSucceeded(id, "txn-doc"))
+          case _                      => ZIO.succeed(PaymentFailed(0, "unexpected"))
+      } @@ Aspect.timeout(5.minutes, PaymentTimeout),
+    PaymentProcessing via event[PaymentSucceeded] to Paid,
+    PaymentProcessing via event[PaymentFailed] to Cancelled,
+    PaymentProcessing via PaymentTimeout to Cancelled,
+    (Paid via event[RequestShipping] to ShippingRequested)
+      @@ Aspect.timeout(1.hour, ShippingTimeout),
+    ShippingRequested via event[ShipmentDispatched] to Shipped,
+    (ShippingRequested via ShippingTimeout to ShippingRequested)
+      .onEntry { (_, _) => ZIO.logWarning("shipping timeout - escalate to ops") },
+  )
+)
+```
+"""
+
   def doc = page("Orders")(
     md"""
 A pet-store style order graph: rich events carry payloads, `event[T]` matches by type, and
-timeouts either cancel payment or `stay` in shipping while ops is alerted.
+timeouts either cancel payment or loop in shipping while ops is alerted.
 
-Teaching slice of `examples/.../petstore`.
+Teaching slice of `examples/.../petstore`. Machine used below:
 """,
+    machineSource,
     section("The graph")(
       example {
         Mermoid.diagram(
@@ -69,8 +105,7 @@ Teaching slice of `examples/.../petstore`.
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       md"""
 Payment edges use `event[InitiatePayment]` / `event[PaymentSucceeded]` so runtime values carry
-ids and amounts while the assembly stays declarative. Shipping’s timeout loops back to
-`ShippingRequested` instead of cancelling.
+ids and amounts while the assembly stays declarative.
 """,
     ),
     section("Pay then ship")(
@@ -93,9 +128,8 @@ then shipping completes:
     ),
     section("Shipping timeout stays put")(
       md"""
-`stay` (or an explicit self-transition) keeps `ShippingRequested` while the entry effect can
-escalate (log, ticket, page). The example uses `to ShippingRequested` so the entry effect’s
-types stay precise:
+An explicit self-transition (`to ShippingRequested`) keeps the FSM put while the entry effect
+can escalate. The full petstore example writes the same edge as `to stay`.
 """,
       exampleZIO {
         ZIO.scoped {
@@ -113,9 +147,6 @@ types stay precise:
         assertTrue(state == ShippingRequested)
       },
       md"""
-In the full petstore example, the same edge is written `to stay`. Either form leaves the FSM in
-`ShippingRequested`.
-
 Next: [Examples](examples.html) for repo mains, or [Testing](testing.html).
 """,
     ),

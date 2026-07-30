@@ -8,27 +8,7 @@ import zio.test.*
 
 object Persistence extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, Paid, Shipped
-
-  enum OrderEvent derives Finite:
-    case Pay, Ship
-
-  import OrderState.*, OrderEvent.*
-
-  val machine = Machine(
-    assembly[OrderState, OrderEvent](
-      Pending via Pay to Paid,
-      Paid via Ship to Shipped,
-    )
-  )
-
   type OrderId = String
-
-  private val runtimeLayers =
-    InMemoryEventStore.layer[OrderId, OrderState, OrderEvent] ++
-      TimeoutStrategy.fiber[OrderId] ++
-      LockingStrategy.optimistic[OrderId]
 
   def doc = page("Persistence")(
     section("Event sourcing model")(
@@ -52,7 +32,23 @@ flowchart TB
 ```
 """,
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
         val orderId: OrderId = "order-persist-1"
+
         ZIO
           .scoped {
             for
@@ -62,12 +58,16 @@ flowchart TB
               _     <- fsm.saveSnapshot
               state <- fsm.currentState
               seq   <- fsm.lastSequenceNr
-            yield (state, seq)
+            yield (state.toString, seq)
           }
-          .provide(runtimeLayers)
+          .provide(
+            InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
+            TimeoutStrategy.fiber[OrderId],
+            LockingStrategy.optimistic[OrderId],
+          )
           .asDoc
       }.assert { case (state, seq) =>
-        assertTrue(state == Shipped) && assertTrue(seq >= 2L)
+        assertTrue(state == "Shipped") && assertTrue(seq >= 2L)
       },
     ),
     section("Recover after restart")(
@@ -76,7 +76,23 @@ There is no separate `recover` API: construct `FSMRuntime` again with the same i
 same `EventStore`. Session one writes history; session two resumes at `Shipped`:
 """,
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
         val orderId: OrderId = "order-recover-1"
+
         ZIO.scoped {
           for
             store <- InMemoryEventStore.make[OrderId, OrderState, OrderEvent]()
@@ -102,7 +118,7 @@ same `EventStore`. Session one writes history; session two resumes at `Shipped`:
               )
           yield recovered
         }.asDoc
-      }.assert(state => assertTrue(state == Shipped)),
+      }.assert(state => assertTrue(state.toString == "Shipped")),
     ),
     section("EventStore and codecs")(
       md"""

@@ -8,21 +8,6 @@ import zio.test.*
 
 object Testing extends MechanoidDocSpecSuite:
 
-  enum Light derives Finite:
-    case Red, Green
-
-  enum Tick derives Finite:
-    case Go, Timeout
-
-  import Light.*, Tick.*
-
-  val machine = Machine(
-    assembly[Light, Tick](
-      (Red via Go to Green) @@ Aspect.timeout(1.minute, Timeout),
-      Green via Timeout to Red,
-    )
-  )
-
   def doc = page("Testing")(
     md"""
 Mechanoid machines are ordinary ZIO values. Prefer the same scoped `start` / `send` style in
@@ -33,16 +18,30 @@ unit tests that you use on this site.
 Assert outcomes and state after a short path:
 """,
       exampleZIO {
+        enum Light derives Finite:
+          case Red, Green
+
+        enum Tick derives Finite:
+          case Go, Timeout
+
+        import Light.*, Tick.*
+
+        val machine = Machine(
+          assembly[Light, Tick](
+            (Red via Go to Green) @@ Aspect.timeout(1.minute, Timeout),
+            Green via Timeout to Red,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm     <- machine.start(Red)
             outcome <- fsm.send(Go)
             state   <- fsm.currentState
-          yield (outcome.result, state)
+          yield (outcome.result.toString, state.toString)
         }.asDoc
       }.assert { case (result, state) =>
-        assertTrue(result == TransitionResult.Goto(Green)) &&
-        assertTrue(state == Green)
+        assertTrue(result.contains("Green")) && assertTrue(state == "Green")
       },
     ),
     section("Negative paths")(
@@ -50,6 +49,21 @@ Assert outcomes and state after a short path:
 Illegal events surface as `InvalidTransitionError` (use `.either`):
 """,
       exampleZIO {
+        enum Light derives Finite:
+          case Red, Green
+
+        enum Tick derives Finite:
+          case Go, Timeout
+
+        import Light.*, Tick.*
+
+        val machine = Machine(
+          assembly[Light, Tick](
+            (Red via Go to Green) @@ Aspect.timeout(1.minute, Timeout),
+            Green via Timeout to Red,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm    <- machine.start(Red)
@@ -72,6 +86,21 @@ This site uses `TestAspect.withLiveClock` because EventStore timestamps and prod
 a real clock; synthetic timeout events keep examples snappy.
 """,
       exampleZIO {
+        enum Light derives Finite:
+          case Red, Green
+
+        enum Tick derives Finite:
+          case Go, Timeout
+
+        import Light.*, Tick.*
+
+        val machine = Machine(
+          assembly[Light, Tick](
+            (Red via Go to Green) @@ Aspect.timeout(1.minute, Timeout),
+            Green via Timeout to Red,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm   <- machine.start(Red)
@@ -80,7 +109,7 @@ a real clock; synthetic timeout events keep examples snappy.
             state <- fsm.currentState
           yield state
         }.asDoc
-      }.assert(state => assertTrue(state == Red)),
+      }.assert(state => assertTrue(state.toString == "Red")),
     ),
     section("Layers and docs-as-tests")(
       md"""

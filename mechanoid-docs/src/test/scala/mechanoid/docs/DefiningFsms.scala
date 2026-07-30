@@ -9,92 +9,6 @@ import zio.test.*
 
 object DefiningFsms extends MechanoidDocSpecSuite:
 
-  object Basic:
-    enum MyState derives Finite:
-      case State1, State2, State3
-
-    enum MyEvent derives Finite:
-      case Event1, Event2, Event3
-
-    import MyState.*, MyEvent.*
-
-    val machine = Machine(
-      assembly[MyState, MyEvent](
-        State1 via Event1 to State2,
-        State1 via Event2 to stay,
-        State2 via Event3 to State3,
-      )
-    )
-  end Basic
-
-  object Hierarchical:
-    sealed trait ProcState derives Finite
-    sealed trait Processing  extends ProcState derives Finite
-    case object SpecialState extends Processing
-    case object RegularState extends Processing
-    case object Cancelled    extends ProcState
-    case object Escalated    extends ProcState
-
-    enum ProcEvent derives Finite:
-      case Cancel, Escalate
-
-    import ProcEvent.*
-
-    val groupMachine = Machine(
-      assembly[ProcState, ProcEvent](
-        all[Processing] via Cancel to Cancelled,
-      )
-    )
-
-    // Concrete duplicate + override (same pattern as `all[T]` leaves that need a special case).
-    val overrideMachine = Machine(
-      assembly[ProcState, ProcEvent](
-        RegularState via Cancel to Cancelled,
-        SpecialState via Cancel to Cancelled,
-        (SpecialState via Cancel to Escalated) @@ Aspect.overriding,
-      )
-    )
-  end Hierarchical
-
-  object Timed:
-    enum PayState derives Finite:
-      case Pending, AwaitingPayment, Paid, Cancelled
-
-    enum PayEvent derives Finite:
-      case StartPayment, ConfirmPayment, PaymentTimeout
-
-    import PayState.*, PayEvent.*
-
-    val timedMachine = Machine(
-      assembly[PayState, PayEvent](
-        (Pending via StartPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
-        AwaitingPayment via ConfirmPayment to Paid,
-        AwaitingPayment via PaymentTimeout to Cancelled,
-      )
-    )
-  end Timed
-
-  object Composed:
-    enum ShipState derives Finite:
-      case Draft, Paid, Packed, Shipped
-
-    enum ShipEvent derives Finite:
-      case Pay, Pack, Ship
-
-    import ShipState.*, ShipEvent.*
-
-    // Named fragments: use `inline def` so `++` / Machine can see the trees.
-    // Nested objects may still need the assemblies written inline into Machine.
-    val machine = Machine(
-      assembly[ShipState, ShipEvent](
-        Draft via Pay to Paid
-      ) ++ assembly[ShipState, ShipEvent](
-        Paid via Pack to Packed,
-        Packed via Ship to Shipped,
-      )
-    )
-  end Composed
-
   def doc = page("Defining FSMs")(
     section("Assembly and Machine")(
       md"""
@@ -112,14 +26,44 @@ flowchart LR
 still see both sides.
 """,
       example {
-        import Basic.*
+        enum MyState derives Finite:
+          case State1, State2, State3
+
+        enum MyEvent derives Finite:
+          case Event1, Event2, Event3
+
+        import MyState.*, MyEvent.*
+
+        val machine = Machine(
+          assembly[MyState, MyEvent](
+            State1 via Event1 to State2,
+            State1 via Event2 to stay,
+            State2 via Event3 to State3,
+          )
+        )
+
         Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(machine, Some(Basic.MyState.State1)),
+          MermaidVisualizer.stateDiagram(machine, Some(State1)),
           DocsDiagrams.diagramConfig,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
-        import Basic.*, Basic.MyState.*, Basic.MyEvent.*
+        enum MyState derives Finite:
+          case State1, State2, State3
+
+        enum MyEvent derives Finite:
+          case Event1, Event2, Event3
+
+        import MyState.*, MyEvent.*
+
+        val machine = Machine(
+          assembly[MyState, MyEvent](
+            State1 via Event1 to State2,
+            State1 via Event2 to stay,
+            State2 via Event3 to State3,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm   <- machine.start(State1)
@@ -127,7 +71,7 @@ still see both sides.
             state <- fsm.currentState
           yield state
         }.asDoc
-      }.assert(state => assertTrue(state == Basic.MyState.State2)),
+      }.assert(state => assertTrue(state.toString == "State2")),
     ),
     section("Compile-time safety")(
       md"""
@@ -145,23 +89,55 @@ Mechanoid catches many mistakes before runtime:
 `all[T]` expands to every leaf under `T`. Here both processing leaves cancel the same way:
 """,
       example {
-        import Hierarchical.*
+        sealed trait ProcState derives Finite
+        sealed trait Processing  extends ProcState derives Finite
+        case object SpecialState extends Processing
+        case object RegularState extends Processing
+        case object Cancelled    extends ProcState
+        case object Escalated    extends ProcState
+
+        enum ProcEvent derives Finite:
+          case Cancel, Escalate
+
+        import ProcEvent.*
+
+        val groupMachine = Machine(
+          assembly[ProcState, ProcEvent](
+            all[Processing] via Cancel to Cancelled
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.flowchart(groupMachine),
           DocsDiagrams.diagramConfig,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
-        import Hierarchical.*, Hierarchical.ProcEvent.*
+        sealed trait ProcState derives Finite
+        sealed trait Processing  extends ProcState derives Finite
+        case object SpecialState extends Processing
+        case object RegularState extends Processing
+        case object Cancelled    extends ProcState
+
+        enum ProcEvent derives Finite:
+          case Cancel
+
+        import ProcEvent.*
+
+        val groupMachine = Machine(
+          assembly[ProcState, ProcEvent](
+            all[Processing] via Cancel to Cancelled
+          )
+        )
+
         ZIO.scoped {
           for
             fromSpecial <- groupMachine.start(SpecialState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
             fromRegular <- groupMachine.start(RegularState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
-          yield (fromSpecial, fromRegular)
+          yield (fromSpecial.toString, fromRegular.toString)
         }.asDoc
       }.assert { case (fromSpecial, fromRegular) =>
-        assertTrue(fromSpecial == Hierarchical.Cancelled) &&
-        assertTrue(fromRegular == Hierarchical.Cancelled)
+        assertTrue(fromSpecial == "Cancelled") && assertTrue(fromRegular == "Cancelled")
       },
     ),
     section("Intentional overrides")(
@@ -170,23 +146,60 @@ When one leaf needs different behavior, declare the broader edge first, then the
 with `@@ Aspect.overriding` (last wins). Here `SpecialState` escalates instead of cancelling:
 """,
       example {
-        import Hierarchical.*
+        sealed trait ProcState derives Finite
+        sealed trait Processing  extends ProcState derives Finite
+        case object SpecialState extends Processing
+        case object RegularState extends Processing
+        case object Cancelled    extends ProcState
+        case object Escalated    extends ProcState
+
+        enum ProcEvent derives Finite:
+          case Cancel
+
+        import ProcEvent.*
+
+        val overrideMachine = Machine(
+          assembly[ProcState, ProcEvent](
+            RegularState via Cancel to Cancelled,
+            SpecialState via Cancel to Cancelled,
+            (SpecialState via Cancel to Escalated) @@ Aspect.overriding,
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.flowchart(overrideMachine),
           DocsDiagrams.diagramConfig,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
-        import Hierarchical.*, Hierarchical.ProcEvent.*
+        sealed trait ProcState derives Finite
+        sealed trait Processing  extends ProcState derives Finite
+        case object SpecialState extends Processing
+        case object RegularState extends Processing
+        case object Cancelled    extends ProcState
+        case object Escalated    extends ProcState
+
+        enum ProcEvent derives Finite:
+          case Cancel
+
+        import ProcEvent.*
+
+        val overrideMachine = Machine(
+          assembly[ProcState, ProcEvent](
+            RegularState via Cancel to Cancelled,
+            SpecialState via Cancel to Cancelled,
+            (SpecialState via Cancel to Escalated) @@ Aspect.overriding,
+          )
+        )
+
         ZIO.scoped {
           for
             regular <- overrideMachine.start(RegularState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
             special <- overrideMachine.start(SpecialState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
-          yield (regular, special)
+          yield (regular.toString, special.toString)
         }.asDoc
       }.assert { case (regular, special) =>
-        assertTrue(regular == Hierarchical.Cancelled) &&
-        assertTrue(special == Hierarchical.Escalated)
+        assertTrue(regular == "Cancelled") && assertTrue(special == "Escalated")
       },
     ),
     section("Timeouts on transitions")(
@@ -199,7 +212,22 @@ Entry/exit effects on assemblies (`.onEnter` / `.onExit`) and per-transition `.o
 `.producing` are covered on [Side Effects](side-effects.html).
 """,
       exampleZIO {
-        import Timed.*, Timed.PayState.*, Timed.PayEvent.*
+        enum PayState derives Finite:
+          case Pending, AwaitingPayment, Paid, Cancelled
+
+        enum PayEvent derives Finite:
+          case StartPayment, ConfirmPayment, PaymentTimeout
+
+        import PayState.*, PayEvent.*
+
+        val timedMachine = Machine(
+          assembly[PayState, PayEvent](
+            (Pending via StartPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
+            AwaitingPayment via ConfirmPayment to Paid,
+            AwaitingPayment via PaymentTimeout to Cancelled,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm   <- timedMachine.start(Pending)
@@ -208,7 +236,7 @@ Entry/exit effects on assemblies (`.onEnter` / `.onExit`) and per-transition `.o
             state <- fsm.currentState
           yield state
         }.asDoc
-      }.assert(state => assertTrue(state == Timed.PayState.Cancelled)),
+      }.assert(state => assertTrue(state.toString == "Cancelled")),
     ),
     section("Composable assemblies")(
       md"""
@@ -218,14 +246,46 @@ assemblies are still detected at compile time when composed inline into `Machine
 Block form `assemblyAll[S, E]:` avoids commas between specs when the list gets long.
 """,
       example {
-        import Composed.*
+        enum ShipState derives Finite:
+          case Draft, Paid, Packed, Shipped
+
+        enum ShipEvent derives Finite:
+          case Pay, Pack, Ship
+
+        import ShipState.*, ShipEvent.*
+
+        val machine = Machine(
+          assembly[ShipState, ShipEvent](
+            Draft via Pay to Paid
+          ) ++ assembly[ShipState, ShipEvent](
+            Paid via Pack to Packed,
+            Packed via Ship to Shipped,
+          )
+        )
+
         Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(machine, Some(Composed.ShipState.Draft)),
+          MermaidVisualizer.stateDiagram(machine, Some(Draft)),
           DocsDiagrams.diagramConfig,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
-        import Composed.*, Composed.ShipState.*, Composed.ShipEvent.*
+        enum ShipState derives Finite:
+          case Draft, Paid, Packed, Shipped
+
+        enum ShipEvent derives Finite:
+          case Pay, Pack, Ship
+
+        import ShipState.*, ShipEvent.*
+
+        val machine = Machine(
+          assembly[ShipState, ShipEvent](
+            Draft via Pay to Paid
+          ) ++ assembly[ShipState, ShipEvent](
+            Paid via Pack to Packed,
+            Packed via Ship to Shipped,
+          )
+        )
+
         ZIO.scoped {
           for
             fsm   <- machine.start(Draft)
@@ -235,7 +295,7 @@ Block form `assemblyAll[S, E]:` avoids commas between specs when the list gets l
             state <- fsm.currentState
           yield state
         }.asDoc
-      }.assert(state => assertTrue(state == Composed.ShipState.Shipped)),
+      }.assert(state => assertTrue(state.toString == "Shipped")),
       md"""
 Next: [Side Effects](side-effects.html).
 """,
