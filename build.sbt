@@ -52,16 +52,17 @@ githubPackagesRepo match {
   case Some(_) => Seq.empty
 }
 
-// zipx: Aggregate verify + dual publish by repo + Steward.
-zipxJavaVersion  := "21"
-zipxScalaSteward := true
+// zipx: Aggregate verify (tests + Specular docs site) + dual publish by repo + Steward + Pages.
+zipxJavaVersion      := "21"
+zipxScalaSteward     := true
+zipxWorkflowDispatch := true
 zipxCapabilities ++= {
   val upstream = JobCondition.repositoryIs("early-effect/mechanoid")
   Seq(
     Capability.once("fmt", "scalafmtCheckAll"),
     Capability.once(
       name = "test",
-      command = "test; docs/mdoc",
+      command = "test; docs/specularSite",
       needsCapabilities = List("fmt"),
       // GHA VMs are disposable; skip Ryuk so Hub flakes on testcontainers/ryuk cannot fail CI.
       env = Map("TESTCONTAINERS_RYUK_DISABLED" -> EnvValue.plain("true")),
@@ -97,6 +98,8 @@ zipxCapabilities ++= {
       publishOrg = Some("com.iterable"),
       publishOrgName = Some("Iterable"),
     ),
+    // Same org reusable workflow as peers; generated into ci.yml (no hand-rolled docs.yml).
+    ZipxDocs.pages().andCondition(upstream),
   )
 }
 
@@ -107,11 +110,11 @@ ThisBuild / libraryDependencies ++= Seq(
   "dev.zio" %% "zio-logging-slf4j"        % "2.5.3"    % "provided",
   "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3"    % "provided",
 
-  "dev.zio" %% "zio-json"          % "0.9.2"    % "provided",
+  "dev.zio" %% "zio-json"          % "0.10.0"   % "provided",
   "dev.zio" %% "zio-test"          % zioVersion % Test,
   "dev.zio" %% "zio-test-sbt"      % zioVersion % Test,
   "dev.zio" %% "zio-test-magnolia" % zioVersion % Test,
-  )
+)
 
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
@@ -125,8 +128,8 @@ lazy val commonSettings = Seq(
   // - Mechanoid$package is just type re-exports with no runtime code
   coverageExcludedPackages := "mechanoid\\.macros\\..*;mechanoid\\.machine\\.Macros.*;mechanoid\\.machine\\.MacroUtils.*;mechanoid\\.machine\\.AssemblyMacros.*;mechanoid\\.machine\\.MachineMacros.*;mechanoid\\.machine\\.ProducingMacros.*;mechanoid\\.core\\.Finite.*;mechanoid\\.core\\.Redactor.*;mechanoid\\.Mechanoid\\$package.*",
   // Minimum coverage thresholds - fail build if coverage drops below these
-  coverageFailOnMinimum := true,
-  coverageMinimumStmtTotal := 95,
+  coverageFailOnMinimum      := true,
+  coverageMinimumStmtTotal   := 95,
   coverageMinimumBranchTotal := 95,
 )
 
@@ -145,7 +148,7 @@ commands += Command.single("moduleCoverage") { (state, module) =>
 
 lazy val root = project
   .in(file("."))
-  .aggregate(core, postgres, examples, compileTimeChecks)
+  .aggregate(core, postgres, examples, compileTimeChecks, docs)
   .settings(
     name           := "mechanoid-root",
     publish / skip := true,
@@ -169,11 +172,11 @@ lazy val postgres = project
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
     libraryDependencies ++= Seq(
-      "rocks.earlyeffect" %% "saferis"      % "0.19.0",
-      "org.postgresql"      % "postgresql"   % "42.7.13",
-      "org.testcontainers"  % "postgresql"   % "1.21.4"   % Test,
-      "dev.zio"            %% "zio-test"     % zioVersion % Test,
-      "dev.zio"            %% "zio-test-sbt" % zioVersion % Test,
+      "rocks.earlyeffect" %% "saferis"      % "0.19.1",
+      "org.postgresql"     % "postgresql"   % "42.7.13",
+      "org.testcontainers" % "postgresql"   % "1.21.4"   % Test,
+      "dev.zio"           %% "zio-test"     % zioVersion % Test,
+      "dev.zio"           %% "zio-test-sbt" % zioVersion % Test,
     ),
     // Override vulnerable transitive deps from testcontainers -> docker-java
     dependencyOverrides ++= Seq(
@@ -195,7 +198,7 @@ lazy val examples = project
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"                      % zioVersion,
       "dev.zio" %% "zio-streams"              % zioVersion,
-      "dev.zio" %% "zio-json"                 % "0.9.2",
+      "dev.zio" %% "zio-json"                 % "0.10.0",
       "dev.zio" %% "zio-logging"              % "2.5.3",
       "dev.zio" %% "zio-logging-slf4j"        % "2.5.3",
       "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3",
@@ -245,25 +248,45 @@ lazy val compileTimeChecks = project
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
 
+val specularVersion = "0.11.0"
+
 lazy val docs = project
   .in(file("mechanoid-docs"))
   .dependsOn(core, postgres)
-  .enablePlugins(MdocPlugin)
+  .enablePlugins(SpecularPlugin)
+  .settings(commonSettings)
   .settings(
-    name           := "mechanoid-docs",
-    publish / skip := true,
-    zipxPublish    := Some(false), // never join Central / Packages publish jobs
-    mdocVariables  := Map(
-      "VERSION" -> version.value
-    ),
-    mdocIn  := baseDirectory.value / "docs",
-    mdocOut := (ThisBuild / baseDirectory).value,
-    // ZIO deps are "provided" at root level, so mdoc needs them explicitly
+    name            := "mechanoid-docs",
+    publish / skip  := true,
+    publishArtifact := false,
+    zipxPublish     := Some(false), // never join Central / Packages publish jobs
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"         % zioVersion,
-      "dev.zio" %% "zio-streams" % zioVersion,
-      "dev.zio" %% "zio-json"    % "0.9.2",
+      "dev.zio"           %% "zio"                     % zioVersion,
+      "dev.zio"           %% "zio-streams"             % zioVersion,
+      "dev.zio"           %% "zio-json"                % "0.10.0",
+      "dev.zio"           %% "zio-test"                % zioVersion      % Test,
+      "dev.zio"           %% "zio-test-sbt"            % zioVersion      % Test,
+      "rocks.earlyeffect" %% "specular-core"           % specularVersion % Test,
+      "rocks.earlyeffect" %% "specular-zio-test"       % specularVersion % Test,
+      "rocks.earlyeffect" %% "specular-site"           % specularVersion % Test,
+      "rocks.earlyeffect" %% "early-effect-docs-theme" % specularVersion % Test,
     ),
-    // Override vulnerable transitive dep from mdoc -> undertow
-    dependencyOverrides += "io.undertow" % "undertow-core" % "2.2.39.Final",
+    // Specular's zio-schema-json still pins zio-json 0.9.x; mechanoid uses 0.10.x.
+    libraryDependencySchemes += "dev.zio" %% "zio-json" % VersionScheme.Always,
+    specularBuildMain                     := "mechanoid.docs.BuildSite",
+    specularMetaProject                   := Some(LocalProject("core")),
+    specularArtifactKind                  := "library",
+    specularSiteDirectory                 := (ThisBuild / baseDirectory).value / "target" / "site",
+    // Docs-only (workflow_dispatch) builds are dynver `-ci`; don't advertise that as a Central coord.
+    // Empty string → Specular uses build version (clean v* tags).
+    specularDisplayVersion := {
+      val v = (ThisBuild / version).value
+      if (v.endsWith("-ci") || v.endsWith("-SNAPSHOT"))
+        previousStableVersion.value.getOrElse("0.3.2")
+      else ""
+    },
+    scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
+
+addCommandAlias("docsPreview", "~docs/specularPreview")
