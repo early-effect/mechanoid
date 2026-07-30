@@ -53,18 +53,21 @@ Optimistic sequence numbers always detect write conflicts. Distributed locking p
 """,
       exampleZIO {
         val orderId: OrderId = "order-lock-1"
-        ZIO.scoped {
-          for
-            fsm   <- FSMRuntime(orderId, machine, Pending)
-            _     <- fsm.send(Pay)
-            state <- fsm.currentState
-          yield state
-        }.provide(
-          InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
-          ZLayer.fromZIO(InMemoryFSMInstanceLock.make[OrderId]),
-          TimeoutStrategy.fiber[OrderId],
-          LockingStrategy.distributed[OrderId],
-        ).asDoc
+        ZIO
+          .scoped {
+            for
+              fsm   <- FSMRuntime(orderId, machine, Pending)
+              _     <- fsm.send(Pay)
+              state <- fsm.currentState
+            yield state
+          }
+          .provide(
+            InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
+            ZLayer.fromZIO(InMemoryFSMInstanceLock.make[OrderId]),
+            TimeoutStrategy.fiber[OrderId],
+            LockingStrategy.distributed[OrderId],
+          )
+          .asDoc
       }.assert(state => assertTrue(state == Paid)),
     ),
     section("Lock heartbeat and atomic transitions")(

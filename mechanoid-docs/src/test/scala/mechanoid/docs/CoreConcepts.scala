@@ -25,12 +25,12 @@ object CoreConcepts extends MechanoidDocSpecSuite:
   )
 
   sealed trait OrderState derives Finite
-  case object Created extends OrderState
-  sealed trait Processing extends OrderState derives Finite
+  case object Created           extends OrderState
+  sealed trait Processing       extends OrderState derives Finite
   case object ValidatingPayment extends Processing
-  case object ChargingCard extends Processing
-  case object Completed extends OrderState
-  case object Cancelled extends OrderState
+  case object ChargingCard      extends Processing
+  case object Completed         extends OrderState
+  case object Cancelled         extends OrderState
 
   enum OrderEvent derives Finite:
     case Start, Charge, Finish, Cancel

@@ -59,7 +59,7 @@ transition is **not** persisted. Good for logging, metrics, validation, and quic
         val machine = Machine(
           assembly[OrderState, OrderEvent](
             (Created via StartPayment to Processing)
-              .onEntry { (_, _) => ZIO.unit },
+              .onEntry { (_, _) => ZIO.unit }
           )
         )
         ZIO.scoped {

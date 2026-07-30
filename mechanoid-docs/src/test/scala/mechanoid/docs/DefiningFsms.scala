@@ -24,14 +24,15 @@ object DefiningFsms extends MechanoidDocSpecSuite:
         State2 via Event3 to State3,
       )
     )
+  end Basic
 
   object Hierarchical:
     sealed trait ProcState derives Finite
-    sealed trait Processing extends ProcState derives Finite
+    sealed trait Processing  extends ProcState derives Finite
     case object SpecialState extends Processing
     case object RegularState extends Processing
-    case object Cancelled extends ProcState
-    case object Special extends ProcState
+    case object Cancelled    extends ProcState
+    case object Special      extends ProcState
 
     enum ProcEvent derives Finite:
       case Cancel
@@ -43,6 +44,7 @@ object DefiningFsms extends MechanoidDocSpecSuite:
         all[Processing] via Cancel to Cancelled
       )
     )
+  end Hierarchical
 
   object Timed:
     enum PayState derives Finite:
@@ -60,6 +62,7 @@ object DefiningFsms extends MechanoidDocSpecSuite:
         AwaitingPayment via PaymentTimeout to Cancelled,
       )
     )
+  end Timed
 
   def doc = page("Defining FSMs")(
     section("Assembly and Machine")(

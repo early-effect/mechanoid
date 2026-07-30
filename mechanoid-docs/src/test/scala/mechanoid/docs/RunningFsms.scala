@@ -83,17 +83,20 @@ FSMRuntime(orderId, machine, Pending).provide(
 """,
       exampleZIO {
         val orderId: OrderId = "order-1"
-        ZIO.scoped {
-          for
-            fsm   <- FSMRuntime(orderId, orderMachine, Pending)
-            _     <- fsm.send(Pay)
-            state <- fsm.currentState
-          yield state
-        }.provide(
-          InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
-          TimeoutStrategy.fiber[OrderId],
-          LockingStrategy.optimistic[OrderId],
-        ).asDoc
+        ZIO
+          .scoped {
+            for
+              fsm   <- FSMRuntime(orderId, orderMachine, Pending)
+              _     <- fsm.send(Pay)
+              state <- fsm.currentState
+            yield state
+          }
+          .provide(
+            InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
+            TimeoutStrategy.fiber[OrderId],
+            LockingStrategy.optimistic[OrderId],
+          )
+          .asDoc
       }.assert(state => assertTrue(state == Paid)),
       md"""
 `send` returns a transition outcome. Missing transitions raise `InvalidTransitionError`.

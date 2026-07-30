@@ -45,20 +45,23 @@ flowchart LR
 """,
       exampleZIO {
         val orderId: OrderId = "order-persist-1"
-        ZIO.scoped {
-          for
-            fsm   <- FSMRuntime(orderId, machine, Pending)
-            _     <- fsm.send(Pay)
-            _     <- fsm.send(Ship)
-            _     <- fsm.saveSnapshot
-            state <- fsm.currentState
-            seq   <- fsm.lastSequenceNr
-          yield (state, seq)
-        }.provide(
-          InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
-          TimeoutStrategy.fiber[OrderId],
-          LockingStrategy.optimistic[OrderId],
-        ).asDoc
+        ZIO
+          .scoped {
+            for
+              fsm   <- FSMRuntime(orderId, machine, Pending)
+              _     <- fsm.send(Pay)
+              _     <- fsm.send(Ship)
+              _     <- fsm.saveSnapshot
+              state <- fsm.currentState
+              seq   <- fsm.lastSequenceNr
+            yield (state, seq)
+          }
+          .provide(
+            InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
+            TimeoutStrategy.fiber[OrderId],
+            LockingStrategy.optimistic[OrderId],
+          )
+          .asDoc
       }.assert { case (state, seq) =>
         assertTrue(state == Shipped) && assertTrue(seq >= 2L)
       },

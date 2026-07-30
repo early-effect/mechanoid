@@ -50,20 +50,23 @@ A compact machine with timeout, cancel from multiple states, and persistent runt
 """,
       exampleZIO {
         val orderId: OrderId = "order-ref-1"
-        ZIO.scoped {
-          for
-            fsm   <- FSMRuntime(orderId, orderMachine, Pending)
-            _     <- fsm.send(RequestPayment)
-            _     <- fsm.send(ConfirmPayment)
-            _     <- fsm.send(Ship)
-            state <- fsm.currentState
-          yield state
-        }.provide(
-          InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
-          ZLayer.fromZIO(InMemoryTimeoutStore.make[OrderId]),
-          TimeoutStrategy.durable[OrderId],
-          LockingStrategy.optimistic[OrderId],
-        ).asDoc
+        ZIO
+          .scoped {
+            for
+              fsm   <- FSMRuntime(orderId, orderMachine, Pending)
+              _     <- fsm.send(RequestPayment)
+              _     <- fsm.send(ConfirmPayment)
+              _     <- fsm.send(Ship)
+              state <- fsm.currentState
+            yield state
+          }
+          .provide(
+            InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
+            ZLayer.fromZIO(InMemoryTimeoutStore.make[OrderId]),
+            TimeoutStrategy.durable[OrderId],
+            LockingStrategy.optimistic[OrderId],
+          )
+          .asDoc
       }.assert(state => assertTrue(state == Shipped)),
     ),
     section("Dependencies")(
