@@ -82,6 +82,21 @@ final class InMemoryEventStore[Id, S, E] private (
   override def highestSequenceNr(instanceId: Id): ZIO[Any, MechanoidError, Long] =
     seqNrRef.get.map(_.getOrElse(instanceId, 0L))
 
+  override def deleteEventsTo(instanceId: Id, toSequenceNr: Long): ZIO[Any, MechanoidError, Unit] =
+    for
+      remaining <- eventsRef.modify { events =>
+        val current = events.getOrElse(instanceId, Chunk.empty)
+        val kept    = current.filter(_.sequenceNr > toSequenceNr)
+        val nextMap = if kept.isEmpty then events - instanceId else events + (instanceId -> kept)
+        (kept, nextMap)
+      }
+      _ <- seqNrRef.update { seqNrs =>
+        val newHighest = remaining.map(_.sequenceNr).maxOption.getOrElse(0L)
+        if newHighest == 0L then seqNrs - instanceId
+        else seqNrs + (instanceId -> newHighest)
+      }
+    yield ()
+
   /** Clear all data (for testing). */
   def clear: UIO[Unit] =
     eventsRef.set(Map.empty) *> snapshotsRef.set(Map.empty) *> seqNrRef.set(Map.empty)

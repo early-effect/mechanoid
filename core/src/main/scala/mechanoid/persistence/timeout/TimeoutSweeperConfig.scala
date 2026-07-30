@@ -120,7 +120,8 @@ object TimeoutSweeperConfig:
       claimDuration = Duration.fromSeconds(30),
       backoffOnEmpty = None,
       leaderElection = None,
-      nodeId = java.util.UUID.randomUUID().toString,
+      // Portable across JVM and Scala.js (avoid java.util.UUID.randomUUID / SecureRandom).
+      nodeId = scala.util.Random.alphanumeric.take(16).mkString,
     )
 end TimeoutSweeperConfig
 

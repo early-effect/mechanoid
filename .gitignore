@@ -37,3 +37,7 @@ metals.sbt
 .claude
 CLAUDE.md
 .cursor/
+
+# Node (jsdom / fake-indexeddb for Scala.js tests)
+node_modules/
+test-results/
