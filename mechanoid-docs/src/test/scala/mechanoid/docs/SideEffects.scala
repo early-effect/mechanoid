@@ -3,6 +3,7 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
+import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -48,53 +49,56 @@ object SideEffects extends MechanoidDocSpecSuite:
 Use `.onEntry` for effects that run during `send`. Failures become `ActionFailedError` and the
 transition is **not** persisted. Good for logging, metrics, validation, and quick sync work.
 
-```scala
-(Created via StartPayment to Processing)
-  .onEntry { (event, targetState) =>
-    ZIO.logInfo(s"Starting payment for $$event -> $$targetState")
-  }
-```
+Assemblies also support per-state `.onEnter(state)(…)` / `.onExit(state)(…)` for effects tied to
+arriving in or leaving a state regardless of which edge was taken.
 """,
       exampleZIO {
-        val machine = Machine(
-          assembly[OrderState, OrderEvent](
-            (Created via StartPayment to Processing)
-              .onEntry { (_, _) => ZIO.unit }
-          )
-        )
         ZIO.scoped {
           for
+            log <- Ref.make(List.empty[String])
+            machine = Machine(
+              assembly[OrderState, OrderEvent](
+                (Created via StartPayment to Processing)
+                  .onEntry { (_, target) =>
+                    log.update(s"entered $target" :: _)
+                  }
+              )
+            )
             fsm   <- machine.start(Created)
             _     <- fsm.send(StartPayment)
             state <- fsm.currentState
-          yield state
+            notes <- log.get
+          yield (state, notes)
         }.asDoc
-      }.assert(state => assertTrue(state == Processing)),
+      }.assert { case (state, notes) =>
+        assertTrue(state == Processing) &&
+        assertTrue(notes == List("entered Processing"))
+      },
     ),
     section("Producing effects")(
       md"""
 Use `.producing` for async work that returns another event. The effect forks as a daemon; the
 produced event is sent back to the FSM. Errors are logged and do not fail the original transition.
-
-```scala
-(Processing via event[CheckPayment] to AwaitingResult)
-  .producing { (event, _) =>
-    paymentService.checkStatus(...).map(toEvent)
-  }
-```
 """,
+      example {
+        Mermoid.diagram(
+          MermaidVisualizer.flowchart(producingMachine),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
         ZIO.scoped {
           for
             fsm   <- producingMachine.start(Processing)
             _     <- fsm.send(CheckPayment("order-1"))
-            _     <- ZIO.sleep(50.millis) // allow producing fiber to complete
+            _     <- ZIO.sleep(100.millis) // allow producing fiber to complete
             state <- fsm.currentState
           yield state
         }.asDoc
-      }.assert(state => assertTrue(state == Succeeded || state == AwaitingResult)),
+      }.assert(state => assertTrue(state == Succeeded)),
       md"""
-Combine `.producing` with timeouts for self-healing heartbeats (see `examples/heartbeat`).
+Combine `.producing` with `@@ Aspect.timeout` for self-driving heartbeats (see the Heartbeat
+domain page and `examples/heartbeat`).
 
 Next: [Running FSMs](running-fsms.html).
 """,

@@ -86,7 +86,9 @@ flowchart LR
 `renewalInterval`, `renewalDuration`, `jitterFactor`, `onLockLost`).
 
 `LockedFSMRuntime.withAtomicTransitions` holds one lock across a multi-step sequence so
-validation → approval style flows stay exclusive.
+validation → approval style flows stay exclusive. Contention still surfaces as
+`SequenceConflictError` under optimistic locking; distributed locking reduces that race by
+serializing writers per instance id.
 
 Combine durable timeouts + distributed locking for production multi-node setups:
 

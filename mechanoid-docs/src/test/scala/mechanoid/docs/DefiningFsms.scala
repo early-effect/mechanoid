@@ -3,6 +3,7 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
+import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -32,16 +33,25 @@ object DefiningFsms extends MechanoidDocSpecSuite:
     case object SpecialState extends Processing
     case object RegularState extends Processing
     case object Cancelled    extends ProcState
-    case object Special      extends ProcState
+    case object Escalated    extends ProcState
 
     enum ProcEvent derives Finite:
-      case Cancel
+      case Cancel, Escalate
 
     import ProcEvent.*
 
     val groupMachine = Machine(
       assembly[ProcState, ProcEvent](
-        all[Processing] via Cancel to Cancelled
+        all[Processing] via Cancel to Cancelled,
+      )
+    )
+
+    // Concrete duplicate + override (same pattern as `all[T]` leaves that need a special case).
+    val overrideMachine = Machine(
+      assembly[ProcState, ProcEvent](
+        RegularState via Cancel to Cancelled,
+        SpecialState via Cancel to Cancelled,
+        (SpecialState via Cancel to Escalated) @@ Aspect.overriding,
       )
     )
   end Hierarchical
@@ -64,6 +74,27 @@ object DefiningFsms extends MechanoidDocSpecSuite:
     )
   end Timed
 
+  object Composed:
+    enum ShipState derives Finite:
+      case Draft, Paid, Packed, Shipped
+
+    enum ShipEvent derives Finite:
+      case Pay, Pack, Ship
+
+    import ShipState.*, ShipEvent.*
+
+    // Named fragments: use `inline def` so `++` / Machine can see the trees.
+    // Nested objects may still need the assemblies written inline into Machine.
+    val machine = Machine(
+      assembly[ShipState, ShipEvent](
+        Draft via Pay to Paid
+      ) ++ assembly[ShipState, ShipEvent](
+        Paid via Pack to Packed,
+        Packed via Ship to Shipped,
+      )
+    )
+  end Composed
+
   def doc = page("Defining FSMs")(
     section("Assembly and Machine")(
       md"""
@@ -76,8 +107,17 @@ flowchart LR
 ```
 
 `assembly[S, E](...)` validates transitions at compile time. Pass the assembly **inline** to
-`Machine(...)` so orphan-override detection can see the expression tree.
+`Machine(...)` so orphan-override detection can see the expression tree. Compose with
+`assembly[…](…) ++ assembly[…](…)` (or top-level `inline def` fragments) so the macro can
+still see both sides.
 """,
+      example {
+        import Basic.*
+        Mermoid.diagram(
+          MermaidVisualizer.stateDiagram(machine, Some(Basic.MyState.State1)),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
         import Basic.*, Basic.MyState.*, Basic.MyEvent.*
         ZIO.scoped {
@@ -100,26 +140,63 @@ Mechanoid catches many mistakes before runtime:
 | Orphan overrides | `@@ Aspect.overriding` with nothing to override (warning) |
 | Inline assembly | `Machine(valAssembly)` when orphan detection needs the tree |
 | Produced events | `.producing` returning an unrelated event type |
+| Case collisions | Distinct cases that hash alike (`CaseHasher`); rename the case |
 
-Intentional overrides after `all[T]` use `@@ Aspect.overriding` (see the hierarchical example
-in the repo). Group transitions:
+`all[T]` expands to every leaf under `T`. Here both processing leaves cancel the same way:
 """,
+      example {
+        import Hierarchical.*
+        Mermoid.diagram(
+          MermaidVisualizer.flowchart(groupMachine),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
         import Hierarchical.*, Hierarchical.ProcEvent.*
         ZIO.scoped {
           for
-            fsm   <- groupMachine.start(SpecialState)
-            _     <- fsm.send(Cancel)
-            state <- fsm.currentState
-          yield state
+            fromSpecial <- groupMachine.start(SpecialState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
+            fromRegular <- groupMachine.start(RegularState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
+          yield (fromSpecial, fromRegular)
         }.asDoc
-      }.assert(state => assertTrue(state == Hierarchical.Cancelled)),
+      }.assert { case (fromSpecial, fromRegular) =>
+        assertTrue(fromSpecial == Hierarchical.Cancelled) &&
+        assertTrue(fromRegular == Hierarchical.Cancelled)
+      },
+    ),
+    section("Intentional overrides")(
+      md"""
+When one leaf needs different behavior, declare the broader edge first, then the specific edge
+with `@@ Aspect.overriding` (last wins). Here `SpecialState` escalates instead of cancelling:
+""",
+      example {
+        import Hierarchical.*
+        Mermoid.diagram(
+          MermaidVisualizer.flowchart(overrideMachine),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+      exampleZIO {
+        import Hierarchical.*, Hierarchical.ProcEvent.*
+        ZIO.scoped {
+          for
+            regular <- overrideMachine.start(RegularState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
+            special <- overrideMachine.start(SpecialState).flatMap(fsm => fsm.send(Cancel) *> fsm.currentState)
+          yield (regular, special)
+        }.asDoc
+      }.assert { case (regular, special) =>
+        assertTrue(regular == Hierarchical.Cancelled) &&
+        assertTrue(special == Hierarchical.Escalated)
+      },
     ),
     section("Timeouts on transitions")(
       md"""
 Attach a deadline with `@@ Aspect.timeout(duration, timeoutEvent)`. Fiber-based timeouts fire
 in-process; pair with [Durable Timeouts](durable-timeouts.html) when deadlines must survive
-node failure.
+node failure. DocSpecs send the timeout event directly rather than waiting out the clock.
+
+Entry/exit effects on assemblies (`.onEnter` / `.onExit`) and per-transition `.onEntry` /
+`.producing` are covered on [Side Effects](side-effects.html).
 """,
       exampleZIO {
         import Timed.*, Timed.PayState.*, Timed.PayEvent.*
@@ -127,26 +204,41 @@ node failure.
           for
             fsm   <- timedMachine.start(Pending)
             _     <- fsm.send(StartPayment)
+            _     <- fsm.send(PaymentTimeout)
             state <- fsm.currentState
           yield state
         }.asDoc
-      }.assert(state => assertTrue(state == Timed.PayState.AwaitingPayment)),
+      }.assert(state => assertTrue(state == Timed.PayState.Cancelled)),
     ),
     section("Composable assemblies")(
       md"""
 Build reusable fragments and combine them with `++` / `combine`. Duplicates across combined
 assemblies are still detected at compile time when composed inline into `Machine`.
 
-```scala
-val payments = assembly[S, E](...)
-val shipping = assembly[S, E](...)
-val machine  = Machine(payments ++ shipping)
-```
-
 Block form `assemblyAll[S, E]:` avoids commas between specs when the list gets long.
-
+""",
+      example {
+        import Composed.*
+        Mermoid.diagram(
+          MermaidVisualizer.stateDiagram(machine, Some(Composed.ShipState.Draft)),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+      exampleZIO {
+        import Composed.*, Composed.ShipState.*, Composed.ShipEvent.*
+        ZIO.scoped {
+          for
+            fsm   <- machine.start(Draft)
+            _     <- fsm.send(Pay)
+            _     <- fsm.send(Pack)
+            _     <- fsm.send(Ship)
+            state <- fsm.currentState
+          yield state
+        }.asDoc
+      }.assert(state => assertTrue(state == Composed.ShipState.Shipped)),
+      md"""
 Next: [Side Effects](side-effects.html).
-"""
+""",
     ),
   )
 end DefiningFsms

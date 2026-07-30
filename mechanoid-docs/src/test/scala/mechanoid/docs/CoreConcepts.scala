@@ -3,6 +3,7 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
+import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -46,6 +47,32 @@ object CoreConcepts extends MechanoidDocSpecSuite:
     )
   )
 
+  object Matchers:
+    sealed trait GateState derives Finite
+    case object Idle                        extends GateState
+    case object Open                        extends GateState
+    case object Locked                      extends GateState
+    case object Closed                      extends GateState
+    case class Failed(reason: String)       extends GateState
+    case class Retrying(attempt: Int)       extends GateState
+
+    enum GateEvent derives Finite:
+      case Badge, Panic, Close, Tick, Fail, Retry
+
+    import GateEvent.*
+
+    val matcherMachine = Machine(
+      assembly[GateState, GateEvent](
+        Idle via Badge to Open,
+        anyOf(Open, Locked) via Panic to Closed,
+        Open via Tick to stay,
+        Open via Fail to Failed("boom"),
+        state[Failed] via Retry to Retrying(1),
+        Closed via Panic to stop("already closed"),
+      )
+    )
+  end Matchers
+
   def doc = page("Core Concepts")(
     section("States and events")(
       md"""
@@ -60,8 +87,15 @@ enum LightEvent derives Finite:
 ```
 
 `Finite` proves the type is sealed and non-empty so Mechanoid can validate assemblies and
-visualize the full case set.
+visualize the full case set. Nested sealed traits declare parent types for `all[T]` group
+transitions; only leaf cases are runtime states.
 """,
+      example {
+        Mermoid.diagram(
+          MermaidVisualizer.stateDiagram(trafficMachine, Some(Red)),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
         ZIO.scoped {
           for
@@ -72,43 +106,74 @@ visualize the full case set.
         }.asDoc
       }.assert(state => assertTrue(state == Green)),
     ),
-    section("Transitions")(
+    section("Transitions and matchers")(
       md"""
-```mermaid
-stateDiagram-v2
-  [*] --> Red
-  Red --> Green: Timer
-  Green --> Yellow: Timer
-  Yellow --> Red: Timer
-```
+A transition is `State via Event to Target`. Targets can be a concrete state, `stay`, or
+`stop` / `stop("reason")`. Rich states (cases with fields) match by shape.
 
-A transition is `State via Event to Target`. Targets can be a concrete state, `stay`, or `stop`.
-Rich states (cases with fields) match by shape: a transition from `Failed` matches any `Failed(_)`.
-"""
+| Matcher | Meaning |
+|---------|---------|
+| `all[T]` | Every leaf under sealed trait / enum parent `T` |
+| `anyOf(s1, s2, …)` | Explicit list of states |
+| `state[S]` | Match a state **type** (parameterized cases: `Failed(_)`) |
+| `event[E]` | Match an event **type** (payload carriers) |
+| `viaAnyOf` / `anyOfEvents` | Several events from one state (or group) |
+| `viaAll` | Every event under an event parent type |
+
+The gate machine below uses several of those matchers together:
+""",
+      example {
+        import Matchers.*
+        Mermoid.diagram(
+          MermaidVisualizer.flowchart(matcherMachine),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+      md"""
+`stay` keeps the FSM in `Open` on `Tick`. `state[Failed]` matches any `Failed(_)`. `stop("…")`
+ends the instance:
+""",
+      exampleZIO {
+        import Matchers.*, Matchers.GateEvent.*
+        ZIO.scoped {
+          for
+            fsm     <- matcherMachine.start(Open)
+            stayed  <- fsm.send(Tick)
+            _       <- fsm.send(Fail)
+            retried <- fsm.send(Retry)
+            state   <- fsm.currentState
+          yield (stayed.result, retried.result, state)
+        }.asDoc
+      }.assert { case (stayed, retried, state) =>
+        assertTrue(stayed == TransitionResult.Stay) &&
+        assertTrue(retried == TransitionResult.Goto(Matchers.Retrying(1))) &&
+        assertTrue(state == Matchers.Retrying(1))
+      },
+      exampleZIO {
+        import Matchers.*, Matchers.GateEvent.*
+        ZIO.scoped {
+          for
+            fsm     <- matcherMachine.start(Closed)
+            outcome <- fsm.send(Panic)
+            running <- fsm.isRunning
+          yield (outcome.result, running)
+        }.asDoc
+      }.assert { case (result, running) =>
+        assertTrue(result == TransitionResult.Stop(Some("already closed"))) &&
+        assertTrue(!running)
+      },
     ),
     section("Hierarchical states")(
       md"""
-Organize related states with sealed traits and use `all[T]` for group transitions:
-
-```mermaid
-flowchart TB
-  subgraph Order [OrderState]
-    Created
-    subgraph Processing
-      ValidatingPayment
-      ChargingCard
-    end
-    Completed
-    Cancelled
-  end
-  Created -->|Start| ValidatingPayment
-  ValidatingPayment -->|Charge| ChargingCard
-  ChargingCard -->|Finish| Completed
-  ValidatingPayment -->|Cancel| Cancelled
-  ChargingCard -->|Cancel| Cancelled
-  class Created,ValidatingPayment,ChargingCard,Completed,Cancelled happy
-```
+Organize related states with sealed traits and use `all[T]` for group transitions. Here every
+`Processing` leaf can `Cancel` to `Cancelled`:
 """,
+      example {
+        Mermoid.diagram(
+          MermaidVisualizer.flowchart(hierarchicalMachine),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
         ZIO.scoped {
           for
@@ -120,7 +185,8 @@ flowchart TB
         }.asDoc
       }.assert(state => assertTrue(state == Cancelled)),
       md"""
-Next: [Defining FSMs](defining-fsms.html) for assemblies, timeouts, and compile-time checks.
+Next: [Defining FSMs](defining-fsms.html) for assemblies, overrides, composition, and
+compile-time checks.
 """,
     ),
   )

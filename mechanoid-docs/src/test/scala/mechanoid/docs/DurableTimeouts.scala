@@ -51,6 +51,9 @@ flowchart LR
 |----------|-------|------------------|
 | Fiber | `TimeoutStrategy.fiber[Id]` | No |
 | Durable | `TimeoutStrategy.durable[Id]` (+ `TimeoutStore`) | Yes |
+
+Schedule with durable strategy, then send the timeout event the sweeper would fire (DocSpecs use
+a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
 """,
       exampleZIO {
         val orderId: OrderId = "order-timeout-1"
@@ -59,6 +62,7 @@ flowchart LR
             for
               fsm   <- FSMRuntime(orderId, machine, Pending)
               _     <- fsm.send(StartPayment)
+              _     <- fsm.send(PaymentTimeout)
               state <- fsm.currentState
             yield state
           }
@@ -69,7 +73,7 @@ flowchart LR
             LockingStrategy.optimistic[OrderId],
           )
           .asDoc
-      }.assert(state => assertTrue(state == Started)),
+      }.assert(state => assertTrue(state == Cancelled)),
     ),
     section("TimeoutSweeper")(
       md"""
@@ -84,7 +88,8 @@ A background sweeper:
 Use `TimeoutSweeperConfig` for interval, jitter, batch size, claim duration, and `nodeId`.
 Optional **leader election** via `LeaseStore` keeps a single active sweeper to reduce DB load.
 
-See `examples/heartbeat` for a full sweeper alongside `FSMRuntime`.
+See `examples/heartbeat` for a full sweeper alongside `FSMRuntime`, and [Testing](testing.html)
+for the DocSpec vs TestClock choice.
 
 Next: [Distributed Coordination](distributed-coordination.html).
 """

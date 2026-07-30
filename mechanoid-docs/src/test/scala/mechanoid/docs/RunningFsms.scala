@@ -3,6 +3,7 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
+import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -50,17 +51,39 @@ object RunningFsms extends MechanoidDocSpecSuite:
     section("Simple runtime")(
       md"""
 `machine.start(initialState)` creates an in-memory runtime. The FSM stops when the scope closes.
+`send` returns a transition outcome (`Goto`, `Stay`, or `Stop`). Missing transitions raise
+`InvalidTransitionError`.
 """,
+      example {
+        Mermoid.diagram(
+          MermaidVisualizer.stateDiagram(machine, Some(Initial)),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
         ZIO.scoped {
           for
             fsm     <- machine.start(Initial)
             outcome <- fsm.send(Start)
             state   <- fsm.currentState
-          yield (outcome.result, state)
+            hist    <- fsm.history
+          yield (outcome.result, state, hist.length)
         }.asDoc
-      }.assert { case (result, state) =>
-        assertTrue(result == TransitionResult.Goto(Running)) && assertTrue(state == Running)
+      }.assert { case (result, state, histLen) =>
+        assertTrue(result == TransitionResult.Goto(Running)) &&
+        assertTrue(state == Running) &&
+        assertTrue(histLen >= 1)
+      },
+      exampleZIO {
+        ZIO.scoped {
+          for
+            fsm    <- machine.start(Initial)
+            failed <- fsm.send(Finish).either
+          yield failed
+        }.asDoc
+      }.assert { failed =>
+        assertTrue(failed.isLeft) &&
+        assertTrue(failed.swap.exists(_.isInstanceOf[InvalidTransitionError[?, ?]]))
       },
     ),
     section("Persistent runtime")(
@@ -99,9 +122,7 @@ FSMRuntime(orderId, machine, Pending).provide(
           .asDoc
       }.assert(state => assertTrue(state == Paid)),
       md"""
-`send` returns a transition outcome. Missing transitions raise `InvalidTransitionError`.
-
-Next: [Persistence](persistence.html).
+Next: [Persistence](persistence.html) for recover-on-construct and snapshots.
 """,
     ),
   )
