@@ -73,6 +73,7 @@ Full guide with Mermaid diagrams and docs-as-tests examples:
 ## Development
 
 ```bash
+./scripts/install-git-hooks  # once per clone: pre-commit runs scalafmtCheckAll
 git config core.hooksPath hooks
 sbt docs/test          # DocSpecs
 sbt docs/specularSite  # build site to target/site
