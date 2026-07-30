@@ -87,6 +87,7 @@ libraryDependencies += "dev.zio" %% "zio" % "2.1.26" // provided by mechanoid"""
           )
         ),
       )
+  end site
 
   override def layers: ZLayer[Any, Nothing, SiteBuilder] =
     DocsDiagrams.layers

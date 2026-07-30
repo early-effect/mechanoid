@@ -53,7 +53,7 @@ githubPackagesRepo match {
 }
 
 // zipx: Aggregate verify (tests + Specular docs site) + dual publish by repo + Steward + Pages.
-zipxJavaVersion      := "21"
+zipxJavaVersion      := "25"
 zipxScalaSteward     := true
 zipxWorkflowDispatch := true
 zipxCapabilities ++= {

@@ -43,7 +43,7 @@ flowchart LR
   class NodeA,Store,Sweeper,NodeB happy
   class Gone warn
 ```
-"""
+""",
     ),
     section("TimeoutStrategy")(
       md"""
@@ -54,18 +54,21 @@ flowchart LR
 """,
       exampleZIO {
         val orderId: OrderId = "order-timeout-1"
-        ZIO.scoped {
-          for
-            fsm   <- FSMRuntime(orderId, machine, Pending)
-            _     <- fsm.send(StartPayment)
-            state <- fsm.currentState
-          yield state
-        }.provide(
-          InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
-          ZLayer.fromZIO(InMemoryTimeoutStore.make[OrderId]),
-          TimeoutStrategy.durable[OrderId],
-          LockingStrategy.optimistic[OrderId],
-        ).asDoc
+        ZIO
+          .scoped {
+            for
+              fsm   <- FSMRuntime(orderId, machine, Pending)
+              _     <- fsm.send(StartPayment)
+              state <- fsm.currentState
+            yield state
+          }
+          .provide(
+            InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
+            ZLayer.fromZIO(InMemoryTimeoutStore.make[OrderId]),
+            TimeoutStrategy.durable[OrderId],
+            LockingStrategy.optimistic[OrderId],
+          )
+          .asDoc
       }.assert(state => assertTrue(state == Started)),
     ),
     section("TimeoutSweeper")(
