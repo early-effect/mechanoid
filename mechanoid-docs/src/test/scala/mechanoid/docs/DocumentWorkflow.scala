@@ -13,12 +13,12 @@ object DocumentWorkflow extends MechanoidDocSpecSuite:
   sealed trait DocumentState derives Finite
   case object Draft extends DocumentState
 
-  sealed trait InReview extends DocumentState derives Finite
+  sealed trait InReview        extends DocumentState derives Finite
   case object PendingReview    extends InReview
   case object UnderReview      extends InReview
   case object ChangesRequested extends InReview
 
-  sealed trait Approval extends DocumentState derives Finite
+  sealed trait Approval       extends DocumentState derives Finite
   case object PendingApproval extends Approval
   case object Rejected        extends Approval
 

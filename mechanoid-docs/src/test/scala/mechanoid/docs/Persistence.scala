@@ -96,7 +96,7 @@ same `EventStore`. Session one writes history; session two resumes at `Shipped`:
         ZIO.scoped {
           for
             store <- InMemoryEventStore.make[OrderId, OrderState, OrderEvent]()
-            _ <- ZIO
+            _     <- ZIO
               .scoped {
                 FSMRuntime(orderId, machine, Pending).flatMap { fsm =>
                   fsm.send(Pay) *> fsm.send(Ship) *> fsm.saveSnapshot
