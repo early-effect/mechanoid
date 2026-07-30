@@ -149,15 +149,9 @@ object LockDataTypesSpec extends ZIOSpecDefault:
           id2 <- LockConfig.generateNodeId
         yield assertTrue(id1 != id2)
       },
-      test("generateNodeId includes hostname component") {
+      test("generateNodeId uses portable node- prefix") {
         for id <- LockConfig.generateNodeId
-        yield assertTrue(id.contains("-"))
-      },
-      test("generateNodeId handles hostname failure gracefully") {
-        // generateNodeId uses ZIO.attempt(...).orElseSucceed("unknown")
-        // This tests that the ZIO-based error handling works
-        for id <- LockConfig.generateNodeId
-        yield assertTrue(id.nonEmpty)
+        yield assertTrue(id.startsWith("node-"), id.length > "node-".length)
       },
       test("validation fails for non-positive lockDuration") {
         val result =
