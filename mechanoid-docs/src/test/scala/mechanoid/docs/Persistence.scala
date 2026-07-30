@@ -130,6 +130,27 @@ PostgreSQL ships as `mechanoid-postgres`. Derive JSON codecs with
 `PostgresSchema.initialize` (see `examples/heartbeat`).
 """
     ),
+    section("Browser (Scala.js)")(
+      md"""
+`mechanoid-web` persists to **IndexedDB** (`IndexedDbEventStore`, `IndexedDbTimeoutStore`,
+`IndexedDbInstanceLock`) and notifies peer tabs over **BroadcastChannel**. Peers reconstruct
+`FSMRuntime` from the store (same load-on-demand model as server nodes) so several tabs share
+one instance without a server.
+
+```scala
+libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "<version>"
+
+import mechanoid.web.*
+
+for
+  shared <- SharedFSMRuntime.stores[OrderState, OrderEvent]("my-app")
+  fsm    <- SharedFSMRuntime.start(orderId, machine, Pending, shared)
+yield fsm
+```
+
+Try the live demo under [Browser Persistence](browser-persistence.html).
+"""
+    ),
     section("Optimistic locking")(
       md"""
 Concurrent writers that lose the race see `SequenceConflictError`. Reload and retry, or move up

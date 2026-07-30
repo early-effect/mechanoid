@@ -1,3 +1,5 @@
+// projectMatrix is built into sbt 2.x; only sbt-scalajs is needed for the JS platform row.
+addSbtPlugin("org.scala-js"      % "sbt-scalajs"   % "1.22.0")
 addSbtPlugin("org.scalameta"     % "sbt-scalafmt"  % "2.6.2")
 addSbtPlugin("rocks.earlyeffect" % "sbt-specular"  % "0.11.0")
 addSbtPlugin("com.eed3si9n"      % "sbt-assembly"  % "2.4.1")
@@ -16,12 +18,5 @@ excludeDependencies ++= Seq(
   ExclusionRule("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
 )
 
-// val overrideSemanticDbVersion = "4.14.5"
-
-// // Override semanticdb version for Metals 2.0.0-M2 compatibility
-// dependencyOverrides ++= Seq(
-//   "org.scalameta" % "semanticdb-scalac_2.12.18" % overrideSemanticDbVersion,
-//   "org.scalameta" % "semanticdb-scalac_2.12.19" % overrideSemanticDbVersion,
-//   "org.scalameta" % "semanticdb-scalac_2.12.20" % overrideSemanticDbVersion,
-//   "org.scalameta" % "semanticdb-scalac_2.12.21" % overrideSemanticDbVersion,
-// )
+// jsdom-backed JS test environment (vendored in project/JSDOMNodeJSEnv.scala for sbt 2 / Scala 3).
+// Requires `npm install` (jsdom) at the repo root before web/ JS tests run.

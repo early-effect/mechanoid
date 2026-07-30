@@ -90,12 +90,9 @@ end LockConfig
 
 object LockConfig:
 
-  /** Generate a unique node ID using hostname and random suffix. */
+  /** Generate a unique node ID (portable across JVM and Scala.js). */
   def generateNodeId: UIO[String] =
-    for
-      hostname <- ZIO.attempt(java.net.InetAddress.getLocalHost.getHostName).orElseSucceed("unknown")
-      suffix   <- ZIO.succeed(java.util.UUID.randomUUID().toString.take(8))
-    yield s"$hostname-$suffix"
+    ZIO.succeed(s"node-${scala.util.Random.alphanumeric.take(12).mkString}")
 
   /** Create a LockConfig with default settings and auto-generated nodeId. */
   def make(

@@ -301,7 +301,7 @@ object FSMRuntime:
 
       _ <- runtimeRef.set(Some(runtime))
 
-      // Start timeout for current state if configured
+      // Start timeout for current state if configured (durable schedule preserves matching deadlines)
       _ <- runtime.startTimeout(rebuiltState.current)
     yield runtime
 
@@ -313,7 +313,7 @@ object FSMRuntime:
     * @throws EventReplayError
     *   if an event doesn't match the current FSM definition
     */
-  private def rebuildState[S, E](
+  private[runtime] def rebuildState[S, E](
       machine: Machine[S, E],
       startState: S,
       events: List[StoredEvent[?, E]],
@@ -522,14 +522,15 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
     * same state before firing the timeout event.
     *
     * For durable timeouts, the `stateHash` and `sequenceNr` are persisted to enable validation before firing. This
-    * prevents stale timeouts from firing after the FSM has transitioned or re-entered the same state.
+    * prevents stale timeouts from firing after the FSM has transitioned or re-entered the same state. Reconstructing a
+    * runtime that is still in the same generation reuses the existing absolute deadline (see
+    * [[DurableTimeoutStrategy]]).
     *
     * @param state
     *   The state to start a timeout for
     */
   private[mechanoid] def startTimeout(state: S): ZIO[Any, Nothing, Unit] =
-    val stateHash = machine.stateEnum.caseHash(state)
-    // Get both duration and user-defined timeout event for this state
+    val stateHash     = machine.stateEnum.caseHash(state)
     val timeoutConfig = for
       duration <- machine.timeouts.get(stateHash)
       event    <- machine.timeoutEvents.get(stateHash)
@@ -537,11 +538,8 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
 
     ZIO.foreachDiscard(timeoutConfig) { case (duration, timeoutEvent) =>
       for
-        // Capture current sequence number as generation counter for this visit to the state
         seqNr <- seqNrRef.get
-        // Create callback that fires timeout event if still in same state (for FiberTimeoutStrategy)
         onTimeout: UIO[Unit] = stateRef.get.flatMap { currentFsmState =>
-          // Compare by caseHash (shape) not exact value - timeout fires if still in same state shape
           val currentHash = machine.stateEnum.caseHash(currentFsmState.current)
           ZIO
             .when(currentHash == stateHash)(
@@ -549,7 +547,6 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
             )
             .unit
         }
-        // Pass stateHash and sequenceNr for durable timeout validation
         _ <- timeoutStrategy.schedule(instanceId, stateHash, seqNr, duration, onTimeout)
       yield ()
     }

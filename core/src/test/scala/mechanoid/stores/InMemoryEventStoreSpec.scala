@@ -243,16 +243,20 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
           events <- store.loadEventsFrom("fsm-1", 0L).runCollect
         yield assertTrue(events.size == 2)
       },
-      test("deleteEventsTo default implementation is no-op") {
+      test("deleteEventsTo removes events up to sequence number") {
         for
-          store <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _     <- store.append("fsm-1", Event1, 0L)
-          _     <- store.append("fsm-1", Event2, 1L)
-          // Call deleteEventsTo - default impl does nothing
-          _ <- store.deleteEventsTo("fsm-1", 1L)
-          // Events should still be there
+          store  <- InMemoryEventStore.make[String, TestState, TestEvent]()
+          _      <- store.append("fsm-1", Event1, 0L) // seqNr 1
+          _      <- store.append("fsm-1", Event2, 1L) // seqNr 2
+          _      <- store.deleteEventsTo("fsm-1", 1L)
           events <- store.loadEvents("fsm-1").runCollect
-        yield assertTrue(events.size == 2)
+          seqNr  <- store.highestSequenceNr("fsm-1")
+        yield assertTrue(
+          events.size == 1,
+          events.head.sequenceNr == 2L,
+          events.head.event == Event2,
+          seqNr == 2L,
+        )
       },
       test("currentState returns state from latest snapshot") {
         for

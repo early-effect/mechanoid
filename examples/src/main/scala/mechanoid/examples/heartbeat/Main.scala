@@ -37,7 +37,7 @@ object Layers:
     ZLayer.fromFunction((xa: Transactor) => PostgresTimeoutStore(xa))
 
   val timeoutStrategy: ZLayer[TimeoutStore[String], Nothing, TimeoutStrategy[String]] =
-    ZLayer.fromFunction((store: TimeoutStore[String]) => DurableTimeoutStrategy.make[String](store))
+    DurableTimeoutStrategy.layer[String]
 
   val lockingStrategy: ZLayer[Any, Nothing, LockingStrategy[String]] =
     ZLayer.succeed(OptimisticLockingStrategy.make[String])

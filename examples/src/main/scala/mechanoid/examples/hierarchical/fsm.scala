@@ -1,6 +1,7 @@
 package mechanoid.examples.hierarchical
 
 import mechanoid.*
+import zio.*
 
 // ============================================
 // Document Workflow - Hierarchical States
@@ -101,70 +102,24 @@ case object Abandon              extends DocumentEvent // Abandon from any appro
 
 object DocumentWorkflowFSM:
 
-  /** The document workflow FSM definition.
-    *
-    * This definition demonstrates the power of the suite-style DSL:
-    *
-    *   - **Readable syntax**: `State via Event to Target` reads like plain English
-    *   - **Hierarchical matching**: `all[InReview]` matches ALL leaf states under a parent trait
-    *   - **Override support**: Use `@@ Aspect.overriding` to override parent-level transitions
-    *   - **Machine composition**: Reusable assemblies can be composed with `combine`/`++`
-    *
-    * The `all[T]` pattern is incredibly powerful for:
-    *   - Cancel/abort actions that apply to multiple related states
-    *   - Default behaviors for entire state groups
-    *   - Reducing boilerplate in complex workflows
-    *
-    * Example showing the composition pattern:
-    * {{{
-    * // Compose assemblies with ++ for compile-time duplicate detection
-    * val machine = Machine(
-    *   assembly[DocumentState, DocumentEvent](
-    *     all[InReview] via CancelReview to Draft,
-    *     all[Approval] via Abandon to Cancelled,
-    *   ) ++ assembly[DocumentState, DocumentEvent](
-    *     Draft via SubmitForReview to PendingReview,
-    *     // ... more transitions ...
-    *   )
-    * )
-    * }}}
-    */
+  private def entered(state: DocumentState): (DocumentEvent, DocumentState) => UIO[Unit] =
+    (event, _) => ZIO.logInfo(s"$event → $state")
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Reusable machine fragment: Group behaviors using hierarchical matching
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /** The complete workflow FSM composed using `++`.
-    *
-    * Group behaviors (cancel/abandon from hierarchical state groups) are defined in one assembly, then composed with
-    * specific transitions using `++`. Assembly composition provides full compile-time duplicate detection.
-    *
-    * Override semantics: Last transition wins. If a more specific transition needs to override a group behavior, use
-    * `@@ Aspect.overriding`.
-    */
+  /** Hierarchical document workflow with entry logging on each transition. */
   val definition = Machine(
-    // Group behaviors: cancelable review states, abandonable approval states
     assembly[DocumentState, DocumentEvent](
-      // Any state in the review phase can be cancelled, returning to Draft
-      // This single line applies to: PendingReview, UnderReview, ChangesRequested
-      all[InReview] via CancelReview to Draft,
-      // Any state in the approval phase can be abandoned
-      // This applies to: PendingApproval, Rejected
-      all[Approval] via Abandon to Cancelled,
+      (all[InReview] via CancelReview to Draft).onEntry(entered(Draft)),
+      (all[Approval] via Abandon to Cancelled).onEntry(entered(Cancelled)),
     ) ++ assembly[DocumentState, DocumentEvent](
-      // ===== Draft Phase =====
-      Draft via SubmitForReview to PendingReview,
-      // ===== Review Phase (Individual transitions) =====
-      PendingReview via AssignReviewer to UnderReview,
-      UnderReview via RequestChanges to ChangesRequested,
-      UnderReview via ApproveReview to PendingApproval,
-      ChangesRequested via ResubmitAfterChanges to PendingReview,
-      // ===== Approval Phase (Individual transitions) =====
-      PendingApproval via ApprovePublication to Published,
-      PendingApproval via RejectPublication to Rejected,
-      Rejected via SubmitForReview to PendingReview,
-      // ===== Final States =====
-      Published via Archive to Archived,
+      (Draft via SubmitForReview to PendingReview).onEntry(entered(PendingReview)),
+      (PendingReview via AssignReviewer to UnderReview).onEntry(entered(UnderReview)),
+      (UnderReview via RequestChanges to ChangesRequested).onEntry(entered(ChangesRequested)),
+      (UnderReview via ApproveReview to PendingApproval).onEntry(entered(PendingApproval)),
+      (ChangesRequested via ResubmitAfterChanges to PendingReview).onEntry(entered(PendingReview)),
+      (PendingApproval via ApprovePublication to Published).onEntry(entered(Published)),
+      (PendingApproval via RejectPublication to Rejected).onEntry(entered(Rejected)),
+      (Rejected via SubmitForReview to PendingReview).onEntry(entered(PendingReview)),
+      (Published via Archive to Archived).onEntry(entered(Archived)),
     )
   )
 
