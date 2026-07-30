@@ -36,3 +36,4 @@ metals.sbt
 .mcp.json
 .claude
 CLAUDE.md
+.cursor/

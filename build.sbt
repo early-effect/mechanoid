@@ -1,18 +1,19 @@
-val scala3Version = "3.8.2"
-val zioVersion    = "2.1.24"
+val scala3Version = "3.8.4"
+val zioVersion    = "2.1.26"
 // lets enable semanticdb
 ThisBuild / semanticdbEnabled := true
 
+// Global settings. Iterable/mechanoid overrides group via PUBLISH_ORG from ZipxGitHubPackages.
 ThisBuild / scalaVersion         := scala3Version
-ThisBuild / organization         := sys.env.getOrElse("PUBLISH_ORG", "io.github.russwyte")
-ThisBuild / organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "russwyte")
-ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
+ThisBuild / organization         := sys.env.getOrElse("PUBLISH_ORG", "rocks.earlyeffect")
+ThisBuild / organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "Early Effect")
+ThisBuild / organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
 ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage             := Some(url("https://github.com/russwyte/mechanoid"))
+ThisBuild / homepage             := Some(url("https://github.com/early-effect/mechanoid"))
 ThisBuild / scmInfo              := Some(
   ScmInfo(
-    url("https://github.com/russwyte/mechanoid"),
-    "scm:git@github.com:russwyte/mechanoid.git",
+    url("https://github.com/early-effect/mechanoid"),
+    "scm:git@github.com:early-effect/mechanoid.git",
   )
 )
 ThisBuild / developers := List(
@@ -25,11 +26,9 @@ ThisBuild / developers := List(
 )
 ThisBuild / versionScheme := Some("early-semver")
 
-// --- Fork publishing support (GitHub Packages) ---
-// Forks set PUBLISH_PACKAGES_REPO and GITHUB_TOKEN in CI to publish to their own GitHub Packages.
-// Optionally set PUBLISH_ORG and PUBLISH_ORG_NAME to change the Maven group ID.
+// Dual publish: Central by default; GitHub Packages when CI sets PUBLISH_PACKAGES_REPO.
 val githubPackagesRepo: Option[MavenRepository] =
-  sys.env.get("PUBLISH_PACKAGES_REPO").map("GitHub Packages" at _)
+  sys.env.get("PUBLISH_PACKAGES_REPO").map("GitHub Package Registry" at _)
 
 ThisBuild / credentials ++= sys.env
   .get("GITHUB_TOKEN")
@@ -40,10 +39,68 @@ ThisBuild / credentials ++= sys.env
 
 ThisBuild / resolvers ++= githubPackagesRepo.toSeq
 
-// PGP signing: only when publishing to Maven Central (forks targeting GitHub Packages won't have the key)
+ThisBuild / publishTo := githubPackagesRepo.orElse {
+  val centralSnapshots =
+    "https://central.sonatype.com/repository/maven-snapshots/"
+  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
+  else localStaging.value
+}
+
+// CI-only Central signing. Fork Packages publishes are unsigned (token auth).
 githubPackagesRepo match {
-  case None    => usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
+  case None    => usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
   case Some(_) => Seq.empty
+}
+
+// zipx: Aggregate verify (tests + Specular docs site) + dual publish by repo + Steward + Pages.
+zipxJavaVersion      := "25"
+zipxScalaSteward     := true
+zipxWorkflowDispatch := true
+zipxCapabilities ++= {
+  val upstream = JobCondition.repositoryIs("early-effect/mechanoid")
+  Seq(
+    Capability.once("fmt", "scalafmtCheckAll"),
+    Capability.once(
+      name = "test",
+      command = "test; docs/specularSite",
+      needsCapabilities = List("fmt"),
+      // GHA VMs are disposable; skip Ryuk so Hub flakes on testcontainers/ryuk cannot fail CI.
+      env = Map("TESTCONTAINERS_RYUK_DISABLED" -> EnvValue.plain("true")),
+      extraSteps = _ =>
+        List(
+          Step(
+            name = Some("Pre-pull Postgres image"),
+            run = Some(
+              """|set -euo pipefail
+                 |image=postgres:latest
+                 |max=5
+                 |for attempt in $(seq 1 "$max"); do
+                 |  if docker pull "$image"; then
+                 |    exit 0
+                 |  fi
+                 |  if [ "$attempt" -eq "$max" ]; then
+                 |    echo "Failed to pull $image after $max attempts" >&2
+                 |    exit 1
+                 |  fi
+                 |  sleep $((attempt * 10))
+                 |done
+                 |""".stripMargin
+            ),
+          )
+        ),
+    ),
+    ZipxCentral.release
+      .copy(command = _ => "core/publishSigned; postgres/publishSigned; sonaRelease")
+      .withCondition(upstream),
+    ZipxGitHubPackages.sharedRegistry(
+      repository = Some("Iterable/mechanoid"),
+      packagesRepo = Some("https://maven.pkg.github.com/iterable/maven-packages"),
+      publishOrg = Some("com.iterable"),
+      publishOrgName = Some("Iterable"),
+    ),
+    // Same org reusable workflow as peers; generated into ci.yml (no hand-rolled docs.yml).
+    ZipxDocs.pages().andCondition(upstream),
+  )
 }
 
 ThisBuild / libraryDependencies ++= Seq(
@@ -53,11 +110,11 @@ ThisBuild / libraryDependencies ++= Seq(
   "dev.zio" %% "zio-logging-slf4j"        % "2.5.3"    % "provided",
   "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3"    % "provided",
 
-  "dev.zio" %% "zio-json"          % "0.8.0"    % "provided",
+  "dev.zio" %% "zio-json"          % "0.10.0"   % "provided",
   "dev.zio" %% "zio-test"          % zioVersion % Test,
   "dev.zio" %% "zio-test-sbt"      % zioVersion % Test,
   "dev.zio" %% "zio-test-magnolia" % zioVersion % Test,
-  )
+)
 
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
@@ -71,15 +128,14 @@ lazy val commonSettings = Seq(
   // - Mechanoid$package is just type re-exports with no runtime code
   coverageExcludedPackages := "mechanoid\\.macros\\..*;mechanoid\\.machine\\.Macros.*;mechanoid\\.machine\\.MacroUtils.*;mechanoid\\.machine\\.AssemblyMacros.*;mechanoid\\.machine\\.MachineMacros.*;mechanoid\\.machine\\.ProducingMacros.*;mechanoid\\.core\\.Finite.*;mechanoid\\.core\\.Redactor.*;mechanoid\\.Mechanoid\\$package.*",
   // Minimum coverage thresholds - fail build if coverage drops below these
-  coverageFailOnMinimum := true,
-  coverageMinimumStmtTotal := 95,
+  coverageFailOnMinimum      := true,
+  coverageMinimumStmtTotal   := 95,
   coverageMinimumBranchTotal := 95,
 )
 
 lazy val publishSettings = Seq(
   publishMavenStyle    := true,
   pomIncludeRepository := { _ => false },
-  publishTo            := githubPackagesRepo.map(r => r: Resolver).orElse(localStaging.value),
 )
 
 addCommandAlias("testCoverage", "clean; coverage; test; coverageAggregate; coverageReport")
@@ -92,7 +148,7 @@ commands += Command.single("moduleCoverage") { (state, module) =>
 
 lazy val root = project
   .in(file("."))
-  .aggregate(core, postgres, examples, compileTimeChecks)
+  .aggregate(core, postgres, examples, compileTimeChecks, docs)
   .settings(
     name           := "mechanoid-root",
     publish / skip := true,
@@ -116,11 +172,11 @@ lazy val postgres = project
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
     libraryDependencies ++= Seq(
-      "io.github.russwyte" %% "saferis"      % "0.12.0",
-      "org.postgresql"      % "postgresql"   % "42.7.10",
-      "org.testcontainers"  % "postgresql"   % "1.21.4"   % Test,
-      "dev.zio"            %% "zio-test"     % zioVersion % Test,
-      "dev.zio"            %% "zio-test-sbt" % zioVersion % Test,
+      "rocks.earlyeffect" %% "saferis"      % "0.19.1",
+      "org.postgresql"     % "postgresql"   % "42.7.13",
+      "org.testcontainers" % "postgresql"   % "1.21.4"   % Test,
+      "dev.zio"           %% "zio-test"     % zioVersion % Test,
+      "dev.zio"           %% "zio-test-sbt" % zioVersion % Test,
     ),
     // Override vulnerable transitive deps from testcontainers -> docker-java
     dependencyOverrides ++= Seq(
@@ -137,11 +193,12 @@ lazy val examples = project
   .settings(
     name           := "mechanoid-examples",
     publish / skip := true,
+    zipxPublish    := Some(false),
     // ZIO deps are "provided" at root level, so examples needs them explicitly
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"                      % zioVersion,
       "dev.zio" %% "zio-streams"              % zioVersion,
-      "dev.zio" %% "zio-json"                 % "0.8.0",
+      "dev.zio" %% "zio-json"                 % "0.10.0",
       "dev.zio" %% "zio-logging"              % "2.5.3",
       "dev.zio" %% "zio-logging-slf4j"        % "2.5.3",
       "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3",
@@ -168,6 +225,7 @@ lazy val compileExperiments = project
   .settings(
     name           := "compile-experiments",
     publish / skip := true,
+    zipxPublish    := Some(false),
   )
 
 lazy val compileTimeChecks = project
@@ -176,6 +234,7 @@ lazy val compileTimeChecks = project
   .settings(
     name           := "compile-time-checks",
     publish / skip := true,
+    zipxPublish    := Some(false),
     // Turn warnings into errors so typeCheck can catch them
     scalacOptions ++= Seq(
       "-Werror",
@@ -189,24 +248,69 @@ lazy val compileTimeChecks = project
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
 
+val specularVersion = "0.11.0"
+
+// Docs-as-tests preview: rebuild site then (re)start DocsServe via sbt-reload.
+lazy val specularPreview =
+  taskKey[Unit]("Build specularSite then serve with sbt-reload (prefer alias: docsPreview)")
+
 lazy val docs = project
   .in(file("mechanoid-docs"))
   .dependsOn(core, postgres)
-  .enablePlugins(MdocPlugin)
+  .enablePlugins(SpecularPlugin)
+  .settings(commonSettings)
   .settings(
-    name           := "mechanoid-docs",
-    publish / skip := true,
-    mdocVariables  := Map(
-      "VERSION" -> version.value
-    ),
-    mdocIn  := baseDirectory.value / "docs",
-    mdocOut := (ThisBuild / baseDirectory).value,
-    // ZIO deps are "provided" at root level, so mdoc needs them explicitly
+    name            := "mechanoid-docs",
+    publish / skip  := true,
+    publishArtifact := false,
+    zipxPublish     := Some(false), // never join Central / Packages publish jobs
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"         % zioVersion,
-      "dev.zio" %% "zio-streams" % zioVersion,
-      "dev.zio" %% "zio-json"    % "0.8.0",
+      "dev.zio"           %% "zio"                     % zioVersion,
+      "dev.zio"           %% "zio-streams"             % zioVersion,
+      "dev.zio"           %% "zio-json"                % "0.10.0",
+      "dev.zio"           %% "zio-test"                % zioVersion      % Test,
+      "dev.zio"           %% "zio-test-sbt"            % zioVersion      % Test,
+      "rocks.earlyeffect" %% "specular-core"           % specularVersion % Test,
+      "rocks.earlyeffect" %% "specular-zio-test"       % specularVersion % Test,
+      "rocks.earlyeffect" %% "specular-site"           % specularVersion % Test,
+      "rocks.earlyeffect" %% "early-effect-docs-theme" % specularVersion % Test,
     ),
-    // Override vulnerable transitive dep from mdoc -> undertow
-    dependencyOverrides += "io.undertow" % "undertow-core" % "2.2.39.Final",
+    // Specular's zio-schema-json still pins zio-json 0.9.x; mechanoid uses 0.10.x.
+    libraryDependencySchemes += "dev.zio" %% "zio-json" % VersionScheme.Always,
+    specularBuildMain                     := "mechanoid.docs.BuildSite",
+    specularMetaProject                   := Some(LocalProject("core")),
+    specularArtifactKind                  := "library",
+    specularSiteDirectory                 := (ThisBuild / baseDirectory).value / "target" / "site",
+    // Docs-only (workflow_dispatch) builds are dynver `-ci`; don't advertise that as a Central coord.
+    // Empty string → Specular uses build version (clean v* tags).
+    specularDisplayVersion := {
+      val v = (ThisBuild / version).value
+      if (v.endsWith("-ci") || v.endsWith("-SNAPSHOT"))
+        previousStableVersion.value.getOrElse("0.3.2")
+      else ""
+    },
+    scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    // Preview: specular.site.DocsServe on Test CP after docs/specularSite.
+    Test / mainClass       := Some("specular.site.DocsServe"),
+    Test / run / mainClass := (Test / mainClass).value,
+    Test / runReloadArgs := {
+      val siteDir = specularSiteDirectory.value
+      Seq(specularPort.value.toString, siteDir.getAbsolutePath)
+    },
+    Test / run / javaOptions ++= {
+      val dir = specularSiteDirectory.value.getAbsolutePath
+      Seq(
+        "--sun-misc-unsafe-memory-access=allow",
+        "--enable-native-access=ALL-UNNAMED",
+        s"-Dspecular.site.dir=$dir",
+        s"-Dspecular.site.port=${specularPort.value}",
+      )
+    },
+    specularPreview := Def.uncached {
+      specularSite.value
+      (Test / runReload).value
+    },
   )
+
+addCommandAlias("docsPreview", "~docs/specularPreview")
