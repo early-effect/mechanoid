@@ -7,70 +7,74 @@ import zio.test.*
 
 object Visualization extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Created, Processing, Completed
-
-  enum OrderEvent derives Finite:
-    case Start, Finish
-
-  import OrderState.*, OrderEvent.*
-
-  val machine = Machine(
-    assembly[OrderState, OrderEvent](
-      Created via Start to Processing,
-      Processing via Finish to Completed,
-    )
-  )
-
   def doc = page("Visualization")(
     md"""
-Mechanoid can emit Mermaid and GraphViz from the same `Machine` you run. Useful for docs,
-debugging traces, and sharing designs. Below, Mechanoid generates the Mermaid source and
-[mermoid](https://www.earlyeffect.rocks/mermoid/) renders it on the page — parse failures fail CI.
+Mechanoid emits Mermaid (and GraphViz) from the same `Machine` you run. This site feeds that
+source into [mermoid](https://www.earlyeffect.rocks/mermoid/) so the published picture fails CI
+if the Mermaid cannot parse.
 """,
-    section("Mermaid from a Machine")(
+    section("State diagram")(
       md"""
-Extension methods on `Machine` (via `import mechanoid.*`):
-
-- `toMermaidStateDiagram(initialState)`
-- `toMermaidFlowchart`
-- `toMermaidFlowchartWithTrace(trace)`
-- `toGraphViz(...)` / `toGraphVizWithTrace(...)`
-
-State diagram from `MermaidVisualizer.stateDiagram(machine, Some(Created))`:
+`MermaidVisualizer.stateDiagram(machine, Some(Created))` (also
+`machine.toMermaidStateDiagram(Some(Created))`):
 """,
       example {
+        enum OrderState derives Finite:
+          case Created, Processing, Completed
+
+        enum OrderEvent derives Finite:
+          case Start, Finish
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Created via Start to Processing,
+            Processing via Finish to Completed,
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(machine, Some(Created)),
           DocsDiagrams.diagramConfig,
         )
-      }.assert { ui =>
-        assertTrue(ui.toString.nonEmpty)
-      },
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+    ),
+    section("Flowchart")(
       md"""
-Flowchart from `MermaidVisualizer.flowchart(machine)`:
+`MermaidVisualizer.flowchart(machine)` is often clearer for dense graphs (Domain pages use it):
 """,
       example {
+        enum OrderState derives Finite:
+          case Created, Processing, Completed
+
+        enum OrderEvent derives Finite:
+          case Start, Finish
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Created via Start to Processing,
+            Processing via Finish to Completed,
+          )
+        )
+
         Mermoid.diagram(
           MermaidVisualizer.flowchart(machine),
           DocsDiagrams.diagramConfig,
         )
-      }.assert { ui =>
-        assertTrue(ui.toString.nonEmpty)
-      },
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
     ),
-    section("Traces")(
+    section("Traces and GraphViz")(
       md"""
-`ExecutionTrace` supports sequence diagrams and GraphViz timelines:
+Also available:
 
-```scala
-trace.toMermaidSequenceDiagram
-trace.toGraphVizTimeline
-```
+- `toMermaidFlowchartWithTrace(trace)` / `trace.toMermaidSequenceDiagram`
+- `toGraphViz(...)` / `toGraphVizWithTrace(...)` / `trace.toGraphVizTimeline`
 
-Or call `MermaidVisualizer` / `GraphVizVisualizer` static APIs directly. Feed the Mermaid
-strings into `Mermoid.diagram(...)` (as above) or a fenced `mermaid` block so the picture
-stays in sync with the machine definition.
+Mark sensitive fields with `@sensitive` when exporting. Feed Mermaid strings into
+`Mermoid.diagram(...)` or a fenced `mermaid` block.
 
 Next: [Reference](reference.html).
 """

@@ -3,53 +3,111 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
+import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
 object Reference extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, AwaitingPayment, Paid, Shipped, Delivered, Cancelled
-
-  enum OrderEvent derives Finite:
-    case RequestPayment, ConfirmPayment, Ship, Deliver, Cancel, PaymentTimeout
-
-  import OrderState.*, OrderEvent.*
-
-  val orderMachine = Machine(
-    assembly[OrderState, OrderEvent](
-      (Pending via RequestPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
-      AwaitingPayment via ConfirmPayment to Paid,
-      Paid via Ship to Shipped,
-      Shipped via Deliver to Delivered,
-      AwaitingPayment via PaymentTimeout to Cancelled,
-      anyOf(Pending, AwaitingPayment) via Cancel to Cancelled,
-    )
-  )
-
   type OrderId = String
 
   def doc = page("Reference")(
+    section("Matchers and targets")(
+      md"""
+| Construct | Role |
+|-----------|------|
+| `all[T]` | Every leaf under parent `T` |
+| `anyOf(s1, …)` | Explicit state list |
+| `state[S]` / `event[E]` | Match by type (payload cases) |
+| `viaAnyOf` / `anyOfEvents` / `viaAll` | Multi-event edges |
+| `stay` / `stop` / `stop("reason")` | Self-loop or terminal |
+"""
+    ),
+    section("Aspects and effects")(
+      md"""
+| Construct | Role |
+|-----------|------|
+| `@@ Aspect.timeout(d, e)` | Schedule timeout event on entry to target |
+| `@@ Aspect.overriding` | Intentional duplicate; last wins |
+| `.onEntry` | Sync effect during `send` (failure → `ActionFailedError`) |
+| `.producing` | Fork effect that returns another event |
+| `.onEnter` / `.onExit` on `Assembly` | Per-state lifecycle hooks |
+"""
+    ),
+    section("Runtime layers")(
+      md"""
+| Service | Common layers |
+|---------|----------------|
+| `EventStore` | `InMemoryEventStore.layer`, `mechanoid-postgres` |
+| `TimeoutStrategy` | `fiber[Id]`, `durable[Id]` (+ `TimeoutStore`) |
+| `LockingStrategy` | `optimistic[Id]`, `distributed[Id]` (+ `FSMInstanceLock`) |
+"""
+    ),
     section("Errors")(
       md"""
-| Error | Cause |
-|-------|-------|
+| Error | When |
+|-------|------|
 | `InvalidTransitionError` | No transition for state/event |
 | `FSMStoppedError` | FSM already stopped |
 | `ProcessingTimeoutError` | Timeout during event processing |
 | `ActionFailedError` | Entry / lifecycle action failed |
 | `PersistenceError` | Store operation failed |
-| `SequenceConflictError` | Concurrent modification |
+| `SequenceConflictError` | Concurrent modification at append |
 | `EventReplayError` | Stored event does not match definition |
 | `LockingError` | Distributed lock busy / timeout |
 """
     ),
-    section("Complete path")(
+    section("Compact machine")(
       md"""
-A compact machine with timeout, cancel from multiple states, and persistent runtime:
+Timeout, cancel-from-many, and a durable timeout layer in one path:
 """,
+      example {
+        enum OrderState derives Finite:
+          case Pending, AwaitingPayment, Paid, Shipped, Delivered, Cancelled
+
+        enum OrderEvent derives Finite:
+          case RequestPayment, ConfirmPayment, Ship, Deliver, Cancel, PaymentTimeout
+
+        import OrderState.*, OrderEvent.*
+
+        val orderMachine = Machine(
+          assembly[OrderState, OrderEvent](
+            (Pending via RequestPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
+            AwaitingPayment via ConfirmPayment to Paid,
+            Paid via Ship to Shipped,
+            Shipped via Deliver to Delivered,
+            AwaitingPayment via PaymentTimeout to Cancelled,
+            anyOf(Pending, AwaitingPayment) via Cancel to Cancelled,
+          )
+        )
+
+        Mermoid.diagram(
+          MermaidVisualizer.stateDiagram(orderMachine, Some(Pending)),
+          DocsDiagrams.diagramConfig,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, AwaitingPayment, Paid, Shipped, Delivered, Cancelled
+
+        enum OrderEvent derives Finite:
+          case RequestPayment, ConfirmPayment, Ship, Deliver, Cancel, PaymentTimeout
+
+        import OrderState.*, OrderEvent.*
+
+        val orderMachine = Machine(
+          assembly[OrderState, OrderEvent](
+            (Pending via RequestPayment to AwaitingPayment) @@ Aspect.timeout(30.minutes, PaymentTimeout),
+            AwaitingPayment via ConfirmPayment to Paid,
+            Paid via Ship to Shipped,
+            Shipped via Deliver to Delivered,
+            AwaitingPayment via PaymentTimeout to Cancelled,
+            anyOf(Pending, AwaitingPayment) via Cancel to Cancelled,
+          )
+        )
+
         val orderId: OrderId = "order-ref-1"
+
         ZIO
           .scoped {
             for
@@ -67,19 +125,12 @@ A compact machine with timeout, cancel from multiple states, and persistent runt
             LockingStrategy.optimistic[OrderId],
           )
           .asDoc
-      }.assert(state => assertTrue(state == Shipped)),
-    ),
-    section("Dependencies")(
+      }.assert(state => assertTrue(state.toString == "Shipped")),
       md"""
-- Scala 3.x
-- ZIO 2.x (provided)
-- Optional: `mechanoid-postgres` (Saferis + PostgreSQL)
-
-Key types: `assembly` / `assemblyAll`, `Machine`, `Assembly`, `FSMRuntime`,
-`TimeoutStrategy`, `LockingStrategy`, `TimeoutSweeper`, `FSMInstanceLock`, `LeaderElection`.
+Dependencies: Scala 3, ZIO 2 (provided), optional `mechanoid-postgres`.
 
 Next: [Examples](examples.html).
-"""
+""",
     ),
   )
 end Reference

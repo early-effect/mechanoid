@@ -7,30 +7,35 @@ object Examples extends MechanoidDocSpecSuite:
 
   def doc = page("Examples")(
     md"""
-The `examples` module in the repo ships runnable programs that climb the production ladder.
+Walk the domain pages first for asserted slices and rendered graphs, then clone the repo for
+full runnable mains (Postgres, sweepers, services).
 """,
+    section("On this site")(
+      md"""
+| Page | Shows |
+|------|-------|
+| [Document Workflow](document-workflow.html) | Nested sealed states, `all[T]`, `++` |
+| [Heartbeat](heartbeat.html) | `.producing` + `@@ Aspect.timeout` |
+| [Orders](orders.html) | `event[T]` payloads, shipping timeout self-loop |
+"""
+    ),
     section("In the repository")(
       md"""
-| Example | Path | Shows |
-|---------|------|-------|
-| Heartbeat | `examples/.../heartbeat` | Producing effects, durable timeouts, sweeper |
-| Hierarchical | `examples/.../hierarchical` | Nested sealed states, document workflow |
-| Pet store | `examples/.../petstore` | Larger domain FSM with services |
-
-Clone [early-effect/mechanoid](https://github.com/early-effect/mechanoid) and run from sbt:
+| Example | Path | Adds beyond the DocSpec |
+|---------|------|-------------------------|
+| Hierarchical | `examples/.../hierarchical` | Full document lifecycle |
+| Heartbeat | `examples/.../heartbeat` | Postgres stores, `TimeoutSweeper` |
+| Pet store | `examples/.../petstore` | Richer events and service wiring |
 
 ```bash
-sbt examples/run
-# or a specific main, e.g. mechanoid.examples.heartbeat.Main
+sbt "examples/runMain mechanoid.examples.heartbeat.Main"
 ```
-""",
-      exampleValue("examples").assert(s => assertTrue(s.nonEmpty)),
+"""
     ),
     section("Where to go next")(
       md"""
-- [Overview](overview.html) — story and ladder
-- [Quick Start](quick-start.html) — install and first `send`
-- [Durable Timeouts](durable-timeouts.html) / [Distributed Coordination](distributed-coordination.html) — production rungs
+- [Overview](overview.html) - story and ladder
+- [Testing](testing.html) - how DocSpecs and unit tests share patterns
 - Hub: [earlyeffect.rocks](https://www.earlyeffect.rocks)
 """
     ),

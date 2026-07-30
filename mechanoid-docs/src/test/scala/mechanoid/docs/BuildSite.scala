@@ -15,6 +15,7 @@ object BuildSite extends DocsSite:
       overview: Overview.type,
       why: WhyMechanoid.type,
       quickStart: QuickStart.type,
+      testing: Testing.type,
   )
 
   @navLabel("Defining Machines")
@@ -32,6 +33,13 @@ object BuildSite extends DocsSite:
       distributed: DistributedCoordination.type,
   )
 
+  @navLabel("Domains")
+  final case class DomainsNav(
+      documentWorkflow: DocumentWorkflow.type,
+      heartbeat: ServiceHeartbeat.type,
+      orders: Orders.type,
+  )
+
   @navLabel("Reference")
   final case class ReferenceNav(
       visualization: Visualization.type,
@@ -43,6 +51,7 @@ object BuildSite extends DocsSite:
       gettingStarted: GettingStartedNav,
       defining: DefiningNav,
       running: RunningNav,
+      domains: DomainsNav,
       reference: ReferenceNav,
   ) derives SiteNav
 
@@ -59,14 +68,14 @@ object BuildSite extends DocsSite:
         nav = Some(siteNav),
         pages = siteNav.pages,
         summaryMarkdown = Some(
-          """**Mechanoid** is a type-safe finite state machine library for Scala 3 and ZIO.
-It sits comfortably alongside the effects you already write: states and events as enums,
-transitions as ZIO effects, and assemblies validated at compile time. Start in memory,
-then add persistence, durable timeouts, and distributed coordination as ZIO layers when
-your domain needs them.
+          """**Mechanoid** makes domain workflows an explicit, typed state graph on ZIO:
+enums (or sealed traits) for states and events, a tailored DSL for transitions and
+composition, and assemblies validated at compile time. Keep writing ZIO for effects;
+add persistence, durable timeouts, and distributed coordination as optional layers when
+the domain needs them.
 
-Every example on this site is a Specular DocSpec: it asserts under zio-test when the site
-is built.
+Every page here is a Specular DocSpec: examples assert under zio-test, and machines are
+rendered with mermoid so the picture cannot drift from the code.
 """
         ),
         installSnippets = Vector(

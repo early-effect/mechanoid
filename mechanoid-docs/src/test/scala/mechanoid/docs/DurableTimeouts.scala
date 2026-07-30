@@ -8,22 +8,6 @@ import zio.test.*
 
 object DurableTimeouts extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, Started, Done, Cancelled
-
-  enum OrderEvent derives Finite:
-    case StartPayment, Complete, PaymentTimeout
-
-  import OrderState.*, OrderEvent.*
-
-  val machine = Machine(
-    assembly[OrderState, OrderEvent](
-      (Pending via StartPayment to Started) @@ Aspect.timeout(1.hour, PaymentTimeout),
-      Started via Complete to Done,
-      Started via PaymentTimeout to Cancelled,
-    )
-  )
-
   type OrderId = String
 
   def doc = page("Durable Timeouts")(
@@ -32,8 +16,7 @@ object DurableTimeouts extends MechanoidDocSpecSuite:
 Fiber timeouts are fast and local. If the node dies while an FSM sits in a timed state, that
 fiber is gone. Durable timeouts store deadlines in a `TimeoutStore` so another node's sweeper
 can fire them.
-""",
-      md"""
+
 ```mermaid
 flowchart LR
   NodeA[Node A schedules] --> Store[TimeoutStore]
@@ -43,7 +26,7 @@ flowchart LR
   class NodeA,Store,Sweeper,NodeB happy
   class Gone warn
 ```
-""",
+"""
     ),
     section("TimeoutStrategy")(
       md"""
@@ -51,14 +34,35 @@ flowchart LR
 |----------|-------|------------------|
 | Fiber | `TimeoutStrategy.fiber[Id]` | No |
 | Durable | `TimeoutStrategy.durable[Id]` (+ `TimeoutStore`) | Yes |
+
+Schedule with durable strategy, then send the timeout event the sweeper would fire (DocSpecs use
+a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
 """,
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Started, Done, Cancelled
+
+        enum OrderEvent derives Finite:
+          case StartPayment, Complete, PaymentTimeout
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            (Pending via StartPayment to Started) @@ Aspect.timeout(1.hour, PaymentTimeout),
+            Started via Complete to Done,
+            Started via PaymentTimeout to Cancelled,
+          )
+        )
+
         val orderId: OrderId = "order-timeout-1"
+
         ZIO
           .scoped {
             for
               fsm   <- FSMRuntime(orderId, machine, Pending)
               _     <- fsm.send(StartPayment)
+              _     <- fsm.send(PaymentTimeout)
               state <- fsm.currentState
             yield state
           }
@@ -69,7 +73,7 @@ flowchart LR
             LockingStrategy.optimistic[OrderId],
           )
           .asDoc
-      }.assert(state => assertTrue(state == Started)),
+      }.assert(state => assertTrue(state.toString == "Cancelled")),
     ),
     section("TimeoutSweeper")(
       md"""
@@ -84,7 +88,8 @@ A background sweeper:
 Use `TimeoutSweeperConfig` for interval, jitter, batch size, claim duration, and `nodeId`.
 Optional **leader election** via `LeaseStore` keeps a single active sweeper to reduce DB load.
 
-See `examples/heartbeat` for a full sweeper alongside `FSMRuntime`.
+See `examples/heartbeat` for a full sweeper alongside `FSMRuntime`, and [Testing](testing.html)
+for the DocSpec vs TestClock choice.
 
 Next: [Distributed Coordination](distributed-coordination.html).
 """

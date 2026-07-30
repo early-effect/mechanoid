@@ -250,6 +250,10 @@ lazy val compileTimeChecks = project
 
 val specularVersion = "0.11.0"
 
+// Docs-as-tests preview: rebuild site then (re)start DocsServe via sbt-reload.
+lazy val specularPreview =
+  taskKey[Unit]("Build specularSite then serve with sbt-reload (prefer alias: docsPreview)")
+
 lazy val docs = project
   .in(file("mechanoid-docs"))
   .dependsOn(core, postgres)
@@ -287,6 +291,26 @@ lazy val docs = project
     },
     scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    // Preview: specular.site.DocsServe on Test CP after docs/specularSite.
+    Test / mainClass       := Some("specular.site.DocsServe"),
+    Test / run / mainClass := (Test / mainClass).value,
+    Test / runReloadArgs := {
+      val siteDir = specularSiteDirectory.value
+      Seq(specularPort.value.toString, siteDir.getAbsolutePath)
+    },
+    Test / run / javaOptions ++= {
+      val dir = specularSiteDirectory.value.getAbsolutePath
+      Seq(
+        "--sun-misc-unsafe-memory-access=allow",
+        "--enable-native-access=ALL-UNNAMED",
+        s"-Dspecular.site.dir=$dir",
+        s"-Dspecular.site.port=${specularPort.value}",
+      )
+    },
+    specularPreview := Def.uncached {
+      specularSite.value
+      (Test / runReload).value
+    },
   )
 
 addCommandAlias("docsPreview", "~docs/specularPreview")

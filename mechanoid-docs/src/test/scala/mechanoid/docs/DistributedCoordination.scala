@@ -8,21 +8,6 @@ import zio.test.*
 
 object DistributedCoordination extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, Paid, Shipped
-
-  enum OrderEvent derives Finite:
-    case Pay, Ship
-
-  import OrderState.*, OrderEvent.*
-
-  val machine = Machine(
-    assembly[OrderState, OrderEvent](
-      Pending via Pay to Paid,
-      Paid via Ship to Shipped,
-    )
-  )
-
   type OrderId = String
 
   def doc = page("Distributed Coordination")(
@@ -52,7 +37,23 @@ Optimistic sequence numbers always detect write conflicts. Distributed locking p
 | `LockingStrategy.distributed[Id]` | Acquire `FSMInstanceLock` before each transition |
 """,
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
         val orderId: OrderId = "order-lock-1"
+
         ZIO
           .scoped {
             for
@@ -68,7 +69,7 @@ Optimistic sequence numbers always detect write conflicts. Distributed locking p
             LockingStrategy.distributed[OrderId],
           )
           .asDoc
-      }.assert(state => assertTrue(state == Paid)),
+      }.assert(state => assertTrue(state.toString == "Paid")),
     ),
     section("Lock heartbeat and atomic transitions")(
       md"""
@@ -86,7 +87,9 @@ flowchart LR
 `renewalInterval`, `renewalDuration`, `jitterFactor`, `onLockLost`).
 
 `LockedFSMRuntime.withAtomicTransitions` holds one lock across a multi-step sequence so
-validation → approval style flows stay exclusive.
+validation → approval style flows stay exclusive. Contention still surfaces as
+`SequenceConflictError` under optimistic locking; distributed locking reduces that race by
+serializing writers per instance id.
 
 Combine durable timeouts + distributed locking for production multi-node setups:
 

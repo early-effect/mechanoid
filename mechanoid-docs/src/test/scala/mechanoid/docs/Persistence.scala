@@ -8,43 +8,47 @@ import zio.test.*
 
 object Persistence extends MechanoidDocSpecSuite:
 
-  enum OrderState derives Finite:
-    case Pending, Paid, Shipped
-
-  enum OrderEvent derives Finite:
-    case Pay, Ship
-
-  import OrderState.*, OrderEvent.*
-
-  val machine = Machine(
-    assembly[OrderState, OrderEvent](
-      Pending via Pay to Paid,
-      Paid via Ship to Shipped,
-    )
-  )
-
   type OrderId = String
 
   def doc = page("Persistence")(
     section("Event sourcing model")(
       md"""
-```mermaid
-flowchart LR
-  Send[fsm.send] --> Action[Transition action]
-  Action --> Append[EventStore.append]
-  Append --> Snap[Optional snapshot]
-  Recover[Startup] --> LoadSnap[Load snapshot]
-  LoadSnap --> Replay[Replay events after seq]
-  Replay --> Ready[Resume]
-  class Send,Action,Append,Snap,Recover,LoadSnap,Replay,Ready happy
-```
+Writes append after the transition succeeds. Recovery loads an optional snapshot, then replays
+later events (transition actions run; entry/producing do not).
 
-1. Events persist **after** the transition action succeeds
-2. State reconstructs by replaying events
-3. Snapshots shorten recovery to “events since last snapshot”
+```mermaid
+flowchart TB
+  subgraph writePath [Write path]
+    Send[fsm.send] --> Action[Transition action]
+    Action --> Append[EventStore.append]
+    Append --> Snap[Optional snapshot]
+  end
+  subgraph recoverPath [Recover path]
+    Start[FSMRuntime construct] --> LoadSnap[Load snapshot]
+    LoadSnap --> Replay[Replay events after seq]
+    Replay --> Ready[Resume]
+  end
+  class Send,Action,Append,Snap,Start,LoadSnap,Replay,Ready happy
+```
 """,
       exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
         val orderId: OrderId = "order-persist-1"
+
         ZIO
           .scoped {
             for
@@ -54,7 +58,7 @@ flowchart LR
               _     <- fsm.saveSnapshot
               state <- fsm.currentState
               seq   <- fsm.lastSequenceNr
-            yield (state, seq)
+            yield (state.toString, seq)
           }
           .provide(
             InMemoryEventStore.layer[OrderId, OrderState, OrderEvent],
@@ -63,14 +67,67 @@ flowchart LR
           )
           .asDoc
       }.assert { case (state, seq) =>
-        assertTrue(state == Shipped) && assertTrue(seq >= 2L)
+        assertTrue(state == "Shipped") && assertTrue(seq >= 2L)
       },
     ),
-    section("EventStore")(
+    section("Recover after restart")(
+      md"""
+There is no separate `recover` API: construct `FSMRuntime` again with the same id against the
+same `EventStore`. Session one writes history; session two resumes at `Shipped`:
+""",
+      exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
+        val orderId: OrderId = "order-recover-1"
+
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[OrderId, OrderState, OrderEvent]()
+            _     <- ZIO
+              .scoped {
+                FSMRuntime(orderId, machine, Pending).flatMap { fsm =>
+                  fsm.send(Pay) *> fsm.send(Ship) *> fsm.saveSnapshot
+                }
+              }
+              .provide(
+                ZLayer.succeed(store),
+                TimeoutStrategy.fiber[OrderId],
+                LockingStrategy.optimistic[OrderId],
+              )
+            recovered <- ZIO
+              .scoped {
+                FSMRuntime(orderId, machine, Pending).flatMap(_.currentState)
+              }
+              .provide(
+                ZLayer.succeed(store),
+                TimeoutStrategy.fiber[OrderId],
+                LockingStrategy.optimistic[OrderId],
+              )
+          yield recovered
+        }.asDoc
+      }.assert(state => assertTrue(state.toString == "Shipped")),
+    ),
+    section("EventStore and codecs")(
       md"""
 Implement `EventStore[Id, S, E]` for your backend (`append`, `loadEvents`, snapshots, …).
 `append` must use optimistic locking: atomically check `expectedSeqNr`, then increment.
-PostgreSQL ships as `mechanoid-postgres`.
+
+PostgreSQL ships as `mechanoid-postgres`. Derive JSON codecs with
+`import mechanoid.postgres.*` (`finiteJsonCodec` from `Finite`) and initialize schema via
+`PostgresSchema.initialize` (see `examples/heartbeat`).
 """
     ),
     section("Optimistic locking")(
