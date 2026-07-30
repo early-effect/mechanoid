@@ -177,7 +177,7 @@ object TransitionSpec:
       stateNames: List[String],
       eventNames: List[String],
       target: TargetS,
-      timeout: Option[Duration] = None,
+      timeout: Option[Duration],
   ): TransitionSpec[SourceS, SourceE, TargetS] =
     TransitionSpec(
       stateHashes = stateHashes,
@@ -191,6 +191,16 @@ object TransitionSpec:
       entryEffect = None,
       producingEffect = None,
     )
+
+  /** Create a goto transition spec with no entry timeout. */
+  def goto[SourceS, SourceE, TargetS](
+      stateHashes: Set[Int],
+      eventHashes: Set[Int],
+      stateNames: List[String],
+      eventNames: List[String],
+      target: TargetS,
+  ): TransitionSpec[SourceS, SourceE, TargetS] =
+    goto(stateHashes, eventHashes, stateNames, eventNames, target, None)
 
   /** Create a goto transition spec to a timed target with user-defined timeout event.
     *

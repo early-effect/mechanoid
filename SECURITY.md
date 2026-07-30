@@ -3,7 +3,7 @@
 ## Reporting Vulnerabilities
 
 If you discover a security vulnerability, please report it by opening a private security advisory at:
-https://github.com/russwyte/mechanoid/security/advisories/new
+https://github.com/early-effect/mechanoid/security/advisories/new
 
 Do not open a public issue for security vulnerabilities.
 
@@ -13,7 +13,7 @@ Configure branch protection for `main` in **Settings > Branches > Branch protect
 
 - **Require a pull request before merging** (1 approval required)
 - **Require status checks to pass before merging**
-  - Required checks: `build` (Scala CI)
+  - Required checks: `fmt`, `test` (CI)
 - **Require branches to be up to date before merging**
 - **Require signed commits** (PGP signing is already configured for this project)
 - **Do not allow force pushes**
