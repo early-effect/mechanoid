@@ -250,8 +250,8 @@ lazy val postgres = project
       "dev.zio"           %% "zio-test-sbt" % zioVersion % Test,
     ),
     dependencyOverrides ++= Seq(
-      "com.fasterxml.jackson.core" % "jackson-core"        % "2.18.6",
-      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.18.6",
+      "com.fasterxml.jackson.core" % "jackson-core"        % "2.18.9",
+      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.18.9",
       "org.apache.commons"         % "commons-compress"    % "1.28.0",
     ),
   )
