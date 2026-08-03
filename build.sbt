@@ -63,7 +63,7 @@ val mechanoidJsCiSetup: StepContext => List[Step] = _ =>
   List(
     Step(
       name = Some("Set up Node"),
-      uses = Some("actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"), // v6.4.0
+      uses = Some("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"), // v7.0.0
       `with` = scala.collection.immutable.ListMap("node-version" -> "24", "cache" -> "npm"),
     ),
     Step(
