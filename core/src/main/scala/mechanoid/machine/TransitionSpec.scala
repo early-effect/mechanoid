@@ -130,7 +130,7 @@ final case class TransitionSpec[+SourceS, +E, +TargetS](
   inline infix def producing[E2 <: E @uncheckedVariance](
       f: (E, TargetS) => ZIO[Any, Any, E2]
   ): TransitionSpec[SourceS, E, TargetS] =
-    ${ ProducingMacros.producingImpl[SourceS, E, TargetS, E2]('this, 'f) }
+    ${ ProducingMacros.producingImpl[SourceS, E, TargetS, E2]('{ this }, 'f) }
 
   /** Configure timeout when entering target state. */
   def withTimeout(duration: Duration): TransitionSpec[SourceS, E, TargetS] =

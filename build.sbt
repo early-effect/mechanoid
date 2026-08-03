@@ -63,7 +63,7 @@ val mechanoidJsCiSetup: StepContext => List[Step] = _ =>
   List(
     Step(
       name = Some("Set up Node"),
-      uses = Some("actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"), // v6.4.0
+      uses = Some("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"), // v7.0.0
       `with` = scala.collection.immutable.ListMap("node-version" -> "24", "cache" -> "npm"),
     ),
     Step(
@@ -250,8 +250,8 @@ lazy val postgres = project
       "dev.zio"           %% "zio-test-sbt" % zioVersion % Test,
     ),
     dependencyOverrides ++= Seq(
-      "com.fasterxml.jackson.core" % "jackson-core"        % "2.18.6",
-      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.18.6",
+      "com.fasterxml.jackson.core" % "jackson-core"        % "2.18.9",
+      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.18.9",
       "org.apache.commons"         % "commons-compress"    % "1.28.0",
     ),
   )
