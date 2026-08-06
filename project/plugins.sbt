@@ -7,7 +7,7 @@ addSbtPlugin("ch.epfl.scala"     % "sbt-scalafix"  % "0.14.7")
 addSbtPlugin("rocks.earlyeffect" % "sbt-dynver-ci" % "0.2.2")
 addSbtPlugin("com.github.sbt"    % "sbt-pgp"       % "2.3.1")
 addSbtPlugin("org.scoverage"     % "sbt-scoverage" % "2.4.4")
-addSbtPlugin("rocks.earlyeffect" % "sbt-zipx"      % "0.1.5")
+addSbtPlugin("rocks.earlyeffect" % "sbt-zipx"      % "0.1.6")
 addSbtPlugin("com.jamesward"     % "sbt-reload"    % "0.0.7")
 
 // Workaround: sbt-scalafmt pulls in _2.13 variants via scalafmt-dynamic (for3Use2_13),
