@@ -1,5 +1,8 @@
 import org.scalajs.linker.interface.ModuleKind
 import org.scalajs.sbtplugin.ScalaJSPlugin.autoImport.*
+// sbt has its own `Exec` (a queued command), so the two wildcards collide. An explicit named
+// import outranks both, and this is the one we mean: the shell AST's simple command.
+import zipx.shell.Exec
 
 val scala3Version = "3.8.4"
 val zioVersion    = "2.1.26"
@@ -59,77 +62,83 @@ githubPackagesRepo match {
 
 val mechanoidJavaOpts = Map("JAVA_OPTS" -> EnvValue.plain("-Dfile.encoding=UTF-8"))
 
-val mechanoidJsCiSetup: StepContext => List[Step] = _ =>
-  List(
-    Step(
-      name = Some("Set up Node"),
-      uses = Some("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"), // v7.0.0
-      `with` = scala.collection.immutable.ListMap("node-version" -> "24", "cache" -> "npm"),
-    ),
-    Step(
-      name = Some("Install Node dependencies (jsdom, fake-indexeddb)"),
-      run = Some("npm ci"),
-    ),
-  )
+// Shared capability names as vals, so a reference to one is checked rather than spelled twice.
+val Fmt     = CapabilityName("fmt")
+val TestJvm = CapabilityName("test-jvm")
+val TestJs  = CapabilityName("test-js")
 
-val postgresPrePull: StepContext => List[Step] = _ =>
-  List(
-    Step(
-      name = Some("Pre-pull Postgres image"),
-      run = Some(
-        """|set -euo pipefail
-           |image=postgres:latest
-           |max=5
-           |for attempt in $(seq 1 "$max"); do
-           |  if docker pull "$image"; then
-           |    exit 0
-           |  fi
-           |  if [ "$attempt" -eq "$max" ]; then
-           |    echo "Failed to pull $image after $max attempts" >&2
-           |    exit 1
-           |  fi
-           |  sleep $((attempt * 10))
-           |done
-           |""".stripMargin
-      ),
+val mechanoidJsCiSetup = Steps.built("mechanoid-js-ci")(
+  // Step.uses is inline, so an unpinned or malformed ref is a compile error naming it.
+  Step
+    .uses("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020") // v7.0.0
+    .named("Set up Node")
+    .withInputs(scala.collection.immutable.ListMap("node-version" -> "24", "cache" -> "npm")),
+  Step.run(Script(Exec("npm", Word.lit("ci")))).named("Install Node dependencies (jsdom, fake-indexeddb)"),
+)
+
+/** Pre-pull with retries. Verbatim shell, so runRaw declares the escape hatch and earns a
+  * generate-time warning naming the step, rather than hiding it in a bare `run =`.
+  */
+val postgresPrePull = Steps.built("postgres-pre-pull")(
+  Step
+    .runRaw(
+      """|set -euo pipefail
+         |image=postgres:latest
+         |max=5
+         |for attempt in $(seq 1 "$max"); do
+         |  if docker pull "$image"; then
+         |    exit 0
+         |  fi
+         |  if [ "$attempt" -eq "$max" ]; then
+         |    echo "Failed to pull $image after $max attempts" >&2
+         |    exit 1
+         |  fi
+         |  sleep $((attempt * 10))
+         |done
+         |""".stripMargin
     )
-  )
+    .named("Pre-pull Postgres image")
+)
 
 // zipx: platform verify + dual publish by repo + Steward + Pages.
-zipxJavaVersion      := "25"
+zipxJavaVersion      := JdkVersion("25")
 zipxScalaSteward     := true
 zipxWorkflowDispatch := true
 zipxCapabilities ++= {
   val upstream = JobCondition.repositoryIs("early-effect/mechanoid")
   Seq(
-    Capability.once("fmt", "scalafmtCheckAll"),
+    zipxTasks.once(Fmt, scalafmtCheckAll),
     Capability.once(
-      name = "test-jvm",
-      command = "testJVM",
-      needsCapabilities = List("fmt"),
+      name = TestJvm,
+      // A command alias, not a task key, so it stays a literal SbtCommand.
+      command = SbtCommand("testJVM"),
+      needsCapabilities = List(Fmt),
       env = Map("TESTCONTAINERS_RYUK_DISABLED" -> EnvValue.plain("true")) ++ mechanoidJavaOpts,
       extraSteps = postgresPrePull,
     ),
     Capability.once(
-      name = "test-js",
-      command = "testJS",
-      needsCapabilities = List("fmt"),
+      name = TestJs,
+      command = SbtCommand("testJS"),
+      needsCapabilities = List(Fmt),
       extraSteps = mechanoidJsCiSetup,
       env = mechanoidJavaOpts,
     ),
     // Keep required-check name `test` stable; waits on both platforms.
     Capability.once(
-      name = "test",
-      command = "about",
-      needsCapabilities = List("test-jvm", "test-js"),
+      name = Capability.TestName,
+      command = SbtCommand("about"),
+      needsCapabilities = List(TestJvm, TestJs),
     ),
     ZipxCentral.release
       .copy(command =
-        _ => "core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease"
+        _ =>
+          SbtCommand("core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease")
       )
       .withCondition(upstream),
     ZipxGitHubPackages.sharedRegistry(
-      repository = Some("Iterable/mechanoid"),
+      // 0.1.6 dropped the `repository` param, which used to become this fork gate implicitly.
+      // Stated explicitly so the Packages publish still cannot run outside Iterable/mechanoid.
+      condition = Some(JobCondition.repositoryIs("Iterable/mechanoid")),
       packagesRepo = Some("https://maven.pkg.github.com/iterable/maven-packages"),
       publishOrg = Some("com.iterable"),
       publishOrgName = Some("Iterable"),
