@@ -1,7 +1,7 @@
 // projectMatrix is built into sbt 2.x; only sbt-scalajs is needed for the JS platform row.
 addSbtPlugin("org.scala-js"      % "sbt-scalajs"   % "1.22.0")
 addSbtPlugin("org.scalameta"     % "sbt-scalafmt"  % "2.6.2")
-addSbtPlugin("rocks.earlyeffect" % "sbt-specular"  % "0.11.0")
+addSbtPlugin("rocks.earlyeffect" % "sbt-specular"  % "0.12.0")
 addSbtPlugin("com.eed3si9n"      % "sbt-assembly"  % "2.4.1")
 addSbtPlugin("ch.epfl.scala"     % "sbt-scalafix"  % "0.14.7")
 addSbtPlugin("rocks.earlyeffect" % "sbt-dynver-ci" % "0.2.2")
