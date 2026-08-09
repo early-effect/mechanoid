@@ -251,19 +251,17 @@ lazy val postgres = project
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
     libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio"          % zioVersion % "provided",
-      "dev.zio"           %% "zio-streams"  % zioVersion % "provided",
-      "dev.zio"           %% "zio-json"     % "0.10.0"   % "provided",
-      "rocks.earlyeffect" %% "saferis"      % "0.19.1",
-      "org.postgresql"     % "postgresql"   % "42.7.13",
-      "org.testcontainers" % "postgresql"   % "1.21.4"   % Test,
-      "dev.zio"           %% "zio-test"     % zioVersion % Test,
-      "dev.zio"           %% "zio-test-sbt" % zioVersion % Test,
+      "dev.zio"           %% "zio"                       % zioVersion % "provided",
+      "dev.zio"           %% "zio-streams"               % zioVersion % "provided",
+      "dev.zio"           %% "zio-json"                  % "0.10.0"   % "provided",
+      "rocks.earlyeffect" %% "saferis"                   % "0.19.1",
+      "org.postgresql"     % "postgresql"                % "42.7.13",
+      "org.testcontainers" % "testcontainers-postgresql" % "2.0.5"    % Test,
+      "dev.zio"           %% "zio-test"                  % zioVersion % Test,
+      "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
     ),
     dependencyOverrides ++= Seq(
-      "com.fasterxml.jackson.core" % "jackson-core"        % "2.22.1",
-      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.18.9",
-      "org.apache.commons"         % "commons-compress"    % "1.28.0",
+      "org.apache.commons" % "commons-compress" % "1.28.0",
     ),
   )
 
