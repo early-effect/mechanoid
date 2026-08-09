@@ -76,8 +76,8 @@ val mechanoidJsCiSetup = Steps.built("mechanoid-js-ci")(
   Step.run(Script(Exec("npm", Word.lit("ci")))).named("Install Node dependencies (jsdom, fake-indexeddb)"),
 )
 
-/** Pre-pull with retries. Verbatim shell, so runRaw declares the escape hatch and earns a
-  * generate-time warning naming the step, rather than hiding it in a bare `run =`.
+/** Pre-pull with retries. Verbatim shell, so runRaw declares the escape hatch and earns a generate-time warning naming
+  * the step, rather than hiding it in a bare `run =`.
   */
 val postgresPrePull = Steps.built("postgres-pre-pull")(
   Step
@@ -132,7 +132,9 @@ zipxCapabilities ++= {
     ZipxCentral.release
       .copy(command =
         _ =>
-          SbtCommand("core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease")
+          SbtCommand(
+            "core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease"
+          )
       )
       .withCondition(upstream),
     ZipxGitHubPackages.sharedRegistry(
@@ -260,7 +262,7 @@ lazy val postgres = project
     ),
     dependencyOverrides ++= Seq(
       "com.fasterxml.jackson.core" % "jackson-core"        % "2.18.9",
-      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.18.9",
+      "com.fasterxml.jackson.core" % "jackson-annotations" % "2.22",
       "org.apache.commons"         % "commons-compress"    % "1.28.0",
     ),
   )
