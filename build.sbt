@@ -76,8 +76,8 @@ val mechanoidJsCiSetup = Steps.built("mechanoid-js-ci")(
   Step.run(Script(Exec("npm", Word.lit("ci")))).named("Install Node dependencies (jsdom, fake-indexeddb)"),
 )
 
-/** Pre-pull with retries. Verbatim shell, so runRaw declares the escape hatch and earns a
-  * generate-time warning naming the step, rather than hiding it in a bare `run =`.
+/** Pre-pull with retries. Verbatim shell, so runRaw declares the escape hatch and earns a generate-time warning naming
+  * the step, rather than hiding it in a bare `run =`.
   */
 val postgresPrePull = Steps.built("postgres-pre-pull")(
   Step
@@ -132,7 +132,9 @@ zipxCapabilities ++= {
     ZipxCentral.release
       .copy(command =
         _ =>
-          SbtCommand("core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease")
+          SbtCommand(
+            "core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease"
+          )
       )
       .withCondition(upstream),
     ZipxGitHubPackages.sharedRegistry(
@@ -325,7 +327,7 @@ lazy val compileTimeChecks = project
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
 
-val specularVersion = "0.11.0"
+val specularVersion = "0.12.0"
 val ascentVersion   = "0.3.1"
 
 lazy val specularPreview =
