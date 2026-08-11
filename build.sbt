@@ -132,8 +132,10 @@ zipxCapabilities ++= {
     ZipxCentral.release
       .copy(command =
         _ =>
-          SbtCommand(
-            "core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease"
+          Some(
+            SbtCommand(
+              "core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease"
+            )
           )
       )
       .withCondition(upstream),
