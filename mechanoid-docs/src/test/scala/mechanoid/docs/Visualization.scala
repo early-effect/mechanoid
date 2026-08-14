@@ -36,7 +36,7 @@ if the Mermaid cannot parse.
 
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(machine, Some(Created)),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
     ),
@@ -62,7 +62,7 @@ if the Mermaid cannot parse.
 
         Mermoid.diagram(
           MermaidVisualizer.flowchart(machine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
     ),

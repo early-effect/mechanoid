@@ -327,7 +327,7 @@ lazy val compileTimeChecks = project
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
 
-val specularVersion = "0.12.0"
+val specularVersion = "0.12.1"
 val ascentVersion   = "0.3.1"
 
 lazy val specularPreview =

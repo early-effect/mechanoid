@@ -17,6 +17,9 @@ import scala.language.implicitConversions
   *
   * The diagram remounts via docsJS (`.interactive`); selection tracks the live FSM state and clicking a reachable next
   * state fires the transition. UI state is typed [[OrderState]]; strings only at the mermoid node-id boundary.
+  *
+  * `Mermoid.diagramControlled` wants `Source[Option[String]]`; live state is a derived `Squawk[OrderState]`, so this
+  * still paints via `fromScene`.
   */
 object OrderDemoUi:
 

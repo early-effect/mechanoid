@@ -93,7 +93,7 @@ produced event is sent back to the FSM. Errors are logged and do not fail the or
 
         Mermoid.diagram(
           MermaidVisualizer.flowchart(producingMachine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {

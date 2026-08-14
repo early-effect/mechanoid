@@ -102,7 +102,7 @@ Teaching slice of `examples/.../hierarchical`. The machine used by every example
       example {
         Mermoid.diagram(
           MermaidVisualizer.flowchart(machine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       md"""
