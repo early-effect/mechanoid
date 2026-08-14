@@ -111,7 +111,7 @@ libraryDependencies += "dev.zio" %%% "zio" % "2.1.26\"""",
   end site
 
   override def layers: ZLayer[Any, Nothing, SiteBuilder] =
-    DocsDiagrams.layers
+    DocsChrome.layers
 
   override def afterBuild(out: Path, result: SiteOutput): Task[Unit] =
     val _ = result

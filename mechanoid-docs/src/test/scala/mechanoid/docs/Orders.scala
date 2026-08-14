@@ -100,7 +100,7 @@ Teaching slice of `examples/.../petstore`. Machine used below:
       example {
         Mermoid.diagram(
           MermaidVisualizer.flowchart(machine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       md"""

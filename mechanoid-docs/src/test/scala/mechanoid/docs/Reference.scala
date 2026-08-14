@@ -83,7 +83,7 @@ Timeout, cancel-from-many, and a durable timeout layer in one path:
 
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(orderMachine, Some(Pending)),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {

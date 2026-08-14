@@ -44,7 +44,7 @@ still see both sides.
 
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(machine, Some(State1)),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
@@ -109,7 +109,7 @@ Mechanoid catches many mistakes before runtime:
 
         Mermoid.diagram(
           MermaidVisualizer.flowchart(groupMachine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
@@ -168,7 +168,7 @@ with `@@ Aspect.overriding` (last wins). Here `SpecialState` escalates instead o
 
         Mermoid.diagram(
           MermaidVisualizer.flowchart(overrideMachine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
@@ -265,7 +265,7 @@ Block form `assemblyAll[S, E]:` avoids commas between specs when the list gets l
 
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(machine, Some(Draft)),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {

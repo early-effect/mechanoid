@@ -36,7 +36,7 @@ runtime states.
 
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(trafficMachine, Some(Red)),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
@@ -106,7 +106,7 @@ A transition is `State via Event to Target`. Targets can be a concrete state, `s
 
         Mermoid.diagram(
           MermaidVisualizer.flowchart(matcherMachine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
@@ -215,7 +215,7 @@ Organize related states with sealed traits and use `all[T]` for group transition
 
         Mermoid.diagram(
           MermaidVisualizer.flowchart(hierarchicalMachine),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {

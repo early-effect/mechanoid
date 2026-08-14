@@ -42,7 +42,7 @@ object RunningFsms extends MechanoidDocSpecSuite:
 
         Mermoid.diagram(
           MermaidVisualizer.stateDiagram(machine, Some(Initial)),
-          DocsDiagrams.diagramConfig,
+          Mermoid.chalkboard,
         )
       }.assert(ui => assertTrue(ui.toString.nonEmpty)),
       exampleZIO {
