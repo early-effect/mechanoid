@@ -263,7 +263,7 @@ lazy val postgres = project
       "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
     ),
     dependencyOverrides ++= Seq(
-      "org.apache.commons" % "commons-compress" % "1.28.0",
+      "org.apache.commons" % "commons-compress" % "1.28.0"
     ),
   )
 
@@ -328,7 +328,7 @@ lazy val compileTimeChecks = project
   )
 
 val specularVersion = "0.12.1"
-val ascentVersion   = "0.3.1"
+val ascentVersion   = "0.4.0"
 
 lazy val specularPreview =
   taskKey[Unit]("Build specularSite then serve with sbt-reload (prefer alias: docsPreview)")
