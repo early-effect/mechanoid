@@ -4,15 +4,15 @@ import org.scalajs.sbtplugin.ScalaJSPlugin.autoImport.*
 // import outranks both, and this is the one we mean: the shell AST's simple command.
 import zipx.shell.Exec
 
-val scala3Version = "3.8.4"
-val zioVersion    = "2.1.26"
-val scalaVersions = Seq(scala3Version)
+MyVersions.settings
+
+val scala3Version: String = MyVersions.scala
+val scalaVersions         = Seq(scala3Version)
 
 // lets enable semanticdb
 ThisBuild / semanticdbEnabled := true
 
 // Global settings. Iterable/mechanoid overrides group via PUBLISH_ORG from ZipxGitHubPackages.
-ThisBuild / scalaVersion         := scala3Version
 ThisBuild / organization         := sys.env.getOrElse("PUBLISH_ORG", "rocks.earlyeffect")
 ThisBuild / organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "Early Effect")
 ThisBuild / organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
@@ -63,18 +63,22 @@ githubPackagesRepo match {
 val mechanoidJavaOpts = Map("JAVA_OPTS" -> EnvValue.plain("-Dfile.encoding=UTF-8"))
 
 // Shared capability names as vals, so a reference to one is checked rather than spelled twice.
-val Fmt     = CapabilityName("fmt")
 val TestJvm = CapabilityName("test-jvm")
 val TestJs  = CapabilityName("test-js")
 
-val mechanoidJsCiSetup = Steps.built("mechanoid-js-ci")(
-  // Step.uses is inline, so an unpinned or malformed ref is a compile error naming it.
-  Step
-    .uses("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020") // v7.0.0
-    .named("Set up Node")
-    .withInputs(scala.collection.immutable.ListMap("node-version" -> "24", "cache" -> "npm")),
-  Step.run(Script(Exec("npm", Word.lit("ci")))).named("Install Node dependencies (jsdom, fake-indexeddb)"),
-)
+/** `addCommandAlias` names (`testJVM` / `testJS`) are not task keys. */
+def alias(name: String): SbtCommand =
+  SbtCommand.raw(name).fold(msg => sys.error(s"zipx: $msg"), identity)
+
+val mechanoidJsCiSetup = Steps.buildingWith("mechanoid-js-ci") { ctx =>
+  List(
+    Step
+      .usesRef(ctx.actions.setupNode)
+      .named("Set up Node")
+      .withInputs(scala.collection.immutable.ListMap("node-version" -> "24", "cache" -> "npm")),
+    Step.run(Script(Exec("npm", Word.lit("ci")))).named("Install Node dependencies (jsdom, fake-indexeddb)"),
+  )
+}
 
 /** Pre-pull with retries. Verbatim shell, so runRaw declares the escape hatch and earns a generate-time warning naming
   * the step, rather than hiding it in a bare `run =`.
@@ -100,45 +104,31 @@ val postgresPrePull = Steps.built("postgres-pre-pull")(
     .named("Pre-pull Postgres image")
 )
 
-// zipx: platform verify + dual publish by repo + Steward + Pages.
+// zipx: platform verify + dual publish by repo + Pages + catalog PRs.
 zipxJavaVersion      := JdkVersion("25")
-zipxScalaSteward     := true
 zipxWorkflowDispatch := true
 zipxCapabilities ++= {
   val upstream = JobCondition.repositoryIs("early-effect/mechanoid")
   Seq(
-    zipxTasks.once(Fmt, scalafmtCheckAll),
     Capability.once(
       name = TestJvm,
-      // A command alias, not a task key, so it stays a literal SbtCommand.
-      command = SbtCommand("testJVM"),
-      needsCapabilities = List(Fmt),
+      command = alias("testJVM"),
       env = Map("TESTCONTAINERS_RYUK_DISABLED" -> EnvValue.plain("true")) ++ mechanoidJavaOpts,
       extraSteps = postgresPrePull,
     ),
     Capability.once(
       name = TestJs,
-      command = SbtCommand("testJS"),
-      needsCapabilities = List(Fmt),
+      command = alias("testJS"),
       extraSteps = mechanoidJsCiSetup,
       env = mechanoidJavaOpts,
     ),
     // Keep required-check name `test` stable; waits on both platforms.
     Capability.once(
       name = Capability.TestName,
-      command = SbtCommand("about"),
+      command = alias("about"),
       needsCapabilities = List(TestJvm, TestJs),
     ),
-    ZipxCentral.release
-      .copy(command =
-        _ =>
-          Some(
-            SbtCommand(
-              "core/publishSigned; coreJS/publishSigned; webJS/publishSigned; postgres/publishSigned; sonaRelease"
-            )
-          )
-      )
-      .withCondition(upstream),
+    ZipxCentral.release.withCondition(upstream),
     ZipxGitHubPackages.sharedRegistry(
       // 0.1.6 dropped the `repository` param, which used to become this fork gate implicitly.
       // Stated explicitly so the Packages publish still cannot run outside Iterable/mechanoid.
@@ -151,28 +141,17 @@ zipxCapabilities ++= {
   )
 }
 
-val javaTimePolyfill = Def.settings(
-  libraryDependencies ++= Seq(
-    "io.github.cquiroz" %% "scala-java-time"      % "2.7.0",
-    "io.github.cquiroz" %% "scala-java-time-tzdb" % "2.7.0",
-  )
-)
+val javaTimePolyfill = MyVersions.javaTime
 
 val zioProvided = Def.settings(
   libraryDependencies ++= Seq(
-    "dev.zio" %% "zio"         % zioVersion % "provided",
-    "dev.zio" %% "zio-streams" % zioVersion % "provided",
-    "dev.zio" %% "zio-json"    % "0.10.0"   % "provided",
+    MyVersions.moduleID(MyVersions.zio)        % "provided",
+    MyVersions.moduleID(MyVersions.zioStreams) % "provided",
+    MyVersions.moduleID(MyVersions.zioJson)    % "provided",
   )
 )
 
-val zioTestSettings = Def.settings(
-  libraryDependencies ++= Seq(
-    "dev.zio" %% "zio-test"          % zioVersion % Test,
-    "dev.zio" %% "zio-test-sbt"      % zioVersion % Test,
-    "dev.zio" %% "zio-test-magnolia" % zioVersion % Test,
-  )
-)
+val zioTestSettings = MyVersions.zioTestsMagnolia
 
 val jsdomTestEnv = Def.settings(
   Test / jsEnv := Def.uncached(new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv())
@@ -186,7 +165,7 @@ lazy val commonScalacOptions = Seq(
 
 lazy val commonSettings = Seq(
   scalacOptions ++= commonScalacOptions,
-  scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.23",
+  scalafixDependencies += MyVersions.moduleID(MyVersions.scaluzzi),
 )
 
 lazy val coverageSettings = Seq(
@@ -232,9 +211,9 @@ lazy val core = (projectMatrix in file("core"))
     scalaVersions = scalaVersions,
     settings = coverageSettings ++ Seq(
       libraryDependencies ++= Seq(
-        "dev.zio" %% "zio-logging"              % "2.5.3" % "provided",
-        "dev.zio" %% "zio-logging-slf4j"        % "2.5.3" % "provided",
-        "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3" % "provided",
+        MyVersions.moduleID(MyVersions.zioLogging)       % "provided",
+        MyVersions.moduleID(MyVersions.zioLoggingSlf4j)  % "provided",
+        MyVersions.moduleID(MyVersions.zioLoggingBridge) % "provided",
       )
     ),
   )
@@ -252,18 +231,11 @@ lazy val postgres = project
   .settings(
     name        := "mechanoid-postgres",
     description := "PostgreSQL persistence implementation for Mechanoid FSM library",
-    libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio"                       % zioVersion % "provided",
-      "dev.zio"           %% "zio-streams"               % zioVersion % "provided",
-      "dev.zio"           %% "zio-json"                  % "0.10.0"   % "provided",
-      "rocks.earlyeffect" %% "saferis"                   % "0.19.1",
-      "org.postgresql"     % "postgresql"                % "42.7.13",
-      "org.testcontainers" % "testcontainers-postgresql" % "2.0.5"    % Test,
-      "dev.zio"           %% "zio-test"                  % zioVersion % Test,
-      "dev.zio"           %% "zio-test-sbt"              % zioVersion % Test,
-    ),
+    zioProvided,
+    MyVersions.postgresLib,
+    MyVersions.postgresTests,
     dependencyOverrides ++= Seq(
-      "org.apache.commons" % "commons-compress" % "1.28.0",
+      MyVersions.moduleID(MyVersions.commonsCompress),
     ),
   )
 
@@ -275,16 +247,9 @@ lazy val examples = project
     name           := "mechanoid-examples",
     publish / skip := true,
     zipxPublish    := Some(false),
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"                      % zioVersion,
-      "dev.zio" %% "zio-streams"              % zioVersion,
-      "dev.zio" %% "zio-json"                 % "0.10.0",
-      "dev.zio" %% "zio-logging"              % "2.5.3",
-      "dev.zio" %% "zio-logging-slf4j"        % "2.5.3",
-      "dev.zio" %% "zio-logging-slf4j-bridge" % "2.5.3",
-      "dev.zio" %% "zio-test"                 % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt"             % zioVersion % Test,
-    ),
+    MyVersions.zioLib,
+    MyVersions.zioLoggingLib,
+    MyVersions.zioTests,
     assembly / mainClass             := Some("mechanoid.examples.heartbeat.Main"),
     assembly / assemblyJarName       := "app.jar",
     assembly / assemblyMergeStrategy := {
@@ -320,15 +285,9 @@ lazy val compileTimeChecks = project
       "-deprecation",
       "-feature",
     ),
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-test"     % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
-    ),
+    MyVersions.zioTests,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
-
-val specularVersion = "0.12.1"
-val ascentVersion   = "0.3.1"
 
 lazy val specularPreview =
   taskKey[Unit]("Build specularSite then serve with sbt-reload (prefer alias: docsPreview)")
@@ -345,12 +304,8 @@ lazy val web = (projectMatrix in file("web"))
     commonSettings,
     publishSettings,
     javaTimePolyfill,
-    libraryDependencies ++= Seq(
-      "dev.zio"      %% "zio"         % zioVersion % "provided",
-      "dev.zio"      %% "zio-streams" % zioVersion % "provided",
-      "dev.zio"      %% "zio-json"    % "0.10.0"   % "provided",
-      "org.scala-js" %% "scalajs-dom" % "2.8.1",
-    ),
+    zioProvided,
+    MyVersions.webLib,
     zioTestSettings,
   )
   .jsPlatform(
@@ -378,17 +333,9 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
       p.dependsOn(core.jvm(scala3Version), postgres)
         .enablePlugins(SpecularPlugin)
         .settings(
-          libraryDependencies ++= Seq(
-            "dev.zio"           %% "zio"                     % zioVersion,
-            "dev.zio"           %% "zio-streams"             % zioVersion,
-            "dev.zio"           %% "zio-json"                % "0.10.0",
-            "dev.zio"           %% "zio-test"                % zioVersion      % Test,
-            "dev.zio"           %% "zio-test-sbt"            % zioVersion      % Test,
-            "rocks.earlyeffect" %% "specular-core"           % specularVersion % Test,
-            "rocks.earlyeffect" %% "specular-zio-test"       % specularVersion % Test,
-            "rocks.earlyeffect" %% "specular-site"           % specularVersion % Test,
-            "rocks.earlyeffect" %% "early-effect-docs-theme" % specularVersion % Test,
-          ),
+          MyVersions.zioLib,
+          MyVersions.zioTests,
+          MyVersions.docsJvm,
           libraryDependencySchemes += "dev.zio" %% "zio-json" % VersionScheme.Always,
           specularBuildMain                     := "mechanoid.docs.BuildSite",
           specularMetaProject                   := Some(LocalProject("core")),
@@ -446,14 +393,7 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
       p.dependsOn(core.js(scala3Version), web.js(scala3Version))
         .settings(
           javaTimePolyfill,
-          libraryDependencies ++= Seq(
-            "rocks.earlyeffect" %% "specular-core"    % specularVersion,
-            "rocks.earlyeffect" %% "specular-mermoid" % specularVersion,
-            "rocks.earlyeffect" %% "ascent-js"        % ascentVersion,
-            "rocks.earlyeffect" %% "ascent-css"       % ascentVersion,
-            "dev.zio"           %% "zio"              % zioVersion,
-            "dev.zio"           %% "zio-json"         % "0.10.0",
-          ),
+          MyVersions.docsJs,
           Compile / unmanagedSources ++= {
             val base =
               (ThisBuild / baseDirectory).value / "mechanoid-docs" / "src" / "test" / "scala" / "mechanoid" / "docs"
