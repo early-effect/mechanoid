@@ -50,7 +50,7 @@ object MyVersions extends ZipxVersions:
       ZipxExclude.org("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
     )
   val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.14.1")
-  val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.4.1")
+  val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.4.2")
   val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.7")
   val dynverCi       = Plugin("rocks.earlyeffect", "sbt-dynver-ci", "0.2.3")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
