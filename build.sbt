@@ -341,12 +341,8 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
           specularMetaProject                   := Some(LocalProject("core")),
           specularArtifactKind                  := "library",
           specularSiteDirectory                 := (ThisBuild / baseDirectory).value / "target" / "site",
-          specularDisplayVersion                := {
-            val v = (ThisBuild / version).value
-            if (v.endsWith("-ci") || v.endsWith("-SNAPSHOT"))
-              previousStableVersion.value.getOrElse("0.3.2")
-            else ""
-          },
+          // CI docs builds are dynver `-ci`; stripCi drops the suffix so install snippets show the last published tag.
+          specularDisplayVersion := stripCi,
           scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
           testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
           Test / mainClass       := Some("specular.site.DocsServe"),
