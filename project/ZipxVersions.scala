@@ -33,11 +33,11 @@ object MyVersions extends ZipxVersions:
   val scalajsDom               = Lib("org.scala-js", "scalajs-dom", "2.8.1")
   val scaluzzi                 = Lib("com.github.vovapolu", "scaluzzi", "0.1.23")
 
-  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.12.1")
+  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.14.1")
   val specularZioTest = specular.mod("specular-zio-test")
   val specularTheme   = specular.mod("early-effect-docs-theme")
   val specularMermoid = specular.mod("specular-mermoid")
-  val ascentJs        = Lib("rocks.earlyeffect", "ascent-js", "0.3.1")
+  val ascentJs        = Lib("rocks.earlyeffect", "ascent-js", "0.5.0")
   val ascentCss       = ascentJs.mod("ascent-css")
 
   val scalajs = Plugin("org.scala-js", "sbt-scalajs", "1.22.0")
@@ -49,10 +49,10 @@ object MyVersions extends ZipxVersions:
       ZipxExclude.org("org.scala-lang.modules", "scala-collection-compat_2.13"),
       ZipxExclude.org("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
     )
-  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.12.1")
+  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.14.1")
   val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.4.1")
   val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.7")
-  val dynverCi       = Plugin("rocks.earlyeffect", "sbt-dynver-ci", "0.2.2")
+  val dynverCi       = Plugin("rocks.earlyeffect", "sbt-dynver-ci", "0.2.3")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
   val sbtReload      = Plugin("com.jamesward", "sbt-reload", "0.0.7")
 
