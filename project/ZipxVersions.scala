@@ -18,7 +18,7 @@ object MyVersions extends ZipxVersions:
   val zioTest         = zio.mod("zio-test")
   val zioTestSbt      = zio.mod("zio-test-sbt")
   val zioTestMagnolia = zio.mod("zio-test-magnolia")
-  val zioJson         = Lib("dev.zio", "zio-json", "0.10.0")
+  val zioJson         = Lib("dev.zio", "zio-json", "1.0.0")
   val zioLogging      = Lib("dev.zio", "zio-logging", "2.5.3")
   val zioLoggingSlf4j = zioLogging.mod("zio-logging-slf4j")
   val zioLoggingBridge = zioLogging.mod("zio-logging-slf4j-bridge")
@@ -54,7 +54,7 @@ object MyVersions extends ZipxVersions:
   val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.7")
   val dynverCi       = Plugin("rocks.earlyeffect", "sbt-dynver-ci", "0.2.3")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
-  val sbtReload      = Plugin("com.jamesward", "sbt-reload", "0.0.7")
+  val sbtReload      = Plugin("com.jamesward", "sbt-reload", "0.0.8")
 
   def zioLib          = library(zio, zioStreams, zioJson)
   def zioTests        = library(zioTest.test, zioTestSbt.test)
