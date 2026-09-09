@@ -25,6 +25,7 @@ object postgres:
   export persistence.postgres.PostgresTimeoutStore
   export persistence.postgres.PostgresInstanceLock
   export persistence.postgres.PostgresLeaseStore
+  export persistence.postgres.PostgresInstanceIndex
   export persistence.postgres.PostgresSchema
 
   /** Auto-derive JsonCodec for any type with Finite.

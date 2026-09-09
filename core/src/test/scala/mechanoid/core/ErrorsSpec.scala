@@ -118,6 +118,30 @@ object ErrorsSpec extends ZIOSpecDefault:
         )
       }
     ),
+    suite("UniqueAliasError")(
+      test("formats message with namespace, key, and both instance ids") {
+        val error = UniqueAliasError("campaign", "c-1", "init-1", "init-2")
+        assertTrue(
+          error.namespace == "campaign",
+          error.key == "c-1",
+          error.heldBy == "init-1",
+          error.requested == "init-2",
+          error.getMessage.contains("campaign/c-1"),
+          error.getMessage.contains("init-1"),
+          error.getMessage.contains("init-2"),
+        )
+      }
+    ),
+    suite("AliasNotFoundError")(
+      test("formats message with namespace and key") {
+        val error = AliasNotFoundError("campaign", "c-1")
+        assertTrue(
+          error.namespace == "campaign",
+          error.key == "c-1",
+          error.getMessage.contains("campaign/c-1"),
+        )
+      }
+    ),
   )
 
 end ErrorsSpec

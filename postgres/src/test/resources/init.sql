@@ -67,3 +67,18 @@ CREATE TABLE IF NOT EXISTS leases (
 );
 
 CREATE INDEX idx_leases_expires ON leases (expires_at);
+
+-- ============================================
+-- Unique Instance Aliases
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS fsm_aliases (
+  namespace     VARCHAR(255) NOT NULL,
+  alias_key     VARCHAR(255) NOT NULL,
+  instance_id   VARCHAR(255) NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (namespace, alias_key)
+);
+
+CREATE INDEX idx_fsm_aliases_instance ON fsm_aliases (instance_id);
+CREATE INDEX idx_fsm_aliases_instance_ns ON fsm_aliases (instance_id, namespace);

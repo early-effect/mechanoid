@@ -136,7 +136,8 @@ object Interactive extends DocSpec:
     section("Multi-tab shared FSM")(
       md"""
 Open this page in **two browser tabs**. On Scala.js the demo uses **IndexedDB** plus
-**BroadcastChannel** so both tabs share one FSM instance (`docs-order-1`). A live
+**BroadcastChannel** so both tabs share one FSM instance (`docs-order-1`). Unique aliases
+(`SharedFSMRuntime.lookup`) resolve against the same IndexedDB `aliases` store. A live
 [mermoid](https://www.earlyeffect.rocks/mermoid/) state diagram (via `specular-mermoid`)
 highlights the current state — click the next node, or use **Pay** / **Ship**.
 

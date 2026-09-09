@@ -30,6 +30,29 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
   private def uniqueDb: UIO[String] =
     ZIO.succeed(s"mechanoid-test-${scala.util.Random.alphanumeric.take(12).mkString}")
 
+  /** Open a database at schema version 1 (pre-aliases) so Idb.open can upgrade to v2. */
+  private def openV1(dbName: String): UIO[Unit] =
+    ZIO.async[Any, Nothing, Unit] { cb =>
+      val factory = js.Dynamic.global.indexedDB
+      val req     = factory.open(dbName, 1)
+      req.onupgradeneeded = (event: js.Dynamic) =>
+        val db                         = event.target.result
+        val names                      = db.objectStoreNames
+        def has(name: String): Boolean = names.contains(name).asInstanceOf[Boolean]
+        if !has("events") then
+          val events = db.createObjectStore("events", js.Dynamic.literal(keyPath = "key"))
+          events.createIndex("byInstance", "instanceId")
+        if !has("snapshots") then db.createObjectStore("snapshots", js.Dynamic.literal(keyPath = "instanceId"))
+        if !has("timeouts") then
+          val timeouts = db.createObjectStore("timeouts", js.Dynamic.literal(keyPath = "instanceId"))
+          timeouts.createIndex("byDeadline", "deadlineEpoch")
+        if !has("locks") then db.createObjectStore("locks", js.Dynamic.literal(keyPath = "instanceId"))
+      req.onsuccess = (_: js.Dynamic) =>
+        req.result.close()
+        cb(ZIO.unit)
+      req.onerror = (_: js.Dynamic) => cb(ZIO.unit)
+    }
+
   def spec = suite("IndexedDb stores")(
     suite("EventStore")(
       test("append and load events") {
@@ -108,6 +131,51 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
             case _                          => ZIO.succeed(false)
         yield assertTrue(first.isAcquired, busy.isBusy, released)
       }
+    ),
+    suite("InstanceIndex")(
+      test("bind then resolve") {
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          index  <- IndexedDbInstanceIndex.make(dbName)
+          _      <- index.bind(Alias("campaign", "c-1"), "init-1")
+          got    <- index.resolve(Alias("campaign", "c-1"))
+        yield assertTrue(got.contains("init-1"))
+      },
+      test("unique clash in bindAll does not insert earlier keys") {
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          index  <- IndexedDbInstanceIndex.make(dbName)
+          _      <- index.bind(Alias("campaign", "taken"), "other")
+          result <- index.bindAll(Chunk(Alias("campaign", "fresh"), Alias("campaign", "taken")), "init-1").either
+          fresh  <- index.resolve(Alias("campaign", "fresh"))
+        yield result match
+          case Left(_: UniqueAliasError) => assertTrue(fresh.isEmpty)
+          case _                         => assertTrue(false)
+      },
+      test("aliasesOf lists by instance") {
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          index  <- IndexedDbInstanceIndex.make(dbName)
+          _      <- index.bindAll(
+            Chunk(Alias("campaign", "c-1"), Alias("template", "t-1")),
+            "init-1",
+          )
+          got <- index.aliasesOf("init-1")
+        yield assertTrue(got.toSet == Set(Alias("campaign", "c-1"), Alias("template", "t-1")))
+      },
+      test("opening a v1 database upgrades and creates aliases") {
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          _      <- openV1(dbName)
+          index  <- IndexedDbInstanceIndex.make(dbName)
+          _      <- index.bind(Alias("campaign", "c-1"), "init-1")
+          got    <- index.resolve(Alias("campaign", "c-1"))
+        yield assertTrue(got.contains("init-1"))
+      },
     ),
     suite("reconstruct via SharedFSMRuntime stores")(
       test("second runtime recovers peer appends") {

@@ -64,6 +64,11 @@ export persistence.EventStore
 export core.PersistenceError
 export core.SequenceConflictError
 export core.EventReplayError
+export core.UniqueAliasError
+export core.AliasNotFoundError
+export persistence.Alias
+export persistence.InstanceIndex
+export persistence.AliasExtractor
 
 // Re-export visualization
 export visualization.TransitionKind
@@ -85,6 +90,7 @@ export core.Redactor.redactedPretty
 export stores.InMemoryEventStore
 export stores.InMemoryTimeoutStore
 export stores.InMemoryFSMInstanceLock
+export stores.InMemoryInstanceIndex
 
 // Re-export locking types
 export persistence.lock.FSMInstanceLock

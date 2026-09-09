@@ -16,11 +16,12 @@ import scala.scalajs.js
 /** Low-level IndexedDB open / transaction helpers. */
 object Idb:
 
-  val DbVersion      = 1
+  val DbVersion      = 2
   val EventsStore    = "events"
   val SnapshotsStore = "snapshots"
   val TimeoutsStore  = "timeouts"
   val LocksStore     = "locks"
+  val AliasesStore   = "aliases"
 
   private def keyPathOpts(path: String): IDBCreateObjectStoreOptions =
     js.Dynamic.literal(keyPath = path).asInstanceOf[IDBCreateObjectStoreOptions]
@@ -44,6 +45,9 @@ object Idb:
           val timeouts = db.createObjectStore(TimeoutsStore, keyPathOpts("instanceId"))
           timeouts.createIndex("byDeadline", "deadlineEpoch")
         if !db.objectStoreNames.contains(LocksStore) then db.createObjectStore(LocksStore, keyPathOpts("instanceId"))
+        if !db.objectStoreNames.contains(AliasesStore) then
+          val aliases = db.createObjectStore(AliasesStore, keyPathOpts("key"))
+          aliases.createIndex("byInstance", "instanceId")
       req.onsuccess = (_: dom.Event) => cb(ZIO.succeed(req.result.asInstanceOf[IDBDatabase]))
       req.onerror = (_: dom.Event) => cb(ZIO.fail(PersistenceError(s"IndexedDB open failed: ${req.error}")))
     }
