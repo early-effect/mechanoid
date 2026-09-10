@@ -29,4 +29,11 @@ object AliasExtractor:
 
   def apply[S](f: S => Chunk[Alias]): AliasExtractor[S] =
     (state: S) => f(state)
+
+  /** Derive from `@alias` constructor parameters on `S` (enum / sealed trait / case class).
+    *
+    * States with no annotated fields yield an empty extractor (same as [[none]]).
+    */
+  inline def derived[S]: AliasExtractor[S] =
+    mechanoid.macros.AliasExtractorMacros.derived[S]
 end AliasExtractor

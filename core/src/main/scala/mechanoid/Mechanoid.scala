@@ -67,6 +67,8 @@ export core.EventReplayError
 export core.UniqueAliasError
 export core.AliasNotFoundError
 export persistence.Alias
+export persistence.AliasCodec
+export persistence.AliasCodec.given
 export persistence.InstanceIndex
 export persistence.AliasExtractor
 
@@ -82,6 +84,7 @@ export visualization.GraphVizVisualizer
 
 // Re-export redaction
 export core.sensitive
+export core.alias
 export core.Redactor
 export core.Redactor.redacted
 export core.Redactor.redactedPretty

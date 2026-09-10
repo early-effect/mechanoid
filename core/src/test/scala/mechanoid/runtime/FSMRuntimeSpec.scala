@@ -13,6 +13,13 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
   enum TestEvent derives Finite:
     case E1, E2, E3
 
+  enum AliasInitState derives Finite:
+    case Draft
+    case Live(@alias("campaign") campaignIds: List[Long], @alias templateId: String)
+
+  enum AliasInitEvent derives Finite:
+    case Launch
+
   import TestState.*
   import TestEvent.*
 
@@ -309,6 +316,39 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
               assertTrue(e.namespace == "campaign", e.key == "missing")
             case _ => assertTrue(false)
           }
+      },
+      test("derived @alias extractor binds on Goto") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        val machine = Machine(
+          assembly[AliasInitState, AliasInitEvent](
+            AliasInitState.Draft via AliasInitEvent.Launch to AliasInitState.Live(List(1L, 2L), "t-9")
+          )
+        )
+        val extractor = AliasExtractor.derived[AliasInitState]
+
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, AliasInitState, AliasInitEvent]()
+            index <- InMemoryInstanceIndex.make[String]
+            _     <- ZIO
+              .scoped {
+                FSMRuntime("init-1", machine, AliasInitState.Draft, extractor).flatMap(_.send(AliasInitEvent.Launch))
+              }
+              .provide(
+                ZLayer.succeed(store),
+                ZLayer.succeed[InstanceIndex[String]](index),
+                FiberTimeoutStrategy.layer[String],
+                OptimisticLockingStrategy.layer[String],
+              )
+            campaigns <- index.aliasesOf("init-1", Some("campaign"))
+            template  <- index.resolve(Alias("templateId", "t-9"))
+          yield assertTrue(
+            campaigns.toSet == Set(Alias("campaign", "1"), Alias("campaign", "2")),
+            template.contains("init-1"),
+          )
+        }
       },
       test("extractor binds aliases on Goto and lookup recovers them") {
         import mechanoid.runtime.timeout.FiberTimeoutStrategy

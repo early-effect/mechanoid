@@ -129,6 +129,21 @@ an initiative holds.
 `FSMRuntime.lookup(alias, machine, initial)` resolves then reconstructs. Unknown aliases
 fail with `AliasNotFoundError` (no machine is created). For a GET of current state without
 a live runtime: `index.resolve(alias)` then `EventStore.currentState(id)`.
+
+Mark constructor fields with `@alias` (optional namespace; default is the field name) and pass
+`AliasExtractor.derived[S]`. Scalars, `Option`, and collections (`List` / `Seq` / `Chunk`) all
+work. Values encode with `AliasCodec` (`toString` unless you provide a given):
+
+```scala
+enum InitiativeState derives Finite:
+  case Draft
+  case Live(
+    @alias("campaign") campaignIds: List[Long],
+    @alias templateId: String,
+  )
+
+FSMRuntime(id, machine, Draft, AliasExtractor.derived[InitiativeState])
+```
 """,
       exampleZIO {
         enum OrderState derives Finite:
