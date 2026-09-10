@@ -58,3 +58,12 @@ final case class LeaseRow(
     @label("expires_at") expiresAt: Instant,
     @label("acquired_at") acquiredAt: Instant,
 ) derives Table
+
+/** Row model for fsm_aliases table (unique secondary keys). */
+@tableName("fsm_aliases")
+final case class AliasRow(
+    @key namespace: String,
+    @key @label("alias_key") aliasKey: String,
+    @label("instance_id") instanceId: String,
+    @label("created_at") createdAt: Instant,
+) derives Table

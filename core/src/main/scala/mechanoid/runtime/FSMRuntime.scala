@@ -3,7 +3,7 @@ package mechanoid.runtime
 import zio.*
 import mechanoid.core.*
 import mechanoid.machine.{Machine, EntryEffect, ProducingEffect}
-import mechanoid.persistence.{EventStore, FSMSnapshot, StoredEvent}
+import mechanoid.persistence.{Alias, AliasExtractor, EventStore, FSMSnapshot, InstanceIndex, StoredEvent}
 import mechanoid.stores.InMemoryEventStore
 import mechanoid.runtime.timeout.{TimeoutStrategy, FiberTimeoutStrategy}
 import mechanoid.runtime.locking.{LockingStrategy, OptimisticLockingStrategy}
@@ -149,7 +149,7 @@ object FSMRuntime:
       timeoutStrategy <- FiberTimeoutStrategy.make[Unit]
       lockingStrategy = OptimisticLockingStrategy.make[Unit]
       runtime <- ZIO.acquireRelease(
-        createRuntime((), machine, initial, eventStore, timeoutStrategy, lockingStrategy)
+        createRuntime((), machine, initial, eventStore, timeoutStrategy, lockingStrategy, None, None)
       )(_.stop)
     yield runtime
 
@@ -227,9 +227,103 @@ object FSMRuntime:
       timeoutStrategy <- ZIO.service[TimeoutStrategy[Id]]
       lockingStrategy <- ZIO.service[LockingStrategy[Id]]
       runtime         <- ZIO.acquireRelease(
-        createRuntime(id, machine, initialState, store, timeoutStrategy, lockingStrategy)
+        createRuntime(id, machine, initialState, store, timeoutStrategy, lockingStrategy, None, None)
       )(_.stop)
     yield runtime
+
+  /** Create a persistent FSM runtime that keeps [[InstanceIndex]] in sync from state.
+    *
+    * Same as [[apply]] with three arguments, plus an [[AliasExtractor]]. Added aliases are bound before the event is
+    * appended (so a uniqueness clash fails `send` and does not persist); removed aliases are unbound after append. On
+    * recover, the index is reconciled to the rebuilt state.
+    */
+  @nowarn("msg=unused implicit parameter")
+  def apply[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & LockingStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    for
+      store           <- ZIO.service[EventStore[Id, S, E]]
+      timeoutStrategy <- ZIO.service[TimeoutStrategy[Id]]
+      lockingStrategy <- ZIO.service[LockingStrategy[Id]]
+      index           <- ZIO.service[InstanceIndex[Id]]
+      runtime         <- ZIO.acquireRelease(
+        createRuntime(
+          id,
+          machine,
+          initialState,
+          store,
+          timeoutStrategy,
+          lockingStrategy,
+          Some(index),
+          Some(extractor),
+        )
+      )(_.stop)
+    yield runtime
+
+  /** Reconstruct an FSM by unique alias.
+    *
+    * Resolves `alias` through [[InstanceIndex]], then constructs [[apply]] with that instance id. Missing aliases fail
+    * with [[AliasNotFoundError]] (no machine is created).
+    */
+  def lookup[Id: Tag, S, E](
+      alias: Alias,
+      machine: Machine[S, E],
+      initialState: S,
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & LockingStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    for
+      index   <- ZIO.service[InstanceIndex[Id]]
+      id      <- resolveAlias(index, alias)
+      runtime <- apply(id, machine, initialState)
+    yield runtime
+
+  /** Reconstruct an FSM by unique alias, keeping the index in sync from state. */
+  def lookup[Id: Tag, S, E](
+      alias: Alias,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & LockingStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    for
+      index   <- ZIO.service[InstanceIndex[Id]]
+      id      <- resolveAlias(index, alias)
+      runtime <- apply(id, machine, initialState, extractor)
+    yield runtime
+
+  private def resolveAlias[Id](index: InstanceIndex[Id], alias: Alias): ZIO[Any, MechanoidError, Id] =
+    index.resolve(alias).flatMap {
+      case Some(id) => ZIO.succeed(id)
+      case None     => ZIO.fail(AliasNotFoundError(alias.namespace, alias.key))
+    }
 
   // ============================================
   // Implementation
@@ -259,6 +353,8 @@ object FSMRuntime:
       store: EventStore[Id, S, E],
       timeoutStrategy: TimeoutStrategy[Id],
       lockingStrategy: LockingStrategy[Id],
+      index: Option[InstanceIndex[Id]],
+      extractor: Option[AliasExtractor[S]],
   ): ZIO[Any, MechanoidError, FSMRuntimeImpl[Id, S, E]] =
     for
       // Load snapshot and events to rebuild state
@@ -293,6 +389,8 @@ object FSMRuntime:
         store,
         timeoutStrategy,
         lockingStrategy,
+        index,
+        extractor,
         stateRef,
         seqNrRef,
         runningRef,
@@ -300,6 +398,9 @@ object FSMRuntime:
       )
 
       _ <- runtimeRef.set(Some(runtime))
+
+      // Reconcile aliases from rebuilt state (once per reconstruct, not per replayed event)
+      _ <- runtime.reindexAliases(rebuiltState.current)
 
       // Start timeout for current state if configured (durable schedule preserves matching deadlines)
       _ <- runtime.startTimeout(rebuiltState.current)
@@ -351,6 +452,8 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
     store: EventStore[Id, S, E],
     timeoutStrategy: TimeoutStrategy[Id],
     lockingStrategy: LockingStrategy[Id],
+    index: Option[InstanceIndex[Id]],
+    extractor: Option[AliasExtractor[S]],
     stateRef: Ref[FSMState[S]],
     seqNrRef: Ref[Long],
     runningRef: Ref[Boolean],
@@ -399,16 +502,26 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       // If it fails (e.g., external service call), the event is NOT persisted
       result <- transition.action(fsmState.current, event)
 
+      // Determine target state for alias indexing and effects
+      targetState = result match
+        case TransitionResult.Goto(s) => s
+        case _                        => fsmState.current
+
+      // Bind added aliases BEFORE append so a uniqueness clash fails send and does not persist
+      _ <- result match
+        case TransitionResult.Goto(_) => bindAddedAliases(fsmState.current, targetState)
+        case _                        => ZIO.unit
+
       // Only persist after successful action execution
       // Use optimistic locking to detect concurrent modifications
       currentSeqNr <- seqNrRef.get
       seqNr        <- store.append(instanceId, event, currentSeqNr)
       _            <- seqNrRef.set(seqNr)
 
-      // Determine target state for effects
-      targetState = result match
-        case TransitionResult.Goto(s) => s
-        case _                        => fsmState.current
+      // Drop aliases the new state no longer owns
+      _ <- result match
+        case TransitionResult.Goto(_) => unbindRemovedAliases(fsmState.current, targetState)
+        case _                        => ZIO.unit
 
       // Update state
       _ <- handleTransitionResult(fsmState, event, result)
@@ -585,4 +698,38 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       )
       _ <- store.saveSnapshot(snapshot)
     yield ()
+
+  /** Bind aliases present on `to` but not `from`. Empty diff is a no-op. */
+  private def bindAddedAliases(from: S, to: S): ZIO[Any, MechanoidError, Unit] =
+    aliasDelta(from, to) match
+      case Some((index, added, _)) if added.nonEmpty => index.bindAll(added, instanceId)
+      case _                                         => ZIO.unit
+
+  /** Unbind aliases present on `from` but not `to`. Empty diff is a no-op. */
+  private def unbindRemovedAliases(from: S, to: S): ZIO[Any, MechanoidError, Unit] =
+    aliasDelta(from, to) match
+      case Some((idx, _, removed)) if removed.nonEmpty => idx.unbindAll(removed).unit
+      case _                                           => ZIO.unit
+
+  private def aliasDelta(from: S, to: S): Option[(InstanceIndex[Id], Chunk[Alias], Chunk[Alias])] =
+    for
+      idx <- index
+      ext <- extractor
+      before = ext.aliases(from).toSet
+      after  = ext.aliases(to).toSet
+    yield (idx, Chunk.fromIterable(after -- before), Chunk.fromIterable(before -- after))
+
+  /** Reconcile the index with extracted aliases of the rebuilt state. */
+  private[runtime] def reindexAliases(state: S): ZIO[Any, MechanoidError, Unit] =
+    (index, extractor) match
+      case (Some(idx), Some(ext)) =>
+        val wanted = ext.aliases(state).toSet
+        for
+          current <- idx.aliasesOf(instanceId).map(_.toSet)
+          added   = Chunk.fromIterable(wanted -- current)
+          removed = Chunk.fromIterable(current -- wanted)
+          _ <- ZIO.when(added.nonEmpty)(idx.bindAll(added, instanceId))
+          _ <- ZIO.when(removed.nonEmpty)(idx.unbindAll(removed).unit)
+        yield ()
+      case _ => ZIO.unit
 end FSMRuntimeImpl

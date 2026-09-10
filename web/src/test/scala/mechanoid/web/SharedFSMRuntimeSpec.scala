@@ -93,6 +93,23 @@ object SharedFSMRuntimeSpec extends ZIOSpecDefault:
           yield assertTrue(afterConstruct == Paid, afterNotify == Shipped)
         }
       yield result
-    }
+    },
+    test("lookup reconstructs by alias") {
+      for
+        _       <- installEnv
+        dbName  <- uniqueName
+        channel <- uniqueName.map(n => s"$n-sync")
+        result  <- ZIO.scoped {
+          for
+            stores <- SharedFSMRuntime.stores[TestState, TestEvent](dbName, channel)
+            fsm    <- SharedFSMRuntime.start("order-1", machine, Pending, stores)
+            _      <- fsm.send(Pay)
+            _      <- stores.index.bind(Alias("campaign", "c-1"), "order-1")
+            found  <- SharedFSMRuntime.lookup(Alias("campaign", "c-1"), machine, Pending, stores)
+            state  <- found.currentState
+          yield assertTrue(state == Paid, found.instanceId == "order-1")
+        }
+      yield result
+    },
   ) @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds)
 end SharedFSMRuntimeSpec

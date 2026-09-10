@@ -10,21 +10,21 @@ val scala3Version: String = MyVersions.scala
 val scalaVersions         = Seq(scala3Version)
 
 // lets enable semanticdb
-ThisBuild / semanticdbEnabled := true
+semanticdbEnabled := true
 
 // Global settings. Iterable/mechanoid overrides group via PUBLISH_ORG from ZipxGitHubPackages.
-ThisBuild / organization         := sys.env.getOrElse("PUBLISH_ORG", "rocks.earlyeffect")
-ThisBuild / organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "Early Effect")
-ThisBuild / organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
-ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage             := Some(url("https://github.com/early-effect/mechanoid"))
-ThisBuild / scmInfo              := Some(
+organization         := sys.env.getOrElse("PUBLISH_ORG", "rocks.earlyeffect")
+organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "Early Effect")
+organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
+licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
+homepage             := Some(url("https://github.com/early-effect/mechanoid"))
+scmInfo              := Some(
   ScmInfo(
     url("https://github.com/early-effect/mechanoid"),
     "scm:git@github.com:early-effect/mechanoid.git",
   )
 )
-ThisBuild / developers := List(
+developers := List(
   Developer(
     id = "russwyte",
     name = "Russ White",
@@ -32,22 +32,22 @@ ThisBuild / developers := List(
     url = url("https://github.com/russwyte"),
   )
 )
-ThisBuild / versionScheme := Some("early-semver")
+versionScheme := Some("early-semver")
 
 // Dual publish: Central by default; GitHub Packages when CI sets PUBLISH_PACKAGES_REPO.
 val githubPackagesRepo: Option[MavenRepository] =
   sys.env.get("PUBLISH_PACKAGES_REPO").map("GitHub Package Registry" at _)
 
-ThisBuild / credentials ++= sys.env
+credentials ++= sys.env
   .get("GITHUB_TOKEN")
   .map { token =>
     Credentials("GitHub Package Registry", "maven.pkg.github.com", "_", token)
   }
   .toSeq
 
-ThisBuild / resolvers ++= githubPackagesRepo.toSeq
+resolvers ++= githubPackagesRepo.toSeq
 
-ThisBuild / publishTo := githubPackagesRepo.orElse {
+publishTo := githubPackagesRepo.orElse {
   val centralSnapshots =
     "https://central.sonatype.com/repository/maven-snapshots/"
   if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
@@ -340,7 +340,7 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
           specularBuildMain                     := "mechanoid.docs.BuildSite",
           specularMetaProject                   := Some(LocalProject("core")),
           specularArtifactKind                  := "library",
-          specularSiteDirectory                 := (ThisBuild / baseDirectory).value / "target" / "site",
+          specularSiteDirectory                 := (LocalRootProject / baseDirectory).value / "target" / "site",
           // CI docs builds are dynver `-ci`; stripCi drops the suffix so install snippets show the last published tag.
           specularDisplayVersion := stripCi,
           scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
@@ -370,7 +370,7 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
                   s"Expected $mainJs after fastLinkJS; directory contains: " +
                     Option(outDir.list).toSeq.flatten.mkString(", ")
                 )
-              val marker = (ThisBuild / baseDirectory).value / "target" / "specular-client-js.path"
+              val marker = (LocalRootProject / baseDirectory).value / "target" / "specular-client-js.path"
               IO.write(marker, mainJs.getAbsolutePath)
             })
             .value,
@@ -392,7 +392,7 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
           MyVersions.docsJs,
           Compile / unmanagedSources ++= {
             val base =
-              (ThisBuild / baseDirectory).value / "mechanoid-docs" / "src" / "test" / "scala" / "mechanoid" / "docs"
+              (LocalRootProject / baseDirectory).value / "mechanoid-docs" / "src" / "test" / "scala" / "mechanoid" / "docs"
             Seq(
               base / "Interactive.scala",
               base / "ExampleRegistry.scala",

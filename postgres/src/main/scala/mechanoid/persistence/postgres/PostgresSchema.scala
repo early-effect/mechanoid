@@ -10,6 +10,9 @@ import zio.*
   * Provides utilities to create and verify the database schema required by Mechanoid's PostgreSQL persistence layer.
   * Uses Saferis Schema DSL for table creation and Schema.verify for validation.
   *
+  * Missing tables are created individually (verify-or-create per table) so an existing database that already has
+  * events/snapshots can pick up `fsm_aliases` without rebuilding the rest.
+  *
   * ==Usage==
   * {{{
   * // Initialize schema (creates if missing, verifies if exists)
@@ -20,10 +23,10 @@ object PostgresSchema:
 
   /** Result of schema initialization. */
   enum InitResult:
-    /** Tables were created using Saferis DDL. */
+    /** At least one table was created using Saferis DDL. */
     case Created
 
-    /** Tables already existed and passed verification. */
+    /** All tables already existed and passed verification. */
     case Verified
 
   // ==================== Schema Definitions using Saferis Schema DSL ====================
@@ -50,35 +53,44 @@ object PostgresSchema:
     .withIndex(_.expiresAt)
     .named("idx_leases_expires")
 
-  /** Initialize the schema: creates tables if they don't exist, verifies if they do.
+  private val aliasesSchema = Schema[AliasRow]
+    .withIndex(_.instanceId)
+    .named("idx_fsm_aliases_instance")
+    .withIndex(_.instanceId)
+    .and(_.namespace)
+    .named("idx_fsm_aliases_instance_ns")
+
+  private final case class ManagedTable(
+      verify: ZIO[ConnectionProvider & Scope, SaferisError, Unit],
+      ddl: SqlFragment,
+  )
+
+  private val managedTables: List[ManagedTable] = List(
+    ManagedTable(Schema[EventRow[String]].verify, eventsSchema.ddl()),
+    ManagedTable(Schema[SnapshotRow[String]].verify, snapshotsSchema.ddl()),
+    ManagedTable(Schema[TimeoutRow].verify, timeoutsSchema.ddl()),
+    ManagedTable(Schema[LockRow].verify, locksSchema.ddl()),
+    ManagedTable(Schema[LeaseRow].verify, leasesSchema.ddl()),
+    ManagedTable(Schema[AliasRow].verify, aliasesSchema.ddl()),
+  )
+
+  /** Initialize the schema: creates missing tables, verifies tables that already exist.
     *
     * @return
-    *   `InitResult.Created` if tables were created, `InitResult.Verified` if existing tables passed validation
+    *   `InitResult.Created` if any table was created, `InitResult.Verified` if every table already existed
     */
   def initialize: ZIO[Transactor, SaferisError, InitResult] =
     ZIO.serviceWithZIO[Transactor] { xa =>
-      verifyAllSchemas(xa)
-        .as(InitResult.Verified)
-        .catchSome {
-          case SaferisError.SchemaValidation(issues) if issues.exists(_.isInstanceOf[SchemaIssue.TableNotFound]) =>
-            createSchema(xa).as(InitResult.Created)
-        }
+      ensureAll(xa).map(created => if created then InitResult.Created else InitResult.Verified)
     }
 
-  /** Create the schema if tables don't exist.
+  /** Create missing tables.
     *
     * @return
-    *   true if tables were created, false if they already existed
+    *   true if any table was created, false if they all already existed
     */
   def createIfNotExists: ZIO[Transactor, SaferisError, Boolean] =
-    ZIO.serviceWithZIO[Transactor] { xa =>
-      verifyAllSchemas(xa)
-        .as(false)
-        .catchSome {
-          case SaferisError.SchemaValidation(issues) if issues.exists(_.isInstanceOf[SchemaIssue.TableNotFound]) =>
-            createSchema(xa).as(true)
-        }
-    }
+    ZIO.serviceWithZIO[Transactor](ensureAll)
 
   /** Verify the existing schema matches expectations.
     *
@@ -87,22 +99,21 @@ object PostgresSchema:
   val verify: ZIO[Transactor, SaferisError, Unit] =
     ZIO.serviceWithZIO[Transactor](verifyAllSchemas)
 
-  private def createSchema(xa: Transactor): ZIO[Any, SaferisError, Unit] =
-    for
-      _ <- xa.run(eventsSchema.ddl().dml)
-      _ <- xa.run(snapshotsSchema.ddl().dml)
-      _ <- xa.run(timeoutsSchema.ddl().dml)
-      _ <- xa.run(locksSchema.ddl().dml)
-      _ <- xa.run(leasesSchema.ddl().dml)
-    yield ()
+  private def ensureAll(xa: Transactor): ZIO[Any, SaferisError, Boolean] =
+    ZIO
+      .foldLeft(managedTables)(false) { (anyCreated, table) =>
+        ensureTable(xa, table).map(_ || anyCreated)
+      }
+
+  private def ensureTable(xa: Transactor, table: ManagedTable): ZIO[Any, SaferisError, Boolean] =
+    xa.run(table.verify)
+      .as(false)
+      .catchSome {
+        case SaferisError.SchemaValidation(issues) if issues.exists(_.isInstanceOf[SchemaIssue.TableNotFound]) =>
+          xa.run(table.ddl.dml).as(true)
+      }
 
   private def verifyAllSchemas(xa: Transactor): ZIO[Any, SaferisError, Unit] =
-    for
-      _ <- xa.run(Schema[EventRow[String]].verify)
-      _ <- xa.run(Schema[SnapshotRow[String]].verify)
-      _ <- xa.run(Schema[TimeoutRow].verify)
-      _ <- xa.run(Schema[LockRow].verify)
-      _ <- xa.run(Schema[LeaseRow].verify)
-    yield ()
+    ZIO.foreachDiscard(managedTables)(t => xa.run(t.verify))
 
 end PostgresSchema

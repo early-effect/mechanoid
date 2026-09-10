@@ -127,3 +127,40 @@ final case class EventReplayError[S, E](
   */
 final case class LockingError(cause: MechanoidError) extends MechanoidError:
   def message: String = s"Locking operation failed: $cause"
+
+/** Error indicating an alias is already bound to a different FSM instance.
+  *
+  * Unique aliases (campaign id, template id, …) map to exactly one instance. Binding the same alias to another instance
+  * fails; rebinding to the same instance is not an error.
+  *
+  * @param namespace
+  *   Alias namespace (e.g. `"campaign"`)
+  * @param key
+  *   Alias key (e.g. the campaign id)
+  * @param heldBy
+  *   Instance id that currently owns the alias
+  * @param requested
+  *   Instance id that attempted the bind
+  */
+final case class UniqueAliasError(
+    namespace: String,
+    key: String,
+    heldBy: String,
+    requested: String,
+) extends Exception(
+      s"Alias $namespace/$key is held by $heldBy, cannot bind to $requested"
+    )
+    with MechanoidError
+
+/** Error indicating no FSM instance is bound to the given alias.
+  *
+  * @param namespace
+  *   Alias namespace (e.g. `"campaign"`)
+  * @param key
+  *   Alias key (e.g. the campaign id)
+  */
+final case class AliasNotFoundError(
+    namespace: String,
+    key: String,
+) extends Exception(s"No instance bound to alias $namespace/$key")
+    with MechanoidError

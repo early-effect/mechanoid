@@ -6,7 +6,7 @@ import zio.json.*
 import saferis.{SaferisError, Transactor}
 import mechanoid.machine.*
 import mechanoid.persistence.*
-import mechanoid.persistence.postgres.PostgresEventStore
+import mechanoid.persistence.postgres.{PostgresEventStore, PostgresInstanceIndex}
 import mechanoid.runtime.FSMRuntime
 import mechanoid.runtime.timeout.TimeoutStrategy
 import mechanoid.runtime.locking.LockingStrategy
@@ -71,6 +71,9 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
   val postgresStoreLayer: ZLayer[Any, SaferisError, EventStore[String, OrderState, OrderEvent]] =
     xaLayer >>> PostgresEventStore.makeLayer[OrderState, OrderEvent]
 
+  val postgresIndexLayer: ZLayer[Any, SaferisError, InstanceIndex[String]] =
+    xaLayer >>> PostgresInstanceIndex.layer
+
   // ============================================
   // Test Suites
   // ============================================
@@ -78,6 +81,9 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
   def spec = suite("all")(
     makeSuite("In-Memory Event Store").provideShared(inMemoryStoreLayer ++ timeoutLayer ++ lockingLayer),
     makeSuite("PostgreSQL Event Store").provideShared(postgresStoreLayer ++ timeoutLayer ++ lockingLayer),
+    postgresAliasLookupSuite.provideShared(
+      postgresStoreLayer ++ postgresIndexLayer ++ timeoutLayer ++ lockingLayer
+    ),
   ) @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds) @@ TestAspect.withLiveClock
 
   def makeSuite(name: String) = suite(name)(
@@ -841,6 +847,26 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           assertTrue(false)
       end for
     },
+  )
+
+  def postgresAliasLookupSuite = suite("PostgreSQL alias lookup")(
+    test("lookup reconstructs after restart") {
+      val id    = uniqueId("init")
+      val alias = Alias("campaign", uniqueId("c"))
+      for
+        index <- ZIO.service[InstanceIndex[String]]
+        _     <- ZIO.scoped {
+          FSMRuntime(id, orderDefinition, Pending).flatMap { fsm =>
+            fsm.send(Pay) *> fsm.send(Ship) *> fsm.saveSnapshot
+          }
+        }
+        _     <- index.bind(alias, id)
+        state <- ZIO.scoped {
+          FSMRuntime.lookup[String, OrderState, OrderEvent](alias, orderDefinition, Pending).flatMap(_.currentState)
+        }
+      yield assertTrue(state == Shipped)
+      end for
+    }
   )
 
 end FSMRuntimeSpec

@@ -40,6 +40,13 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
              expires_at TIMESTAMPTZ NOT NULL,
              acquired_at TIMESTAMPTZ NOT NULL
            )""".dml)
+      _ <- xa.run(sql"""CREATE TABLE fsm_aliases (
+             namespace TEXT NOT NULL,
+             alias_key TEXT NOT NULL,
+             instance_id TEXT NOT NULL,
+             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+             PRIMARY KEY (namespace, alias_key)
+           )""".dml)
     yield ()
 
   def spec = suite("PostgresSchema")(
@@ -125,6 +132,23 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
         _      <- PostgresSchema.initialize
         result <- PostgresSchema.verify.either
       yield assertTrue(result.isRight)
+    }.provide(plainXaLayer),
+    test("initialize creates fsm_aliases when other tables already exist") {
+      for
+        xa <- ZIO.service[Transactor]
+        _  <- xa.run(sql"""CREATE TABLE fsm_events (
+               id BIGSERIAL PRIMARY KEY,
+               instance_id TEXT NOT NULL,
+               sequence_nr BIGINT NOT NULL,
+               event_data JSONB NOT NULL,
+               created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+               UNIQUE (instance_id, sequence_nr)
+             )""".dml)
+        _      <- createOtherTables(xa)
+        _      <- xa.run(sql"DROP TABLE fsm_aliases".dml)
+        result <- PostgresSchema.initialize
+        verify <- PostgresSchema.verify.either
+      yield assertTrue(result == PostgresSchema.InitResult.Created, verify.isRight)
     }.provide(plainXaLayer),
     test("init.sql produces schema compatible with PostgresSchema.verify") {
       for

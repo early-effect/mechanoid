@@ -120,6 +120,82 @@ same `EventStore`. Session one writes history; session two resumes at `Shipped`:
         }.asDoc
       }.assert(state => assertTrue(state.toString == "Shipped")),
     ),
+    section("Lookup by alias")(
+      md"""
+The event log is still keyed by instance id. Unique secondary keys (campaign id, template id)
+live in `InstanceIndex`: resolve is a primary-key lookup, independent of how many campaigns
+an initiative holds.
+
+`FSMRuntime.lookup(alias, machine, initial)` resolves then reconstructs. Unknown aliases
+fail with `AliasNotFoundError` (no machine is created). For a GET of current state without
+a live runtime: `index.resolve(alias)` then `EventStore.currentState(id)`.
+
+Mark constructor fields with `@alias` (optional namespace; default is the field name) and pass
+`AliasExtractor.derived[S]`. Scalars, `Option`, and collections (`List` / `Seq` / `Chunk`) all
+work. Values encode with `AliasCodec` (`toString` unless you provide a given):
+
+```scala
+enum InitiativeState derives Finite:
+  case Draft
+  case Live(
+    @alias("campaign") campaignIds: List[Long],
+    @alias templateId: String,
+  )
+
+FSMRuntime(id, machine, Draft, AliasExtractor.derived[InitiativeState])
+```
+""",
+      exampleZIO {
+        enum OrderState derives Finite:
+          case Pending, Paid, Shipped
+
+        enum OrderEvent derives Finite:
+          case Pay, Ship
+
+        import OrderState.*, OrderEvent.*
+
+        val machine = Machine(
+          assembly[OrderState, OrderEvent](
+            Pending via Pay to Paid,
+            Paid via Ship to Shipped,
+          )
+        )
+
+        val orderId: OrderId = "order-alias-1"
+        val campaign         = Alias("campaign", "camp-42")
+
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[OrderId, OrderState, OrderEvent]()
+            index <- InMemoryInstanceIndex.make[OrderId]
+            layers = ZLayer.succeed(store) ++
+              ZLayer.succeed[InstanceIndex[OrderId]](index) ++
+              TimeoutStrategy.fiber[OrderId] ++
+              LockingStrategy.optimistic[OrderId]
+            _ <- ZIO
+              .scoped {
+                FSMRuntime(orderId, machine, Pending).flatMap { fsm =>
+                  fsm.send(Pay) *> fsm.saveSnapshot
+                }
+              }
+              .provide(layers)
+            _         <- index.bind(campaign, orderId)
+            recovered <- ZIO
+              .scoped {
+                FSMRuntime
+                  .lookup[OrderId, OrderState, OrderEvent](campaign, machine, Pending)
+                  .flatMap(_.currentState)
+              }
+              .provide(layers)
+          yield recovered
+        }.asDoc
+      }.assert(state => assertTrue(state.toString == "Paid")),
+      md"""
+PostgreSQL stores aliases in `fsm_aliases` (`PostgresInstanceIndex`); `PostgresSchema.initialize`
+creates that table even when the other tables already exist. IndexedDB uses an `aliases` object
+store (database version 2) via `IndexedDbInstanceIndex` / `SharedFSMRuntime.lookup`.
+""",
+    ),
     section("EventStore and codecs")(
       md"""
 Implement `EventStore[Id, S, E]` for your backend (`append`, `loadEvents`, snapshots, …).
@@ -133,9 +209,10 @@ PostgreSQL ships as `mechanoid-postgres`. Derive JSON codecs with
     section("Browser (Scala.js)")(
       md"""
 `mechanoid-web` persists to **IndexedDB** (`IndexedDbEventStore`, `IndexedDbTimeoutStore`,
-`IndexedDbInstanceLock`) and notifies peer tabs over **BroadcastChannel**. Peers reconstruct
-`FSMRuntime` from the store (same load-on-demand model as server nodes) so several tabs share
-one instance without a server.
+`IndexedDbInstanceLock`, `IndexedDbInstanceIndex`) and notifies peer tabs over **BroadcastChannel**.
+Peers reconstruct `FSMRuntime` from the store (same load-on-demand model as server nodes) so
+several tabs share one instance without a server. `SharedFSMRuntime.lookup` resolves a unique
+alias then starts that instance.
 
 ```scala
 libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "<version>"

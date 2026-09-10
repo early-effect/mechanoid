@@ -18,6 +18,7 @@ import mechanoid.runtime.timeout.TimeoutStrategy
 object SharedFSMRuntime:
 
   /** Open shared IndexedDB stores + tab synchronizer for a given DB / channel name. */
+  @scala.annotation.nowarn("msg=unused implicit parameter")
   def stores[S: JsonCodec: Tag, E: JsonCodec: Tag](
       dbName: String = "mechanoid",
       channelName: String = "mechanoid-sync",
@@ -29,7 +30,8 @@ object SharedFSMRuntime:
       events   <- IndexedDbEventStore.make[S, E](dbName, notify)
       timeouts <- IndexedDbTimeoutStore.make(dbName, notify)
       locks    <- IndexedDbInstanceLock.make(dbName)
-    yield SharedStores(events, timeouts, locks, sync)
+      index    <- IndexedDbInstanceIndex.make(dbName)
+    yield SharedStores(events, timeouts, locks, index, sync)
 
   /** Start an FSM and reconstruct it when a peer writes this instance id. */
   def start[S: Finite: Tag, E: Finite: Tag](
@@ -38,6 +40,7 @@ object SharedFSMRuntime:
       initial: S,
       stores: SharedStores[S, E],
       onState: S => UIO[Unit] = (_: S) => ZIO.unit,
+      extractor: AliasExtractor[S] = AliasExtractor.none,
   ): ZIO[Scope, MechanoidError, FSMRuntime[String, S, E]] =
     for
       parent     <- ZIO.scope
@@ -51,13 +54,7 @@ object SharedFSMRuntime:
           _         <- parent.addFinalizerExit(ex => child.close(ex))
           _         <- childRef.set(Some(child))
           runtime   <- child.extend(
-            FSMRuntime(instanceId, machine, initial).provideSome[Scope](
-              ZLayer.succeed[EventStore[String, S, E]](stores.events),
-              ZLayer.succeed[TimeoutStore[String]](stores.timeouts),
-              TimeoutStrategy.durable[String],
-              ZLayer.succeed[FSMInstanceLock[String]](stores.locks),
-              LockingStrategy.distributed[String],
-            )
+            openRuntime(instanceId, machine, initial, stores, extractor)
           )
         yield runtime
       first <- open
@@ -76,10 +73,46 @@ object SharedFSMRuntime:
       }
     yield DelegatingFSMRuntime(instanceId, machine, runtimeRef)
 
+  /** Resolve `alias` then [[start]] that instance. Missing aliases fail with [[AliasNotFoundError]]. */
+  def lookup[S: Finite: Tag, E: Finite: Tag](
+      alias: Alias,
+      machine: Machine[S, E],
+      initial: S,
+      stores: SharedStores[S, E],
+      onState: S => UIO[Unit] = (_: S) => ZIO.unit,
+      extractor: AliasExtractor[S] = AliasExtractor.none,
+  ): ZIO[Scope, MechanoidError, FSMRuntime[String, S, E]] =
+    stores.index.resolve(alias).flatMap {
+      case Some(id) => start(id, machine, initial, stores, onState, extractor)
+      case None     => ZIO.fail(AliasNotFoundError(alias.namespace, alias.key))
+    }
+
+  @scala.annotation.nowarn("msg=unused implicit parameter")
+  private def openRuntime[S: Finite: Tag, E: Finite: Tag](
+      instanceId: String,
+      machine: Machine[S, E],
+      initial: S,
+      stores: SharedStores[S, E],
+      extractor: AliasExtractor[S],
+  ): ZIO[Scope, MechanoidError, FSMRuntime[String, S, E]] =
+    val make =
+      if extractor eq AliasExtractor.none[S] then FSMRuntime(instanceId, machine, initial)
+      else FSMRuntime(instanceId, machine, initial, extractor)
+    make.provideSome[Scope](
+      ZLayer.succeed[EventStore[String, S, E]](stores.events),
+      ZLayer.succeed[TimeoutStore[String]](stores.timeouts),
+      TimeoutStrategy.durable[String],
+      ZLayer.succeed[FSMInstanceLock[String]](stores.locks),
+      LockingStrategy.distributed[String],
+      ZLayer.succeed[InstanceIndex[String]](stores.index),
+    )
+  end openRuntime
+
   final case class SharedStores[S, E](
       events: EventStore[String, S, E],
       timeouts: TimeoutStore[String],
       locks: FSMInstanceLock[String],
+      index: InstanceIndex[String],
       sync: TabSynchronizer,
   )
 

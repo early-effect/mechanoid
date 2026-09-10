@@ -41,6 +41,7 @@ object Reference extends MechanoidDocSpecSuite:
 | `EventStore` | `InMemoryEventStore.layer`, `mechanoid-postgres` |
 | `TimeoutStrategy` | `fiber[Id]`, `durable[Id]` (+ `TimeoutStore`) |
 | `LockingStrategy` | `optimistic[Id]`, `distributed[Id]` (+ `FSMInstanceLock`) |
+| `InstanceIndex` | `InMemoryInstanceIndex.layer`, `PostgresInstanceIndex`, `IndexedDbInstanceIndex` |
 """
     ),
     section("Errors")(
@@ -55,6 +56,8 @@ object Reference extends MechanoidDocSpecSuite:
 | `SequenceConflictError` | Concurrent modification at append |
 | `EventReplayError` | Stored event does not match definition |
 | `LockingError` | Distributed lock busy / timeout |
+| `UniqueAliasError` | Alias already bound to a different instance |
+| `AliasNotFoundError` | `lookup` / resolve found no binding |
 """
     ),
     section("Compact machine")(

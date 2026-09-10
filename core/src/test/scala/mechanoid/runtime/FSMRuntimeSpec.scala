@@ -13,6 +13,13 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
   enum TestEvent derives Finite:
     case E1, E2, E3
 
+  enum AliasInitState derives Finite:
+    case Draft
+    case Live(@alias("campaign") campaignIds: List[Long], @alias templateId: String)
+
+  enum AliasInitEvent derives Finite:
+    case Launch
+
   import TestState.*
   import TestEvent.*
 
@@ -255,6 +262,279 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           OptimisticLockingStrategy.layer[String],
         )
       }
+    ),
+    suite("lookup and aliases")(
+      test("lookup reconstructs the instance bound to an alias") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        val alias = Alias("campaign", "c-1")
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, TestState, TestEvent]()
+            index <- InMemoryInstanceIndex.make[String]
+            layers = ZLayer.succeed(store) ++
+              ZLayer.succeed[InstanceIndex[String]](index) ++
+              FiberTimeoutStrategy.layer[String] ++
+              OptimisticLockingStrategy.layer[String]
+            _ <- ZIO
+              .scoped {
+                FSMRuntime("init-1", simpleMachine, A).flatMap { fsm =>
+                  fsm.send(E1) *> fsm.saveSnapshot
+                }
+              }
+              .provide(layers)
+            _     <- index.bind(alias, "init-1")
+            state <- ZIO
+              .scoped {
+                FSMRuntime
+                  .lookup[String, TestState, TestEvent](alias, simpleMachine, A)
+                  .flatMap(_.currentState)
+              }
+              .provide(layers)
+          yield assertTrue(state == B)
+        }
+      },
+      test("lookup fails for an unknown alias") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        val program = FSMRuntime
+          .lookup[String, TestState, TestEvent](Alias("campaign", "missing"), simpleMachine, A)
+          .either
+
+        program
+          .provide(
+            Scope.default,
+            InMemoryEventStore.layer[String, TestState, TestEvent],
+            InMemoryInstanceIndex.layer[String],
+            FiberTimeoutStrategy.layer[String],
+            OptimisticLockingStrategy.layer[String],
+          )
+          .map {
+            case Left(e: AliasNotFoundError) =>
+              assertTrue(e.namespace == "campaign", e.key == "missing")
+            case _ => assertTrue(false)
+          }
+      },
+      test("derived @alias extractor binds on Goto") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        val machine = Machine(
+          assembly[AliasInitState, AliasInitEvent](
+            AliasInitState.Draft via AliasInitEvent.Launch to AliasInitState.Live(List(1L, 2L), "t-9")
+          )
+        )
+        val extractor = AliasExtractor.derived[AliasInitState]
+
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, AliasInitState, AliasInitEvent]()
+            index <- InMemoryInstanceIndex.make[String]
+            _     <- ZIO
+              .scoped {
+                FSMRuntime("init-1", machine, AliasInitState.Draft, extractor).flatMap(_.send(AliasInitEvent.Launch))
+              }
+              .provide(
+                ZLayer.succeed(store),
+                ZLayer.succeed[InstanceIndex[String]](index),
+                FiberTimeoutStrategy.layer[String],
+                OptimisticLockingStrategy.layer[String],
+              )
+            campaigns <- index.aliasesOf("init-1", Some("campaign"))
+            template  <- index.resolve(Alias("templateId", "t-9"))
+          yield assertTrue(
+            campaigns.toSet == Set(Alias("campaign", "1"), Alias("campaign", "2")),
+            template.contains("init-1"),
+          )
+        }
+      },
+      test("extractor binds aliases on Goto and lookup recovers them") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        sealed trait InitState derives Finite
+        case class Draft(campaigns: List[String]) extends InitState
+        case class Live(campaigns: List[String])  extends InitState
+
+        enum InitEvent derives Finite:
+          case Launch
+
+        val machine = Machine(
+          assembly[InitState, InitEvent](
+            state[Draft] via InitEvent.Launch to Live(List("c-1", "c-2"))
+          )
+        )
+        val extractor: AliasExtractor[InitState] =
+          AliasExtractor {
+            case Draft(cs) => Chunk.fromIterable(cs.map(id => Alias("campaign", id)))
+            case Live(cs)  => Chunk.fromIterable(cs.map(id => Alias("campaign", id)))
+          }
+
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, InitState, InitEvent]()
+            index <- InMemoryInstanceIndex.make[String]
+            layers = ZLayer.succeed(store) ++
+              ZLayer.succeed[InstanceIndex[String]](index) ++
+              FiberTimeoutStrategy.layer[String] ++
+              OptimisticLockingStrategy.layer[String]
+            _ <- ZIO
+              .scoped {
+                FSMRuntime("init-1", machine, Draft(Nil), extractor).flatMap { fsm =>
+                  fsm.send(InitEvent.Launch) *> fsm.saveSnapshot
+                }
+              }
+              .provide(layers)
+            c1    <- index.resolve(Alias("campaign", "c-1"))
+            state <- ZIO
+              .scoped {
+                FSMRuntime
+                  .lookup[String, InitState, InitEvent](
+                    Alias("campaign", "c-1"),
+                    machine,
+                    Draft(Nil),
+                    extractor,
+                  )
+                  .flatMap(_.currentState)
+              }
+              .provide(layers)
+          yield assertTrue(c1.contains("init-1"), state == Live(List("c-1", "c-2")))
+        }
+      },
+      test("extractor uniqueness clash fails send and does not append") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        sealed trait InitState derives Finite
+        case object Empty                        extends InitState
+        case class Live(campaigns: List[String]) extends InitState
+
+        enum InitEvent derives Finite:
+          case Launch
+
+        val machine = Machine(
+          assembly[InitState, InitEvent](
+            Empty via InitEvent.Launch to Live(List("taken"))
+          )
+        )
+        val extractor: AliasExtractor[InitState] =
+          AliasExtractor {
+            case Empty    => Chunk.empty
+            case Live(cs) => Chunk.fromIterable(cs.map(id => Alias("campaign", id)))
+          }
+
+        ZIO.scoped {
+          for
+            store  <- InMemoryEventStore.make[String, InitState, InitEvent]()
+            index  <- InMemoryInstanceIndex.make[String]
+            _      <- index.bind(Alias("campaign", "taken"), "other")
+            result <- ZIO
+              .scoped {
+                FSMRuntime("init-1", machine, Empty, extractor).flatMap(_.send(InitEvent.Launch).either)
+              }
+              .provide(
+                ZLayer.succeed(store),
+                ZLayer.succeed[InstanceIndex[String]](index),
+                FiberTimeoutStrategy.layer[String],
+                OptimisticLockingStrategy.layer[String],
+              )
+            seq <- store.highestSequenceNr("init-1")
+          yield result match
+            case Left(_: UniqueAliasError) => assertTrue(seq == 0L)
+            case _                         => assertTrue(false)
+        }
+      },
+      test("unchanged extractor lists do not rewrite aliases") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        sealed trait InitState derives Finite
+        case class Live(campaigns: List[String], tick: Int) extends InitState
+
+        enum InitEvent derives Finite:
+          case Tick
+
+        val machine = Machine(
+          assembly[InitState, InitEvent](
+            state[Live] via InitEvent.Tick to Live(List("c-1"), 1)
+          )
+        )
+        val extractor: AliasExtractor[InitState] =
+          AliasExtractor { case Live(cs, _) =>
+            Chunk.fromIterable(cs.map(id => Alias("campaign", id)))
+          }
+
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, InitState, InitEvent]()
+            index <- InMemoryInstanceIndex.make[String]
+            _     <- index.bind(Alias("campaign", "c-1"), "init-1")
+            _     <- ZIO
+              .scoped {
+                FSMRuntime("init-1", machine, Live(List("c-1"), 0), extractor).flatMap(_.send(InitEvent.Tick))
+              }
+              .provide(
+                ZLayer.succeed(store),
+                ZLayer.succeed[InstanceIndex[String]](index),
+                FiberTimeoutStrategy.layer[String],
+                OptimisticLockingStrategy.layer[String],
+              )
+            still <- index.resolve(Alias("campaign", "c-1"))
+            extra <- index.aliasesOf("init-1")
+          yield assertTrue(still.contains("init-1"), extra.toSet == Set(Alias("campaign", "c-1")))
+        }
+      },
+      test("recover reindex drops stale aliases not on rebuilt state") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+
+        sealed trait InitState derives Finite
+        case class Live(campaigns: List[String]) extends InitState
+
+        enum InitEvent derives Finite:
+          case Tick
+
+        val machine = Machine(
+          assembly[InitState, InitEvent](
+            state[Live] via InitEvent.Tick to stay
+          )
+        )
+        val extractor: AliasExtractor[InitState] =
+          AliasExtractor { case Live(cs) =>
+            Chunk.fromIterable(cs.map(id => Alias("campaign", id)))
+          }
+
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, InitState, InitEvent]()
+            index <- InMemoryInstanceIndex.make[String]
+            snap: FSMSnapshot[String, InitState] =
+              FSMSnapshot("init-1", Live(List("c-1")), 0L, java.time.Instant.now())
+            _ <- store.saveSnapshot(snap)
+            _ <- index.bindAll(
+              Chunk(Alias("campaign", "c-1"), Alias("campaign", "stale")),
+              "init-1",
+            )
+            _ <- ZIO
+              .scoped {
+                FSMRuntime("init-1", machine, Live(Nil), extractor).unit
+              }
+              .provide(
+                ZLayer.succeed(store),
+                ZLayer.succeed[InstanceIndex[String]](index),
+                FiberTimeoutStrategy.layer[String],
+                OptimisticLockingStrategy.layer[String],
+              )
+            leftover <- index.aliasesOf("init-1")
+            stale    <- index.resolve(Alias("campaign", "stale"))
+          yield assertTrue(
+            leftover.toSet == Set(Alias("campaign", "c-1")),
+            stale.isEmpty,
+          )
+        }
+      },
     ),
     suite("error scenarios")(
       test("InvalidTransitionError is thrown for undefined transition") {
