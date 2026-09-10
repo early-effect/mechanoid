@@ -44,45 +44,54 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
     // expectedSeqNr is the expected CURRENT highest sequence number
     val newSeqNr = expectedSeqNr + 1
 
-    // First check current sequence outside transaction
-    val checkAndInsert = for
-      currentSeq <- transactor
-        .run {
-          Query[EventRow[E]]
-            .where(_.instanceId)
-            .eq(instanceId)
-            .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
-            .queryValue[Long]
-        }
-        .map(_.getOrElse(0L))
-
-      _ <- ZIO.when(currentSeq != expectedSeqNr) {
-        ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, currentSeq))
+    // Check and insert on one connection so the unique row is decided in the same
+    // transaction as the max() read. SequenceConflictError is only for a known lost
+    // race (we observed a different sequence). Deadlock / pool errors stay PersistenceError.
+    transactor
+      .transact {
+        for
+          currentSeq <- highestSeq(instanceId)
+          result     <-
+            if currentSeq != expectedSeqNr then ZIO.succeed(Left(currentSeq))
+            else
+              Clock.instant.flatMap { now =>
+                Insert[EventRow[E]]
+                  .value(_.instanceId, instanceId)
+                  .value(_.sequenceNr, newSeqNr)
+                  .value(_.eventData, Json(event))
+                  .value(_.createdAt, now)
+                  .build
+                  .dml
+                  .as(Right(newSeqNr))
+              }
+        yield result
       }
-
-      now <- Clock.instant
-      _   <- transactor.run {
-        Insert[EventRow[E]]
-          .value(_.instanceId, instanceId)
-          .value(_.sequenceNr, newSeqNr)
-          .value(_.eventData, Json(event))
-          .value(_.createdAt, now)
-          .build
-          .dml
-      }
-    yield newSeqNr
-
-    checkAndInsert
-      .catchSome {
-        // Handle unique constraint violation from concurrent inserts
+      .catchAll {
         case _: SaferisError.ConstraintViolation =>
-          ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, expectedSeqNr))
+          // Another transaction committed the same (instance, seq). Re-read the actual
+          // highest sequence so SequenceConflictError carries a real actualSeqNr.
+          transactor
+            .run(highestSeq(instanceId))
+            .mapError(PersistenceError.fromError)
+            .flatMap { actual =>
+              ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, actual))
+            }
+        case e => ZIO.fail(PersistenceError.fromError(e))
       }
-      .mapError {
-        case e: MechanoidError => e
-        case e                 => PersistenceError.fromError(e)
+      .flatMap {
+        case Left(actualSeqNr) =>
+          ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, actualSeqNr))
+        case Right(seqNr) => ZIO.succeed(seqNr)
       }
   end append
+
+  private def highestSeq(instanceId: String) =
+    Query[EventRow[E]]
+      .where(_.instanceId)
+      .eq(instanceId)
+      .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
+      .queryValue[Long]
+      .map(_.getOrElse(0L))
 
   override def loadEvents(instanceId: String): ZStream[Any, MechanoidError, StoredEvent[String, E]] =
     ZStream.fromIterableZIO {
