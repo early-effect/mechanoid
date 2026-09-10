@@ -44,43 +44,44 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
     // expectedSeqNr is the expected CURRENT highest sequence number
     val newSeqNr = expectedSeqNr + 1
 
-    // First check current sequence outside transaction
-    val checkAndInsert = for
-      currentSeq <- transactor
-        .run {
-          Query[EventRow[E]]
+    // Check and insert on one connection. Two `run` calls would open two connections
+    // under contention (100 racers → ~200 checkouts) and surface pool / deadlock errors
+    // instead of SequenceConflictError.
+    transactor
+      .transact {
+        for
+          currentSeq <- Query[EventRow[E]]
             .where(_.instanceId)
             .eq(instanceId)
             .selectAggregate(_.sequenceNr)(_.max.coalesce(0L))
             .queryValue[Long]
-        }
-        .map(_.getOrElse(0L))
-
-      _ <- ZIO.when(currentSeq != expectedSeqNr) {
-        ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, currentSeq))
-      }
-
-      now <- Clock.instant
-      _   <- transactor.run {
-        Insert[EventRow[E]]
-          .value(_.instanceId, instanceId)
-          .value(_.sequenceNr, newSeqNr)
-          .value(_.eventData, Json(event))
-          .value(_.createdAt, now)
-          .build
-          .dml
-      }
-    yield newSeqNr
-
-    checkAndInsert
-      .catchSome {
-        // Handle unique constraint violation from concurrent inserts
-        case _: SaferisError.ConstraintViolation =>
-          ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, expectedSeqNr))
+            .map(_.getOrElse(0L))
+          result <-
+            if currentSeq != expectedSeqNr then ZIO.succeed(Left(currentSeq))
+            else
+              Clock.instant.flatMap { now =>
+                Insert[EventRow[E]]
+                  .value(_.instanceId, instanceId)
+                  .value(_.sequenceNr, newSeqNr)
+                  .value(_.eventData, Json(event))
+                  .value(_.createdAt, now)
+                  .build
+                  .dml
+                  .as(Right(newSeqNr))
+              }
+        yield result
       }
       .mapError {
-        case e: MechanoidError => e
-        case e                 => PersistenceError.fromError(e)
+        case _: SaferisError.ConstraintViolation =>
+          SequenceConflictError(instanceId, expectedSeqNr, expectedSeqNr)
+        case _: SaferisError.Retryable =>
+          SequenceConflictError(instanceId, expectedSeqNr, expectedSeqNr)
+        case e => PersistenceError.fromError(e)
+      }
+      .flatMap {
+        case Left(actualSeqNr) =>
+          ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, actualSeqNr))
+        case Right(seqNr) => ZIO.succeed(seqNr)
       }
   end append
 
