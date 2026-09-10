@@ -182,15 +182,20 @@ object PostgresStressSpec extends ZIOSpecDefault:
         }
 
         successes = results.collect { case Right(seqNr) => seqNr }
-        conflicts = results.collect { case Left(_: SequenceConflictError) => () }
+        conflicts = results.collect { case Left(e: SequenceConflictError) => e }
+        other     = results.collect { case Left(e) if !e.isInstanceOf[SequenceConflictError] => e }
 
-        // Verify only one event was persisted
-        events <- store.loadEvents(instanceId).runCollect
+        events  <- store.loadEvents(instanceId).runCollect
+        highest <- store.highestSequenceNr(instanceId)
       yield assertTrue(
-        successes.length == 1,
+        successes == List(1L),
         conflicts.length == 99,
-        events.length == 1,
-        events.head.sequenceNr == 1L,
+        other.isEmpty,
+        events.map(_.sequenceNr) == Chunk(1L),
+        highest == 1L,
+        conflicts.forall(_.expectedSeqNr == 0L),
+        conflicts.forall(_.actualSeqNr == 1L),
+        conflicts.forall(_.instanceId == instanceId),
       )
     },
     test("parallel append chains to different instances - all succeed") {

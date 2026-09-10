@@ -26,6 +26,15 @@ object PostgresEventStoreSpec extends ZIOSpecDefault:
   val xaLayer    = PostgresTestContainer.DataSourceProvider.transactor
   val storeLayer = xaLayer >>> PostgresEventStore.makeLayer[TestState, TestEvent]
 
+  private def uniqueId(prefix: String): String = s"$prefix-${java.util.UUID.randomUUID()}"
+
+  private def classify(results: Iterable[Either[MechanoidError, Long]]) =
+    (
+      results.collect { case Right(n) => n }.toList,
+      results.collect { case Left(e: SequenceConflictError) => e }.toList,
+      results.collect { case Left(e) if !e.isInstanceOf[SequenceConflictError] => e }.toList,
+    )
+
   def spec = suite("PostgresEventStore")(
     test("append persists an event with correct sequence number") {
       for
@@ -148,20 +157,98 @@ object PostgresEventStoreSpec extends ZIOSpecDefault:
         highest <- store.highestSequenceNr("new-instance")
       yield assertTrue(highest == 0L)
     },
-    test("concurrent appends - only one wins") {
-      for
-        store <- ZIO.service[EventStore[String, TestState, TestEvent]]
-        instanceId = s"concurrent-test-${java.util.UUID.randomUUID()}"
-        // All try to append expecting current seq = 0
-        results <- ZIO.foreachPar(List("a", "b", "c")) { suffix =>
-          store.append(instanceId, TestEvent.Started(suffix), 0).either
+    suite("append properties")(
+      test("concurrent first append: one winner, contiguous log, real actualSeqNr") {
+        check(Gen.int(2, 16)) { writers =>
+          for
+            store <- ZIO.service[EventStore[String, TestState, TestEvent]]
+            instanceId = uniqueId("prop-first")
+            results <- ZIO.foreachPar(1 to writers) { i =>
+              store.append(instanceId, TestEvent.Started(s"$i"), 0).either
+            }
+            (successes, conflicts, other) = classify(results)
+            events  <- store.loadEvents(instanceId).runCollect
+            highest <- store.highestSequenceNr(instanceId)
+          yield assertTrue(
+            successes == List(1L),
+            conflicts.length == writers - 1,
+            other.isEmpty,
+            events.map(_.sequenceNr) == Chunk(1L),
+            highest == 1L,
+            conflicts.forall(_.expectedSeqNr == 0L),
+            conflicts.forall(_.actualSeqNr == 1L),
+            conflicts.forall(_.instanceId == instanceId),
+          )
         }
-        successes = results.collect { case Right(seqNr) => seqNr }
-        failures  = results.collect { case Left(_: SequenceConflictError) => () }
-      yield assertTrue(
-        successes.length == 1,
-        failures.length == 2,
-      )
-    },
+      },
+      test("stale writers after a prefix all conflict with actual = prefix") {
+        check(Gen.int(1, 8), Gen.int(2, 12)) { (prefix, stale) =>
+          for
+            store <- ZIO.service[EventStore[String, TestState, TestEvent]]
+            instanceId = uniqueId("prop-stale")
+            _ <- ZIO.foreach(1 to prefix) { i =>
+              store.append(instanceId, TestEvent.Processed(s"$i"), (i - 1).toLong)
+            }
+            results <- ZIO.foreachPar(1 to stale) { i =>
+              store.append(instanceId, TestEvent.Started(s"stale-$i"), 0).either
+            }
+            (successes, conflicts, other) = classify(results)
+            events  <- store.loadEvents(instanceId).runCollect
+            highest <- store.highestSequenceNr(instanceId)
+          yield assertTrue(
+            successes.isEmpty,
+            conflicts.length == stale,
+            other.isEmpty,
+            events.map(_.sequenceNr) == Chunk.fromIterable(1L to prefix.toLong),
+            highest == prefix.toLong,
+            conflicts.forall(_.expectedSeqNr == 0L),
+            conflicts.forall(_.actualSeqNr == prefix.toLong),
+          )
+        }
+      },
+      test("concurrent appends at the current head extend the log by one") {
+        check(Gen.int(0, 6), Gen.int(2, 12)) { (prefix, writers) =>
+          for
+            store <- ZIO.service[EventStore[String, TestState, TestEvent]]
+            instanceId = uniqueId("prop-head")
+            _ <- ZIO.foreach(1 to prefix) { i =>
+              store.append(instanceId, TestEvent.Processed(s"$i"), (i - 1).toLong)
+            }
+            results <- ZIO.foreachPar(1 to writers) { i =>
+              store.append(instanceId, TestEvent.Started(s"race-$i"), prefix.toLong).either
+            }
+            (successes, conflicts, other) = classify(results)
+            events  <- store.loadEvents(instanceId).runCollect
+            highest <- store.highestSequenceNr(instanceId)
+            expected = (prefix + 1).toLong
+          yield assertTrue(
+            successes == List(expected),
+            conflicts.length == writers - 1,
+            other.isEmpty,
+            events.map(_.sequenceNr) == Chunk.fromIterable(1L to expected),
+            highest == expected,
+            conflicts.forall(_.expectedSeqNr == prefix.toLong),
+            conflicts.forall(_.actualSeqNr == expected),
+          )
+        }
+      },
+      test("sequential appends produce 1..n with no gaps") {
+        check(Gen.int(1, 20)) { n =>
+          for
+            store <- ZIO.service[EventStore[String, TestState, TestEvent]]
+            instanceId = uniqueId("prop-seq")
+            seqNrs <- ZIO.foreach(1 to n) { i =>
+              store.append(instanceId, TestEvent.Processed(s"$i"), (i - 1).toLong)
+            }
+            events  <- store.loadEvents(instanceId).runCollect
+            highest <- store.highestSequenceNr(instanceId)
+          yield assertTrue(
+            seqNrs == (1L to n.toLong).toList,
+            events.map(_.sequenceNr) == Chunk.fromIterable(1L to n.toLong),
+            highest == n.toLong,
+          )
+        }
+      },
+    ) @@ TestAspect.samples(25),
   ).provideShared(storeLayer) @@ TestAspect.sequential
 end PostgresEventStoreSpec
