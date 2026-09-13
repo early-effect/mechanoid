@@ -18,7 +18,7 @@ object MyVersions extends ZipxVersions:
   val zioTest          = zio.mod("zio-test")
   val zioTestSbt       = zio.mod("zio-test-sbt")
   val zioTestMagnolia  = zio.mod("zio-test-magnolia")
-  val zioJson          = Lib("dev.zio", "zio-json", "0.10.0")
+  val zioJson          = Lib("dev.zio", "zio-json", "1.1.0")
   val zioLogging       = Lib("dev.zio", "zio-logging", "2.5.3")
   val zioLoggingSlf4j  = zioLogging.mod("zio-logging-slf4j")
   val zioLoggingBridge = zioLogging.mod("zio-logging-slf4j-bridge")
@@ -33,7 +33,7 @@ object MyVersions extends ZipxVersions:
   val scalajsDom               = Lib("org.scala-js", "scalajs-dom", "2.8.1")
   val scaluzzi                 = Lib("com.github.vovapolu", "scaluzzi", "0.1.23")
 
-  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.14.1")
+  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.14.2")
   val specularZioTest = specular.mod("specular-zio-test")
   val specularTheme   = specular.mod("early-effect-docs-theme")
   val specularMermoid = specular.mod("specular-mermoid")
@@ -49,12 +49,12 @@ object MyVersions extends ZipxVersions:
       ZipxExclude.org("org.scala-lang.modules", "scala-collection-compat_2.13"),
       ZipxExclude.org("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
     )
-  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.14.1")
+  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.14.2")
   val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
-  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.7")
+  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.8")
   val dynverCi       = Plugin("rocks.earlyeffect", "sbt-dynver-ci", "0.2.3")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
-  val sbtReload      = Plugin("com.jamesward", "sbt-reload", "0.0.7")
+  val sbtReload      = Plugin("com.jamesward", "sbt-reload", "0.0.8")
 
   def zioLib           = library(zio, zioStreams, zioJson)
   def zioTests         = library(zioTest.test, zioTestSbt.test)
