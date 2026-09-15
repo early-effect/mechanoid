@@ -21,6 +21,20 @@ final case class InvalidTransitionError[S, E](
     message: String = "No transition defined",
 ) extends MechanoidError
 
+/** Reducer returned a value whose Finite leaf is not the declared target (source leaf, for stay).
+  *
+  * The edge exists; this is an action failure, so the event is not appended. Distinct from [[InvalidTransitionError]]
+  * (no edge).
+  */
+final case class PayloadLeafMismatchError[S](
+    declaredLeaf: String,
+    actualLeaf: String,
+    actual: S,
+) extends Exception(
+      s"Reducer produced $actualLeaf, declared target is $declaredLeaf"
+    )
+    with MechanoidError
+
 /** Error indicating the FSM has been stopped. */
 final case class FSMStoppedError(reason: Option[String]) extends MechanoidError
 

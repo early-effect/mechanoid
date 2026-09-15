@@ -79,7 +79,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         else
           eventsRef.update(_ :+ (capturedId, event)) *>
             ZIO.succeed(
-              TransitionOutcome(TransitionResult.Stay)
+              TransitionOutcome(TransitionResult.Stay(capturedState))
             )
 
       override def currentState: UIO[TestState] = ZIO.succeed(capturedState)
@@ -956,7 +956,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
                 count <- scheduleCountRef.updateAndGet(_ + 1)
                 newSeqNr = count.toLong // Each re-entry gets a new seqNr
                 _ <- store.schedule(instanceId, waitingStateHash, newSeqNr, now.plusSeconds(30))
-              yield TransitionOutcome(TransitionResult.Stay)
+              yield TransitionOutcome(TransitionResult.Stay(Waiting))
 
             override def currentState: UIO[TestState]    = ZIO.succeed(Waiting)
             override def state: UIO[FSMState[TestState]] =

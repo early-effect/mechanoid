@@ -193,86 +193,57 @@ object Macros:
     else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
   end computeHashForImpl
 
+  /** Finite leaf hash of a type, matching `state[T]` / `Finite.caseHash` for that case. */
+  inline def hashForType[T]: Int = ${ hashForTypeImpl[T] }
+
+  /** Unqualified type name, used as mermaid/error leaf label. */
+  inline def nameForType[T]: String = ${ nameForTypeImpl[T] }
+
+  /** Abort unless `T` is a leaf case, not a sealed parent. */
+  inline def requireLeaf[T]: Unit = ${ requireLeafImpl[T] }
+
+  private def hashForTypeImpl[T: Type](using Quotes): Expr[Int] =
+    import quotes.reflect.*
+    Expr(TypeRepr.of[T].dealias.typeSymbol.fullName.hashCode)
+
+  private def nameForTypeImpl[T: Type](using Quotes): Expr[String] =
+    import quotes.reflect.*
+    Expr(TypeRepr.of[T].dealias.typeSymbol.name)
+
+  private def requireLeafImpl[T: Type](using Quotes): Expr[Unit] =
+    import quotes.reflect.*
+    val sym      = TypeRepr.of[T].dealias.typeSymbol
+    val isParent = (sym.flags.is(Flags.Sealed) || sym.flags.is(Flags.Enum)) && sym.children.nonEmpty
+    if isParent then
+      report.errorAndAbort(
+        s"${sym.name} is not a leaf case. Name the target case in `to[...]`, not the parent type."
+      )
+    '{ () }
+
   /** Implementation of `event[T]` - creates a type-based event matcher.
     *
-    * Returns EventMatcher parameterized with the sealed parent type to enable proper type bounds in `producing`.
+    * Parameterized with `T` itself so payload reducers receive the leaf event, not the parent.
     */
-  def eventMatcherImpl[E: Type](using Quotes): Expr[EventMatcher[?]] =
+  def eventMatcherImpl[E: Type](using Quotes): Expr[EventMatcher[E]] =
     import quotes.reflect.*
     val tpe  = TypeRepr.of[E]
     val sym  = tpe.typeSymbol
     val hash = sym.fullName.hashCode
     val name = sym.name
-
-    // Find the sealed parent type for proper type bounds
-    // Check for both Sealed flag (sealed trait/class) and Enum flag (Scala 3 enum)
-    def isSealedOrEnum(s: Symbol): Boolean =
-      s.flags.is(Flags.Sealed) || s.flags.is(Flags.Enum)
-
-    def findSealedParent(s: Symbol): Option[Symbol] =
-      if !s.exists then None
-      else if isSealedOrEnum(s) then Some(s)
-      else if s.flags.is(Flags.Module) then
-        // For enum cases, owner is the companion object (Module)
-        // Look for the companion class which should be the sealed enum
-        val companion = s.companionClass
-        if companion.exists && isSealedOrEnum(companion) then Some(companion)
-        else None
-      else
-        s.owner match
-          case owner if owner.isClassDef => findSealedParent(owner)
-          case _                         => None
-
-    val parentSym = findSealedParent(sym.owner)
-
-    parentSym match
-      case Some(parent) =>
-        parent.typeRef.asType match
-          case '[p] => '{ new EventMatcher[p](${ Expr(hash) }, ${ Expr(name) }) }
-      case None =>
-        // No sealed parent found, use E directly
-        '{ new EventMatcher[E](${ Expr(hash) }, ${ Expr(name) }) }
+    '{ new EventMatcher[E](${ Expr(hash) }, ${ Expr(name) }) }
   end eventMatcherImpl
 
   /** Implementation of `state[T]` - creates a type-based state matcher.
     *
-    * Returns StateMatcher parameterized with the sealed parent type for consistency with event[T].
+    * Parameterized with `T` itself so payload reducers receive the leaf, not the parent.
     */
-  def stateMatcherImpl[S: Type](using Quotes): Expr[StateMatcher[?]] =
+  def stateMatcherImpl[S: Type](using Quotes): Expr[StateMatcher[S]] =
     import quotes.reflect.*
     val tpe  = TypeRepr.of[S]
     val sym  = tpe.typeSymbol
     val hash = sym.fullName.hashCode
     val name = sym.name
-
-    // Find the sealed parent type for consistency
-    // Check for both Sealed flag (sealed trait/class) and Enum flag (Scala 3 enum)
-    def isSealedOrEnum(s: Symbol): Boolean =
-      s.flags.is(Flags.Sealed) || s.flags.is(Flags.Enum)
-
-    def findSealedParent(s: Symbol): Option[Symbol] =
-      if !s.exists then None
-      else if isSealedOrEnum(s) then Some(s)
-      else if s.flags.is(Flags.Module) then
-        // For enum cases, owner is the companion object (Module)
-        // Look for the companion class which should be the sealed enum
-        val companion = s.companionClass
-        if companion.exists && isSealedOrEnum(companion) then Some(companion)
-        else None
-      else
-        s.owner match
-          case owner if owner.isClassDef => findSealedParent(owner)
-          case _                         => None
-
-    val parentSym = findSealedParent(sym.owner)
-
-    parentSym match
-      case Some(parent) =>
-        parent.typeRef.asType match
-          case '[p] => '{ new StateMatcher[p](${ Expr(hash) }, ${ Expr(name) }) }
-      case None =>
-        // No sealed parent found, use S directly
-        '{ new StateMatcher[S](${ Expr(hash) }, ${ Expr(name) }) }
+    '{ new StateMatcher[S](${ Expr(hash) }, ${ Expr(name) }) }
   end stateMatcherImpl
 
 end Macros
@@ -388,7 +359,7 @@ inline def all[T]: AllMatcher[T] = ${ Macros.allImpl[T] }
   * @return
   *   An EventMatcher that matches by type
   */
-transparent inline def event[E]: EventMatcher[?] = ${ Macros.eventMatcherImpl[E] }
+transparent inline def event[E]: EventMatcher[E] = ${ Macros.eventMatcherImpl[E] }
 
 /** Create a type-based state matcher for parameterized case classes.
   *
@@ -409,7 +380,7 @@ transparent inline def event[E]: EventMatcher[?] = ${ Macros.eventMatcherImpl[E]
   * @return
   *   A StateMatcher that matches by type
   */
-transparent inline def state[S]: StateMatcher[?] = ${ Macros.stateMatcherImpl[S] }
+transparent inline def state[S]: StateMatcher[S] = ${ Macros.stateMatcherImpl[S] }
 
 /** Match multiple specific state values in a single transition.
   *

@@ -222,7 +222,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           outcome <- runtime.send(E1)
           state   <- runtime.currentState
         yield assertTrue(state == A) &&
-          assertTrue(outcome.result == TransitionResult.Stay)
+          assertTrue(outcome.result == TransitionResult.Stay(A))
       }
     ),
     suite("stop transition")(
@@ -633,7 +633,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
                   entryRan.set(true)
                 }
                 .producing { (_, _) =>
-                  ZIO.fail(new RuntimeException("producing effect failed"))
+                  ZIO.fail(new RuntimeException("producing effect failed")).as(E2)
                 }
             )
           )

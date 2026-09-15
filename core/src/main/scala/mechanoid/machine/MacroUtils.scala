@@ -312,6 +312,28 @@ private[machine] object MacroUtils:
             if specArgs.nonEmpty then foldTree((), specArgs.head)(owner)
             else foldOverTree((), tree)(owner)
 
+          // Match to stay { f } / to(target)(f)
+          case Apply(Apply(Select(qual, "to"), List(targetArg)), _) =>
+            foundTransition = true
+            val name = extractTargetName(targetArg)
+            targetDesc =
+              if name == "stay" || targetArg.symbol.name == "stay" then "stay"
+              else if name == "?" then "-> ?"
+              else s"-> $name"
+            foldTree((), qual)(owner)
+
+          // Match .to[Leaf] { f } → ComputeTo.apply
+          case Apply(Select(TypeApply(Select(qual, "to"), List(tpt)), "apply"), _) =>
+            foundTransition = true
+            targetDesc = s"-> ${tpt.tpe.typeSymbol.name}"
+            foldTree((), qual)(owner)
+
+          // Match to[Leaf] { f }
+          case Apply(TypeApply(Select(qual, "to"), List(tpt)), _) =>
+            foundTransition = true
+            targetDesc = s"-> ${tpt.tpe.typeSymbol.name}"
+            foldTree((), qual)(owner)
+
           // Match .to(target) - DSL terminal with target
           case Apply(TypeApply(Select(qual, "to"), _), List(targetArg)) =>
             foundTransition = true
@@ -447,7 +469,8 @@ private[machine] object MacroUtils:
           tree match
             // Match TransitionSpec.goto/stay/stop calls - try this first
             case Apply(Select(_, methodName), args)
-                if methodName == "goto" || methodName == "stay" || methodName == "stop" =>
+                if methodName == "goto" || methodName == "stay" || methodName == "stop" ||
+                  methodName == "computeGoto" || methodName == "computeStay" =>
               if args.length >= 4 then
                 val stateHashes = extractSetInts(args(0))
                 val eventHashes = extractSetInts(args(1))
@@ -460,10 +483,11 @@ private[machine] object MacroUtils:
                     eventNames = en
                   }
                 val targetDesc = methodName match
-                  case "goto" => if args.length >= 5 then s"-> ${extractTargetName(args(4))}" else "-> ?"
-                  case "stay" => "stay"
-                  case "stop" => "stop"
-                  case _      => "?"
+                  case "goto"        => if args.length >= 5 then s"-> ${extractTargetName(args(4))}" else "-> ?"
+                  case "computeGoto" => if args.length >= 6 then s"-> ${extractTargetName(args(5))}" else "-> ?"
+                  case "stay" | "computeStay" => "stay"
+                  case "stop"                 => "stop"
+                  case _                      => "?"
                 Some(SpecHashInfo(stateHashes, eventHashes, stateNames, eventNames, targetDesc, false, "?"))
               else foldOverTree(None, tree)(owner)
 
@@ -488,10 +512,11 @@ private[machine] object MacroUtils:
               val stateNames  = extractListStrings(args(2))
               val eventNames  = extractListStrings(args(3))
               val targetDesc  = methodName match
-                case "goto" => if args.length >= 5 then s"-> ${extractTargetName(args(4))}" else "-> ?"
-                case "stay" => "stay"
-                case "stop" => "stop"
-                case _      => "?"
+                case "goto"                 => if args.length >= 5 then s"-> ${extractTargetName(args(4))}" else "-> ?"
+                case "computeGoto"          => if args.length >= 6 then s"-> ${extractTargetName(args(5))}" else "-> ?"
+                case "stay" | "computeStay" => "stay"
+                case "stop"                 => "stop"
+                case _                      => "?"
               Some(SpecHashInfo(stateHashes, eventHashes, stateNames, eventNames, targetDesc, false, "?"))
 
             // Match TransitionSpec constructor: TransitionSpec.apply(stateHashes, eventHashes, stateNames, eventNames, targetDesc, ...)

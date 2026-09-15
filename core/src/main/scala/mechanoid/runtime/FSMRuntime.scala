@@ -411,29 +411,26 @@ object FSMRuntime:
     * This applies each event in sequence to reconstruct the current state. Transition actions ARE executed to determine
     * the target state. Entry/exit actions are NOT executed during replay.
     *
-    * @throws EventReplayError
-    *   if an event doesn't match the current FSM definition
+    * Fails with [[EventReplayError]] if an event has no edge, or with the action error if a reducer fails.
     */
   private[runtime] def rebuildState[S, E](
       machine: Machine[S, E],
       startState: S,
       events: List[StoredEvent[?, E]],
-  ): ZIO[Any, EventReplayError[S, E], FSMState[S]] =
+  ): ZIO[Any, MechanoidError, FSMState[S]] =
     ZIO.foldLeft(events)(FSMState.initial(startState)) { (fsmState, stored) =>
       val currentCaseHash = machine.stateEnum.caseHash(fsmState.current)
       val eventCaseHash   = machine.eventEnum.caseHash(stored.event)
       machine.transitions.get((currentCaseHash, eventCaseHash)) match
         case Some(transition) =>
-          // Execute the transition action to get the result
-          // During replay, errors are ignored (events were already validated when stored)
-          transition
-            .action(fsmState.current, stored.event)
-            .catchAll(_ => ZIO.succeed(TransitionResult.Stay))
-            .map {
-              case TransitionResult.Goto(newState) =>
-                fsmState.transitionTo(newState, stored.timestamp)
-              case _ => fsmState
-            }
+          transition.action(fsmState.current, stored.event).map {
+            case TransitionResult.Goto(newState) =>
+              fsmState.transitionTo(newState, stored.timestamp)
+            case TransitionResult.Stay(newState) =>
+              fsmState.replaceCurrent(newState)
+            case TransitionResult.Stop(_) =>
+              fsmState
+          }
         case None =>
           // Event doesn't match current FSM definition - fail explicitly
           ZIO.fail(EventReplayError(fsmState.current, stored.event, stored.sequenceNr))
@@ -502,26 +499,26 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       // If it fails (e.g., external service call), the event is NOT persisted
       result <- transition.action(fsmState.current, event)
 
-      // Determine target state for alias indexing and effects
       targetState = result match
         case TransitionResult.Goto(s) => s
-        case _                        => fsmState.current
+        case TransitionResult.Stay(s) => s
+        case TransitionResult.Stop(_) => fsmState.current
 
       // Bind added aliases BEFORE append so a uniqueness clash fails send and does not persist
       _ <- result match
-        case TransitionResult.Goto(_) => bindAddedAliases(fsmState.current, targetState)
-        case _                        => ZIO.unit
+        case TransitionResult.Goto(_) | TransitionResult.Stay(_) =>
+          bindAddedAliases(fsmState.current, targetState)
+        case _ => ZIO.unit
 
       // Only persist after successful action execution
-      // Use optimistic locking to detect concurrent modifications
       currentSeqNr <- seqNrRef.get
       seqNr        <- store.append(instanceId, event, currentSeqNr)
       _            <- seqNrRef.set(seqNr)
 
-      // Drop aliases the new state no longer owns
       _ <- result match
-        case TransitionResult.Goto(_) => unbindRemovedAliases(fsmState.current, targetState)
-        case _                        => ZIO.unit
+        case TransitionResult.Goto(_) | TransitionResult.Stay(_) =>
+          unbindRemovedAliases(fsmState.current, targetState)
+        case _ => ZIO.unit
 
       // Update state
       _ <- handleTransitionResult(fsmState, event, result)
@@ -600,8 +597,8 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
           _ <- startTimeout(newState)
         yield ()
 
-      case TransitionResult.Stay =>
-        ZIO.unit
+      case TransitionResult.Stay(newState) =>
+        stateRef.update(_.replaceCurrent(newState))
 
       case TransitionResult.Stop(_) =>
         for

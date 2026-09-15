@@ -110,19 +110,75 @@ object Machine:
 
     val stateEnumInstance = summon[Finite[S]]
 
+    def wrapReducer(reducer: PayloadReducer[S, E, S])(s: S, e: E): ZIO[Any, MechanoidError, S] =
+      reducer
+        .run(s, e)
+        .foldZIO(
+          {
+            case afe: ActionFailedError[?] => ZIO.fail(afe)
+            case other                     => ZIO.fail(ActionFailedError(other))
+          },
+          ZIO.succeed,
+        )
+
+    def enforceLeaf(expectedHash: Int, expectedName: String)(next: S): ZIO[Any, MechanoidError, S] =
+      if stateEnumInstance.caseHash(next) == expectedHash then ZIO.succeed(next)
+      else
+        ZIO.fail(
+          PayloadLeafMismatchError(
+            declaredLeaf = expectedName,
+            actualLeaf = stateEnumInstance.nameOf(next),
+            actual = next,
+          )
+        )
+
+    def typedPayload(spec: TransitionSpec[?, ?, ?]): Option[PayloadReducer[S, E, S]] =
+      spec.payload.map(_.asInstanceOf[PayloadReducer[S, E, S]])
+
+    def computedGoto(
+        reducer: PayloadReducer[S, E, S],
+        leafHash: Int,
+        leafName: String,
+    ): Transition[S, E, S] =
+      Transition { (s, e) =>
+        wrapReducer(reducer)(s, e).flatMap(enforceLeaf(leafHash, leafName)).map(TransitionResult.Goto(_))
+      }
+
+    def computedStay(reducer: PayloadReducer[S, E, S]): Transition[S, E, S] =
+      Transition { (s, e) =>
+        wrapReducer(reducer)(s, e)
+          .flatMap(enforceLeaf(stateEnumInstance.caseHash(s), stateEnumInstance.nameOf(s)))
+          .map(TransitionResult.Stay(_))
+      }
+
     for spec <- specs do
       val transition = spec.handler match
         case Handler.Goto(target) =>
           val targetState = target.asInstanceOf[S]
-          Transition[S, E, S](
-            (_, _) => ZIO.succeed(TransitionResult.Goto(targetState)),
-            None,
-          )
+          typedPayload(spec) match
+            case None =>
+              Transition[S, E, S](
+                (_, _) => ZIO.succeed(TransitionResult.Goto(targetState)),
+                None,
+              )
+            case Some(reducer) =>
+              computedGoto(reducer, stateEnumInstance.caseHash(targetState), stateEnumInstance.nameOf(targetState))
+        case Handler.ComputeGoto(leafHash, leafName) =>
+          typedPayload(spec) match
+            case None =>
+              Transition[S, E, S](
+                (_, _) => ZIO.fail(ActionFailedError("computed goto is missing its reducer")),
+                None,
+              )
+            case Some(reducer) => computedGoto(reducer, leafHash, leafName)
         case Handler.Stay =>
-          Transition[S, E, S](
-            (_, _) => ZIO.succeed(TransitionResult.Stay),
-            None,
-          )
+          typedPayload(spec) match
+            case None =>
+              Transition[S, E, S](
+                (s, _) => ZIO.succeed(TransitionResult.Stay(s)),
+                None,
+              )
+            case Some(reducer) => computedStay(reducer)
         case Handler.Stop(reason) =>
           Transition[S, E, S](
             (_, _) => ZIO.succeed(TransitionResult.Stop(reason)),
@@ -130,14 +186,14 @@ object Machine:
           )
 
       val targetHash = spec.handler match
-        case Handler.Goto(target) =>
-          Some(stateEnumInstance.caseHash(target.asInstanceOf[S]))
-        case _ => None
+        case Handler.Goto(target)             => Some(stateEnumInstance.caseHash(target.asInstanceOf[S]))
+        case Handler.ComputeGoto(leafHash, _) => Some(leafHash)
+        case _                                => None
 
       val kind = spec.handler match
-        case Handler.Goto(_)      => TransitionKind.Goto
-        case Handler.Stay         => TransitionKind.Stay
-        case Handler.Stop(reason) => TransitionKind.Stop(reason)
+        case Handler.Goto(_) | Handler.ComputeGoto(_, _) => TransitionKind.Goto
+        case Handler.Stay                                => TransitionKind.Stay
+        case Handler.Stop(reason)                        => TransitionKind.Stop(reason)
 
       for
         stateHash <- spec.stateHashes
@@ -162,6 +218,11 @@ object Machine:
           stateTimeouts = stateTimeouts + (targetStateHash -> duration)
           spec.targetTimeoutConfig.foreach { config =>
             stateTimeoutEvents = stateTimeoutEvents + (targetStateHash -> config.event.asInstanceOf[E])
+          }
+        case (Some(duration), Handler.ComputeGoto(leafHash, _)) =>
+          stateTimeouts = stateTimeouts + (leafHash -> duration)
+          spec.targetTimeoutConfig.foreach { config =>
+            stateTimeoutEvents = stateTimeoutEvents + (leafHash -> config.event.asInstanceOf[E])
           }
         case _ =>
       end match

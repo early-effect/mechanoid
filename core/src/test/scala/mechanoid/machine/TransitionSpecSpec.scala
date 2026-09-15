@@ -64,6 +64,40 @@ object TransitionSpecSpec extends ZIOSpecDefault:
         )
       }
     ),
+    suite("TransitionSpec.computeGoto")(
+      test("stores ComputeGoto handler and reducer") {
+        val spec = TransitionSpec.computeGoto[TestState, TestEvent, TestState](
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = List("A"),
+          eventNames = List("E1"),
+          leafHash = 99,
+          leafName = "B",
+          reducer = PayloadReducer.pure((_, _) => B),
+        )
+        assertTrue(
+          spec.targetDesc == "-> B",
+          spec.handler == Handler.ComputeGoto(99, "B"),
+          spec.payload.isDefined,
+        )
+      }
+    ),
+    suite("TransitionSpec.computeStay")(
+      test("stores Stay handler and reducer") {
+        val spec = TransitionSpec.computeStay[TestState, TestEvent](
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = List("A"),
+          eventNames = List("E1"),
+          reducer = PayloadReducer.pure((s, _) => s),
+        )
+        assertTrue(
+          spec.targetDesc == "stay",
+          spec.handler == Handler.Stay,
+          spec.payload.isDefined,
+        )
+      }
+    ),
     suite("TransitionSpec.stay")(
       test("creates stay spec") {
         val spec = TransitionSpec.stay[TestState, TestEvent](

@@ -144,7 +144,7 @@ A transition is `State via Event to Target`. Targets can be a concrete state, `s
           yield (stayed.result, retried.result, state)
         }.asDoc
       }.assert { case (stayed, retried, state) =>
-        assertTrue(stayed == TransitionResult.Stay) &&
+        assertTrue(stayed.toString.contains("Open")) &&
         assertTrue(retried.toString.contains("Retrying")) &&
         assertTrue(state.toString.contains("Retrying"))
       },
@@ -183,6 +183,75 @@ A transition is `State via Event to Target`. Targets can be a concrete state, `s
       }.assert { case (result, running) =>
         assertTrue(result == TransitionResult.Stop(Some("already closed"))) &&
         assertTrue(!running)
+      },
+    ),
+    section("Computed payloads")(
+      md"""
+`Finite` hashes by **case name**, not payload. Constant `to Retrying(1)` always lands on attempt `1`.
+When `S` is the durable snapshot, compute the next instance from `(current, event)`.
+
+The graph stays Finite: the function may only build the **named leaf**. `.to(stay) { ... }`
+rewrites the instance without resetting timeouts. `.to[Leaf] { ... }` is a Goto (exit/entry/timeout
+restart). A reducer that fails is an action failure; the event is not appended.
+""",
+      example {
+        sealed trait GateState derives Finite
+        case object Idle                  extends GateState
+        case class Failed(reason: String) extends GateState
+        case class Retrying(attempt: Int) extends GateState
+
+        enum GateEvent derives Finite:
+          case Fail, Retry, Tick
+
+        import GateEvent.*
+
+        val payloadMachine = Machine(
+          assembly[GateState, GateEvent](
+            Idle via Fail to Failed("boom"),
+            (state[Failed] via Retry).to[Retrying] { (_, _) => Retrying(1) },
+            (state[Retrying] via Retry).to(stay) { (r, _) => Retrying(r.attempt + 1) },
+            state[Retrying] via Tick to stay,
+          )
+        )
+
+        Mermoid.diagram(
+          MermaidVisualizer.flowchart(payloadMachine),
+          Mermoid.chalkboard,
+        )
+      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+      exampleZIO {
+        sealed trait GateState derives Finite
+        case object Idle                  extends GateState
+        case class Failed(reason: String) extends GateState
+        case class Retrying(attempt: Int) extends GateState
+
+        enum GateEvent derives Finite:
+          case Fail, Retry, Tick
+
+        import GateEvent.*
+
+        val payloadMachine = Machine(
+          assembly[GateState, GateEvent](
+            Idle via Fail to Failed("boom"),
+            (state[Failed] via Retry).to[Retrying] { (_, _) => Retrying(1) },
+            (state[Retrying] via Retry).to(stay) { (r, _) => Retrying(r.attempt + 1) },
+            state[Retrying] via Tick to stay,
+          )
+        )
+
+        ZIO.scoped {
+          for
+            fsm   <- payloadMachine.start(Idle)
+            _     <- fsm.send(Fail)
+            _     <- fsm.send(Retry)
+            _     <- fsm.send(Retry)
+            _     <- fsm.send(Tick)
+            state <- fsm.currentState
+            hist  <- fsm.history
+          yield (state, hist)
+        }.asDoc
+      }.assert { case (state, hist) =>
+        assertTrue(state.toString.contains("Retrying(2)"), !hist.toString.contains("Retrying"))
       },
     ),
     section("Hierarchical states")(

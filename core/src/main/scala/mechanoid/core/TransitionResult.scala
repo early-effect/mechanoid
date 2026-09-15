@@ -6,10 +6,13 @@ package mechanoid.core
   *   The state type
   */
 enum TransitionResult[+S]:
-  /** Stay in the current state without transitioning. */
-  case Stay
+  /** Remain in the current leaf. `state` is the instance to keep (identity or rewritten payload).
+    *
+    * Stay does not run state exit/entry, does not cancel or restart timeouts, and does not push history.
+    */
+  case Stay(state: S)
 
-  /** Transition to a new state.
+  /** Leave the current leaf (or re-enter it). Runs exit/entry and timeout restart.
     *
     * @param state
     *   The target state to transition to
