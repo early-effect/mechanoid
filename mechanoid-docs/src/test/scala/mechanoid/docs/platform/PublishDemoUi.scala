@@ -15,8 +15,8 @@ import scala.language.implicitConversions
 
 /** Multi-role publishing workflow demo (Document Workflow machine).
   *
-  * Role panels gate actions by whether `(currentState, event)` is in the machine's transition map. `Reset` is a normal
-  * event that returns any non-Draft leaf to Draft (same path as Pay/Ship: `send` + peer reconstruct).
+  * Role panels gate actions with `MachineGraph.hasEdge`. `Reset` is a normal event that returns any non-Draft leaf to
+  * Draft (same path as Pay/Ship: `send` + peer reconstruct).
   *
   * UI state is typed [[DocumentState]]; string conversion only happens at the mermoid node-id boundary.
   */
@@ -81,22 +81,11 @@ object PublishDemoUi:
   private val roleAttr = AttrKey("data-role", Codec.StringAsIs)
 
   def canFire(from: DocumentState, event: DocumentEvent): Boolean =
-    machine.transitions.contains(
-      (machine.stateEnum.caseHash(from), machine.eventEnum.caseHash(event))
-    )
+    MachineGraph.hasEdge(machine, from, event)
 
   /** First event that moves `from` to the clicked diagram node name, if any. */
   def eventTo(from: DocumentState, targetName: String): Option[DocumentEvent] =
-    val fromHash = machine.stateEnum.caseHash(from)
-    machine.transitionMeta
-      .find { meta =>
-        meta.fromStateCaseHash == fromHash &&
-        meta.targetStateCaseHash.exists(th => machine.stateEnum.nameFor(th) == targetName)
-      }
-      .flatMap { meta =>
-        DocumentEvent.values.find(e => machine.eventEnum.caseHash(e) == meta.eventCaseHash)
-      }
-  end eventTo
+    DocumentEvent.values.find(e => MachineGraph.destLeaf(machine, from, e).contains(targetName))
 
   def panel(
       state: Squawk[DocumentState],

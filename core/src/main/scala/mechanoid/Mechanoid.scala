@@ -21,6 +21,7 @@ export core.CaseHasher
 
 // Re-export suite-style DSL
 export machine.Machine
+export machine.MachineGraph
 export machine.Assembly
 export machine.assembly
 export machine.assemblyAll

@@ -52,12 +52,7 @@ object OrderDemoUi:
 
   /** Map a click on a diagram node to the event that advances from `from` (if any). */
   def eventTo(from: OrderState, targetName: String): Option[OrderEvent] =
-    OrderState.values.find(_.toString == targetName).flatMap { to =>
-      (from, to) match
-        case (Pending, Paid) => Some(Pay)
-        case (Paid, Shipped) => Some(Ship)
-        case _               => None
-    }
+    OrderEvent.values.find(e => MachineGraph.destLeaf(machine, from, e).contains(targetName))
 
   /** Build the interactive panel. `state` is the live FSM state; handlers drive transitions. */
   def panel(
