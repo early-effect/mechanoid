@@ -601,7 +601,7 @@ object MachineSpec extends ZIOSpecDefault:
         import mechanoid.core.Transition
         val transition = Transition.stay[TestState, TestEvent]
         for result <- transition.action(A, E1)
-        yield assertTrue(result == TransitionResult.Stay)
+        yield assertTrue(result == TransitionResult.Stay(A))
       },
     ),
     suite("AllMatcher methods")(

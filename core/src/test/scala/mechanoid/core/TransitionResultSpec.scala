@@ -5,9 +5,9 @@ import zio.test.*
 object TransitionResultSpec extends ZIOSpecDefault:
 
   def spec = suite("TransitionResult")(
-    test("Stay is a singleton") {
-      val result: TransitionResult[String] = TransitionResult.Stay
-      assertTrue(result == TransitionResult.Stay)
+    test("Stay wraps the current instance") {
+      val result: TransitionResult[String] = TransitionResult.Stay("idle")
+      assertTrue(result == TransitionResult.Stay("idle"))
     },
     test("Goto wraps the target state") {
       val result = TransitionResult.Goto("active")
@@ -33,7 +33,7 @@ object TransitionResultSpec extends ZIOSpecDefault:
       import zio.ZIO
       // Exercise Transition with default description parameter
       val transition = Transition[String, String, String](
-        action = (_, _) => ZIO.succeed(TransitionResult.Stay)
+        action = (s, _) => ZIO.succeed(TransitionResult.Stay(s))
       )
       assertTrue(transition.description.isEmpty)
     },

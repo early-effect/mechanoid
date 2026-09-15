@@ -13,6 +13,7 @@ export core.StateTimeout
 export core.FSMState
 export core.MechanoidError
 export core.InvalidTransitionError
+export core.PayloadLeafMismatchError
 export core.FSMStoppedError
 export core.ActionFailedError
 export core.ProcessingTimeoutError

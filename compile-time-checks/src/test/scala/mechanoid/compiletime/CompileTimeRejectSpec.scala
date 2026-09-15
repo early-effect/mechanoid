@@ -120,6 +120,44 @@ object CompileTimeRejectSpec extends ZIOSpecDefault:
       """)
       assertZIO(result)(Assertion.isRight)
     },
+    test("computed to parent type is rejected") {
+      val result = typeCheck("""
+        import mechanoid.machine.*
+        import mechanoid.core.Finite
+        enum S derives Finite { case A, B }
+        enum E derives Finite { case E1 }
+        assembly[S, E]((S.A via E.E1).to[S]((s, _) => s))
+      """)
+      assertZIO(result)(Assertion.isLeft)
+    },
+    test("computed to leaf type is accepted") {
+      val result = typeCheck("""
+        import mechanoid.machine.*
+        import mechanoid.core.Finite
+        enum S derives Finite:
+          case A
+          case B(n: Int)
+        enum E derives Finite { case E1 }
+        assembly[S, E]((S.A via E.E1).to[S.B]((_, _) => S.B(0)))
+      """)
+      assertZIO(result)(Assertion.isRight)
+    },
+    test("duplicate computed edges are rejected") {
+      val result = typeCheck("""
+        import mechanoid.machine.*
+        import mechanoid.core.Finite
+        enum S derives Finite:
+          case A
+          case B(n: Int)
+          case C(n: Int)
+        enum E derives Finite { case E1 }
+        assembly[S, E](
+          (S.A via E.E1).to[S.B]((_, _) => S.B(0)),
+          (S.A via E.E1).to[S.C]((_, _) => S.C(0)),
+        )
+      """)
+      assertZIO(result)(Assertion.isLeft)
+    },
   )
 
 end CompileTimeRejectSpec

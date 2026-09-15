@@ -21,6 +21,8 @@ object Reference extends MechanoidDocSpecSuite:
 | `state[S]` / `event[E]` | Match by type (payload cases) |
 | `viaAnyOf` / `anyOfEvents` / `viaAll` | Multi-event edges |
 | `stay` / `stop` / `stop("reason")` | Self-loop or terminal |
+| `.to[Leaf] { (s, e) => ... }` | Compute Goto payload for that leaf |
+| `.to(stay) { (s, e) => ... }` | Rewrite payload, Stay lifecycle (no timeout reset) |
 """
     ),
     section("Aspects and effects")(
@@ -49,6 +51,7 @@ object Reference extends MechanoidDocSpecSuite:
 | Error | When |
 |-------|------|
 | `InvalidTransitionError` | No transition for state/event |
+| `PayloadLeafMismatchError` | Reducer built a different Finite leaf than declared |
 | `FSMStoppedError` | FSM already stopped |
 | `ProcessingTimeoutError` | Timeout during event processing |
 | `ActionFailedError` | Entry / lifecycle action failed |
