@@ -36,6 +36,14 @@ object Reference extends MechanoidDocSpecSuite:
 | `.onEnter` / `.onExit` on `Assembly` | Per-state lifecycle hooks |
 """
     ),
+    section("Graph queries")(
+      md"""
+| Construct | Role |
+|-----------|------|
+| `MachineGraph.hasEdge(machine, from, event)` | Assembly edge? Not reducer success |
+| `MachineGraph.destLeaf(machine, from, event)` | Goto leaf, or current leaf for Stay/Stop; `None` if no edge |
+"""
+    ),
     section("Runtime layers")(
       md"""
 | Service | Common layers |

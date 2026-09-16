@@ -102,9 +102,7 @@ object Interactive extends DocSpec:
       |)
       |
       |def canFire(from: DocumentState, event: DocumentEvent): Boolean =
-      |  machine.transitions.contains(
-      |    (machine.stateEnum.caseHash(from), machine.eventEnum.caseHash(event))
-      |  )
+      |  MachineGraph.hasEdge(machine, from, event)
       |
       |// Role buttons: A.disabled(state.map(s => !canFire(s, event)))
       |
