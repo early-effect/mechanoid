@@ -161,7 +161,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         for runtime <- simpleMachine.start(A)
         yield assertTrue(runtime.timeoutConfigForState(A).isEmpty)
       },
-      test("returns Some for state with timeout") {
+      test("returns the named timeout for a state with timeout") {
         val machineWithTimeout = Machine(
           assembly[TimeoutState, TimeoutEvent](
             (Idle via Start to Waiting) @@ Aspect.timeout(30.seconds, Timeout),
@@ -173,9 +173,10 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         yield
           val config = runtime.timeoutConfigForState(Waiting)
           assertTrue(
-            config.isDefined,
-            config.get._1 == 30.seconds,
-            config.get._2 == Timeout,
+            config.size == 1,
+            config.head.event == Timeout,
+            config.head.name == "Timeout",
+            config.head.deadline == TimeoutDeadline.After(30.seconds),
           )
       },
     ),
@@ -956,6 +957,91 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           _       <- runtime.stop
           result  <- runtime.send(E1)
         yield assertTrue(result.result == TransitionResult.Stop(Some("FSM stopped")))
+      },
+      test("Stay on one named timeout re-arms only that name") {
+        enum DualState derives Finite:
+          case Idle, Live
+        enum DualEvent derives Finite:
+          case Start, DailyCheck, EndCycle
+        import DualState.*, DualEvent.*
+
+        val machine = Machine(
+          assembly[DualState, DualEvent](
+            (Idle via Start to Live) @@
+              Aspect.timeout(DailyCheck)(50.millis) @@
+              Aspect.timeout(EndCycle)(200.millis),
+            Live via DailyCheck to stay,
+            Live via EndCycle to Idle,
+          )
+        )
+        for
+          runtime    <- machine.start(Idle)
+          _          <- runtime.send(Start)
+          _          <- TestClock.adjust(50.millis)
+          _          <- ZIO.yieldNow
+          afterDaily <- runtime.currentState
+          _          <- TestClock.adjust(200.millis)
+          _          <- ZIO.yieldNow
+          afterWeek  <- runtime.currentState
+        yield assertTrue(
+          afterDaily == Live,
+          afterWeek == Idle,
+        )
+        end for
+      },
+      test("Goto from a named timeout cancels the sibling") {
+        enum DualState derives Finite:
+          case Idle, Live, Done
+        enum DualEvent derives Finite:
+          case Start, DailyCheck, EndCycle
+        import DualState.*, DualEvent.*
+
+        val machine = Machine(
+          assembly[DualState, DualEvent](
+            (Idle via Start to Live) @@
+              Aspect.timeout(DailyCheck)(50.millis) @@
+              Aspect.timeout(EndCycle)(200.millis),
+            Live via DailyCheck to Done,
+            Live via EndCycle to Idle,
+          )
+        )
+        for
+          runtime    <- machine.start(Idle)
+          _          <- runtime.send(Start)
+          _          <- TestClock.adjust(50.millis)
+          _          <- ZIO.yieldNow
+          afterDaily <- runtime.currentState
+          _          <- TestClock.adjust(200.millis)
+          _          <- ZIO.yieldNow
+          later      <- runtime.currentState
+        yield assertTrue(
+          afterDaily == Done,
+          later == Done,
+        )
+        end for
+      },
+      test("non-timeout Stay leaves both named timeouts armed") {
+        enum DualState derives Finite:
+          case Idle, Live
+        enum DualEvent derives Finite:
+          case Start, Nudge, EndCycle
+        import DualState.*, DualEvent.*
+
+        val machine = Machine(
+          assembly[DualState, DualEvent](
+            (Idle via Start to Live) @@ Aspect.timeout(EndCycle)(50.millis),
+            Live via Nudge to stay,
+            Live via EndCycle to Idle,
+          )
+        )
+        for
+          runtime <- machine.start(Idle)
+          _       <- runtime.send(Start)
+          _       <- runtime.send(Nudge)
+          _       <- TestClock.adjust(50.millis)
+          _       <- ZIO.yieldNow
+          state   <- runtime.currentState
+        yield assertTrue(state == Idle)
       },
       test("Goto transition triggers state update and timeout scheduling") {
         // Test FSMRuntime.scala lines 488 (yield in Goto) and 554/487 (startTimeout)

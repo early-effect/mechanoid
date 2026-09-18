@@ -2,7 +2,7 @@ package mechanoid.runtime
 
 import zio.*
 import mechanoid.core.*
-import mechanoid.machine.{Machine, EntryEffect, ProducingEffect}
+import mechanoid.machine.{EntryEffect, Machine, ProducingEffect, TimeoutDeadline, TimeoutSpec}
 import mechanoid.persistence.{
   Alias,
   AliasExtractor,
@@ -94,17 +94,8 @@ trait FSMRuntime[Id, S, E]:
   /** Check if the FSM is currently running. */
   def isRunning: UIO[Boolean]
 
-  /** Get the timeout configuration for a given state.
-    *
-    * Returns `Some((duration, event))` if the state has a timeout configured, `None` otherwise. Used by
-    * [[mechanoid.runtime.aspects.DurableTimeoutRuntime]] to manage durable timeouts.
-    *
-    * @param state
-    *   The state to check
-    * @return
-    *   Timeout duration and event if configured
-    */
-  def timeoutConfigForState(state: S): Option[(Duration, E)]
+  /** Named timeouts configured for this leaf. Empty if none. */
+  def timeoutConfigForState(state: S): Chunk[TimeoutSpec[S, E]]
 
   /** Access the underlying Machine definition.
     *
@@ -691,7 +682,10 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
         yield ()
 
       case TransitionResult.Stay(newState) =>
-        stateRef.update(_.replaceCurrent(newState))
+        for
+          _ <- stateRef.update(_.replaceCurrent(newState))
+          _ <- rearmFiredTimeout(event, newState)
+        yield ()
 
       case TransitionResult.Stop(_) =>
         for
@@ -719,41 +713,48 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
   private def cancelTimeout: ZIO[Any, Nothing, Unit] =
     timeoutStrategy.cancel(instanceId)
 
-  /** Start a timeout for the given state.
-    *
-    * Delegates to the [[TimeoutStrategy]] to schedule the timeout. The callback checks that the FSM is still in the
-    * same state before firing the timeout event.
-    *
-    * For durable timeouts, the `stateHash` and `sequenceNr` are persisted to enable validation before firing. This
-    * prevents stale timeouts from firing after the FSM has transitioned or re-entered the same state. Reconstructing a
-    * runtime that is still in the same generation reuses the existing absolute deadline (see
-    * [[DurableTimeoutStrategy]]).
-    *
-    * @param state
-    *   The state to start a timeout for
-    */
+  /** Arm every named timeout for the leaf. Extra names from a previous leaf are dropped. */
   private[mechanoid] def startTimeout(state: S): ZIO[Any, Nothing, Unit] =
-    val stateHash     = machine.stateEnum.caseHash(state)
-    val timeoutConfig = for
-      duration <- machine.timeouts.get(stateHash)
-      event    <- machine.timeoutEvents.get(stateHash)
-    yield (duration, event)
-
-    ZIO.foreachDiscard(timeoutConfig) { case (duration, timeoutEvent) =>
-      for
-        seqNr <- seqNrRef.get
-        onTimeout: UIO[Unit] = stateRef.get.flatMap { currentFsmState =>
-          val currentHash = machine.stateEnum.caseHash(currentFsmState.current)
-          ZIO
-            .when(currentHash == stateHash)(
-              send(timeoutEvent).ignore
-            )
-            .unit
-        }
-        _ <- timeoutStrategy.schedule(instanceId, stateHash, seqNr, duration, onTimeout)
-      yield ()
-    }
+    val specs = machine.timeoutsFor(state)
+    val names = specs.map(_.name).toSet
+    for
+      _     <- timeoutStrategy.retain(instanceId, names)
+      seqNr <- seqNrRef.get
+      _     <- ZIO.foreachDiscard(specs)(armTimeout(state, seqNr, _))
+    yield ()
   end startTimeout
+
+  private def rearmFiredTimeout(event: E, state: S): UIO[Unit] =
+    timeoutSpecForEvent(state, event) match
+      case Some(spec) =>
+        for
+          seqNr <- seqNrRef.get
+          _     <- timeoutStrategy.cancel(instanceId, spec.name)
+          _     <- armTimeout(state, seqNr, spec)
+        yield ()
+      case None =>
+        ZIO.unit
+
+  private def timeoutSpecForEvent(state: S, event: E): Option[TimeoutSpec[S, E]] =
+    val eventHash = machine.eventEnum.caseHash(event)
+    machine.timeoutsFor(state).find(s => machine.eventEnum.caseHash(s.event) == eventHash)
+
+  private def armTimeout(state: S, seqNr: Long, spec: TimeoutSpec[S, E]): UIO[Unit] =
+    val stateHash = machine.stateEnum.caseHash(state)
+    for
+      deadline <- TimeoutDeadline.instant(spec.deadline, state)
+      onTimeout: UIO[Unit] = stateRef.get.flatMap { currentFsmState =>
+        val currentHash = machine.stateEnum.caseHash(currentFsmState.current)
+        ZIO
+          .when(currentHash == stateHash)(
+            send(spec.event).ignore
+          )
+          .unit
+      }
+      _ <- timeoutStrategy.schedule(instanceId, spec.name, stateHash, seqNr, deadline, onTimeout)
+    yield ()
+    end for
+  end armTimeout
 
   override def currentState: UIO[S] = stateRef.get.map(_.current)
 
@@ -769,12 +770,8 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
 
   override def isRunning: UIO[Boolean] = runningRef.get
 
-  override def timeoutConfigForState(state: S): Option[(Duration, E)] =
-    val stateCaseHash = machine.stateEnum.caseHash(state)
-    for
-      duration <- machine.timeouts.get(stateCaseHash)
-      event    <- machine.timeoutEvents.get(stateCaseHash)
-    yield (duration, event)
+  override def timeoutConfigForState(state: S): Chunk[TimeoutSpec[S, E]] =
+    machine.timeoutsFor(state)
 
   override def saveSnapshot: ZIO[Any, MechanoidError, Unit] =
     for

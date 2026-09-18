@@ -1,7 +1,6 @@
 package mechanoid.machine
 
-import mechanoid.core.*
-import zio.{Duration, ZIO}
+import zio.{Chunk, ZIO}
 import scala.annotation.unchecked.uncheckedVariance
 
 /** Type-safe wrapper for entry effects.
@@ -58,13 +57,6 @@ object Handler:
   case class Stop(reason: Option[String]) extends Handler[Nothing]
 end Handler
 
-/** Type-safe holder for timeout event configuration.
-  *
-  * This preserves the event type while allowing storage in contravariant TransitionSpec. The existential type `?`
-  * allows safe storage while Machine can extract and properly type the events when building its lookup table.
-  */
-final case class TimeoutEventConfig[E](event: E, hash: Int)
-
 /** A single transition specification for the suite DSL.
   *
   * Captures state/event hash information for compile-time duplicate detection, along with the handler that determines
@@ -78,15 +70,14 @@ final case class TimeoutEventConfig[E](event: E, hash: Int)
   *   The target state type (what we transition to). `Nothing` for stay/stop.
   */
 final case class TransitionSpec[+SourceS, +E, +TargetS](
-    stateHashes: Set[Int],           // Expanded from sealed hierarchies
-    eventHashes: Set[Int],           // Expanded from sealed hierarchies
-    stateNames: List[String],        // For error messages
-    eventNames: List[String],        // For error messages
-    targetDesc: String,              // "-> Paid", "stay", "stop" - for error messages
-    isOverride: Boolean,             // If true, won't trigger duplicate error
-    handler: Handler[TargetS],       // Properly typed handler
-    targetTimeout: Option[Duration], // If set, configure timeout on target state when entering
-    targetTimeoutConfig: Option[TimeoutEventConfig[?]] = None, // Type-safe timeout event holder
+    stateHashes: Set[Int],     // Expanded from sealed hierarchies
+    eventHashes: Set[Int],     // Expanded from sealed hierarchies
+    stateNames: List[String],  // For error messages
+    eventNames: List[String],  // For error messages
+    targetDesc: String,        // "-> Paid", "stay", "stop" - for error messages
+    isOverride: Boolean,       // If true, won't trigger duplicate error
+    handler: Handler[TargetS], // Properly typed handler
+    targetTimeouts: Chunk[NamedTimeout[TargetS @uncheckedVariance, ?]] = Chunk.empty,
     // Effects use @uncheckedVariance because they are contravariant in E/TargetS but TransitionSpec must be
     // covariant for hierarchical FSMs (e.g., TransitionSpec[InReview, _, _] <: TransitionSpec[DocumentState, _, _]).
     // This is safe because effects are stored (not passed through) and at runtime receive the actual types.
@@ -148,10 +139,6 @@ final case class TransitionSpec[+SourceS, +E, +TargetS](
   ): TransitionSpec[SourceS, E, TargetS] =
     ${ ProducingMacros.producingImpl[SourceS, E, TargetS, E2]('{ this }, 'f) }
 
-  /** Configure timeout when entering target state. */
-  def withTimeout(duration: Duration): TransitionSpec[SourceS, E, TargetS] =
-    copy(targetTimeout = Some(duration))
-
   /** Apply an aspect to this transition spec.
     *
     * @example
@@ -161,20 +148,11 @@ final case class TransitionSpec[+SourceS, +E, +TargetS](
     *   }}}
     */
   infix def @@(aspect: Aspect): TransitionSpec[SourceS, E, TargetS] = aspect match
-    case Aspect.overriding               => copy(isOverride = true)
-    case Aspect.timeout(duration, event) =>
-      // Compute hash at runtime using the same logic as anyOf matchers
-      val className = event.getClass.getName.stripSuffix("$").replace('$', '.')
-      val hash      = event match
-        case _: scala.reflect.Enum =>
-          val caseName = event.toString
-          s"$className.$caseName".hashCode
-        case _ =>
-          className.hashCode
-      copy(
-        targetTimeout = Some(duration),
-        targetTimeoutConfig = Some(TimeoutEventConfig(event, hash)),
-      )
+    case Aspect.overriding => copy(isOverride = true)
+
+  /** Accumulate a named timeout on the target leaf. Stacking `@@` adds another timeout; it does not replace. */
+  infix def @@[TE](timeout: NamedTimeout[TargetS, TE]): TransitionSpec[SourceS, E, TargetS] =
+    copy(targetTimeouts = targetTimeouts :+ timeout)
 end TransitionSpec
 
 object TransitionSpec:
@@ -193,7 +171,6 @@ object TransitionSpec:
       stateNames: List[String],
       eventNames: List[String],
       target: TargetS,
-      timeout: Option[Duration],
   ): TransitionSpec[SourceS, SourceE, TargetS] =
     TransitionSpec(
       stateHashes = stateHashes,
@@ -203,20 +180,9 @@ object TransitionSpec:
       targetDesc = s"-> ${target.toString}",
       isOverride = false,
       handler = Handler.Goto(target),
-      targetTimeout = timeout,
       entryEffect = None,
       producingEffect = None,
     )
-
-  /** Create a goto transition spec with no entry timeout. */
-  def goto[SourceS, SourceE, TargetS](
-      stateHashes: Set[Int],
-      eventHashes: Set[Int],
-      stateNames: List[String],
-      eventNames: List[String],
-      target: TargetS,
-  ): TransitionSpec[SourceS, SourceE, TargetS] =
-    goto(stateHashes, eventHashes, stateNames, eventNames, target, None)
 
   /** Create a goto transition spec to a timed target with user-defined timeout event.
     *
@@ -235,7 +201,7 @@ object TransitionSpec:
       stateNames: List[String],
       eventNames: List[String],
       target: TimedTarget[TargetS, TE],
-  )(using se: Finite[TE]): TransitionSpec[SourceS, SourceE, TargetS] =
+  ): TransitionSpec[SourceS, SourceE, TargetS] =
     TransitionSpec(
       stateHashes = stateHashes,
       eventHashes = eventHashes,
@@ -244,8 +210,9 @@ object TransitionSpec:
       targetDesc = s"-> ${target.state.toString} @@ timeout(${target.duration}, ${target.timeoutEvent})",
       isOverride = false,
       handler = Handler.Goto(target.state),
-      targetTimeout = Some(target.duration),
-      targetTimeoutConfig = Some(TimeoutEventConfig(target.timeoutEvent, se.caseHash(target.timeoutEvent))),
+      targetTimeouts = Chunk(
+        NamedTimeout(target.timeoutEvent, None, TimeoutDeadline.After(target.duration))
+      ),
       entryEffect = None,
       producingEffect = None,
     )
@@ -271,7 +238,6 @@ object TransitionSpec:
       targetDesc = "stay",
       isOverride = false,
       handler = Handler.Stay,
-      targetTimeout = None,
       entryEffect = None,
       producingEffect = None,
     )
@@ -298,7 +264,6 @@ object TransitionSpec:
       targetDesc = reason.fold("stop")(r => s"stop($r)"),
       isOverride = false,
       handler = Handler.Stop(reason),
-      targetTimeout = None,
       entryEffect = None,
       producingEffect = None,
     )
@@ -321,7 +286,6 @@ object TransitionSpec:
       targetDesc = s"-> $leafName",
       isOverride = false,
       handler = Handler.ComputeGoto(leafHash, leafName),
-      targetTimeout = None,
       entryEffect = None,
       producingEffect = None,
       payload = Some(reducer),
@@ -343,7 +307,6 @@ object TransitionSpec:
       targetDesc = "stay",
       isOverride = false,
       handler = Handler.Stay,
-      targetTimeout = None,
       entryEffect = None,
       producingEffect = None,
       payload = Some(reducer),

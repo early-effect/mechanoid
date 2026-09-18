@@ -1,14 +1,13 @@
 package mechanoid.web
 
-import org.scalajs.dom.{IDBDatabase, IDBTransactionMode}
+import org.scalajs.dom.{IDBDatabase, IDBTransactionMode, IDBValue}
 import zio.*
 import mechanoid.core.*
 import mechanoid.persistence.timeout.*
 import java.time.Instant
 import scala.scalajs.js
-import scala.scalajs.js.JSConverters.*
 
-/** IndexedDB-backed [[TimeoutStore]]. */
+/** IndexedDB-backed [[TimeoutStore]]. Rows are keyed by `(instanceId, timeoutKey)`. */
 final class IndexedDbTimeoutStore private (
     db: IDBDatabase,
     notify: String => UIO[Unit],
@@ -18,6 +17,7 @@ final class IndexedDbTimeoutStore private (
 
   override def schedule(
       instanceId: String,
+      name: String,
       stateHash: Int,
       sequenceNr: Long,
       deadline: Instant,
@@ -26,6 +26,7 @@ final class IndexedDbTimeoutStore private (
       now <- Clock.instant
       timeout = ScheduledTimeout(
         instanceId = instanceId,
+        name = name,
         stateHash = stateHash,
         sequenceNr = sequenceNr,
         deadline = deadline,
@@ -38,10 +39,16 @@ final class IndexedDbTimeoutStore private (
   override def cancel(instanceId: String): ZIO[Any, MechanoidError, Boolean] =
     for
       existing <- get(instanceId)
+      _        <- ZIO.when(existing.nonEmpty) {
+        ZIO.foreachDiscard(existing)(t => delete(t.instanceId, t.name)) *> notify(instanceId)
+      }
+    yield existing.nonEmpty
+
+  override def cancel(instanceId: String, name: String): ZIO[Any, MechanoidError, Boolean] =
+    for
+      existing <- get(instanceId, name)
       _        <- ZIO.when(existing.isDefined) {
-        Idb.txn(db, Seq(Idb.TimeoutsStore), IDBTransactionMode.readwrite) { tx =>
-          Idb.request(Idb.store(tx, Idb.TimeoutsStore).delete(instanceId))
-        } *> notify(instanceId)
+        delete(instanceId, name) *> notify(instanceId)
       }
     yield existing.isDefined
 
@@ -50,11 +57,12 @@ final class IndexedDbTimeoutStore private (
 
   override def claim(
       instanceId: String,
+      name: String,
       nodeId: String,
       claimDuration: Duration,
       now: Instant,
   ): ZIO[Any, MechanoidError, ClaimResult] =
-    get(instanceId).flatMap {
+    get(instanceId, name).flatMap {
       case None =>
         ZIO.succeed(ClaimResult.NotFound)
       case Some(t) if t.isClaimed(now) =>
@@ -67,36 +75,43 @@ final class IndexedDbTimeoutStore private (
         put(claimed).as(ClaimResult.Claimed(claimed))
     }
 
-  override def complete(instanceId: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
-    get(instanceId).flatMap {
+  override def complete(instanceId: String, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
+    get(instanceId, name).flatMap {
       case Some(t) if t.sequenceNr == sequenceNr =>
-        cancel(instanceId)
+        cancel(instanceId, name)
       case _ =>
         ZIO.succeed(false)
     }
 
-  override def release(instanceId: String): ZIO[Any, MechanoidError, Boolean] =
-    get(instanceId).flatMap {
+  override def release(instanceId: String, name: String): ZIO[Any, MechanoidError, Boolean] =
+    get(instanceId, name).flatMap {
       case Some(t) =>
         put(t.copy(claimedBy = None, claimedUntil = None)).as(true)
       case None =>
         ZIO.succeed(false)
     }
 
-  override def get(instanceId: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[String]]] =
+  override def get(instanceId: String): ZIO[Any, MechanoidError, Chunk[ScheduledTimeout[String]]] =
+    all().map(rows => Chunk.fromIterable(rows.filter(_.instanceId == instanceId)))
+
+  override def get(instanceId: String, name: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[String]]] =
     Idb
       .txn(db, Seq(Idb.TimeoutsStore), IDBTransactionMode.readonly) { tx =>
-        Idb.request(Idb.store(tx, Idb.TimeoutsStore).get(instanceId))
+        Idb.request(Idb.store(tx, Idb.TimeoutsStore).get(compositeKey(instanceId, name)))
       }
-      .map { raw =>
-        if raw == null || js.isUndefined(raw.asInstanceOf[js.Any]) then None
-        else Some(TimeoutRow.fromJs(raw.asInstanceOf[js.Dynamic]).toScheduled)
-      }
+      .map(readOptional)
 
   private def put(timeout: ScheduledTimeout[String]): ZIO[Any, MechanoidError, Unit] =
     Idb
       .txn(db, Seq(Idb.TimeoutsStore), IDBTransactionMode.readwrite) { tx =>
-        Idb.request(Idb.store(tx, Idb.TimeoutsStore).put(TimeoutRow.fromScheduled(timeout).toJs))
+        Idb.request(Idb.store(tx, Idb.TimeoutsStore).put(TimeoutRecord.fromScheduled(timeout)))
+      }
+      .unit
+
+  private def delete(instanceId: String, name: String): ZIO[Any, MechanoidError, Unit] =
+    Idb
+      .txn(db, Seq(Idb.TimeoutsStore), IDBTransactionMode.readwrite) { tx =>
+        Idb.request(Idb.store(tx, Idb.TimeoutsStore).delete(compositeKey(instanceId, name)))
       }
       .unit
 
@@ -104,70 +119,60 @@ final class IndexedDbTimeoutStore private (
     Idb
       .txn(db, Seq(Idb.TimeoutsStore), IDBTransactionMode.readonly) { tx =>
         Idb.request(Idb.store(tx, Idb.TimeoutsStore).getAll()).map { result =>
-          result.asInstanceOf[js.Array[js.Dynamic]].toList.map(TimeoutRow.fromJs(_).toScheduled)
+          result.asInstanceOf[js.Array[TimeoutRecord]].toList.flatMap(TimeoutRecord.toScheduled)
         }
       }
+
+  private def readOptional(raw: IDBValue): Option[ScheduledTimeout[String]] =
+    if raw == null || js.isUndefined(raw) then None
+    else TimeoutRecord.toScheduled(raw.asInstanceOf[TimeoutRecord])
+
+  private def compositeKey(instanceId: String, name: String): js.Array[String] =
+    js.Array(instanceId, name)
 end IndexedDbTimeoutStore
 
 object IndexedDbTimeoutStore:
 
-  final case class TimeoutRow(
-      instanceId: String,
-      stateHash: Int,
-      sequenceNr: Long,
-      deadlineEpoch: Long,
-      createdAtEpoch: Long,
-      claimedBy: js.UndefOr[String],
-      claimedUntilEpoch: js.UndefOr[Double],
-  ):
-    def toJs: js.Dynamic =
-      val lit = js.Dynamic.literal(
-        instanceId = instanceId,
-        stateHash = stateHash,
-        sequenceNr = sequenceNr.toDouble,
-        deadlineEpoch = deadlineEpoch.toDouble,
-        createdAtEpoch = createdAtEpoch.toDouble,
-      )
-      claimedBy.foreach(v => lit.claimedBy = v)
-      claimedUntilEpoch.foreach(v => lit.claimedUntilEpoch = v)
-      lit
-    end toJs
+  /** IndexedDB row for a named timeout. Constructed as a `js.Object` facade, not `js.Dynamic`. */
+  trait TimeoutRecord extends js.Object:
+    val instanceId: String
+    val timeoutKey: String
+    val stateHash: Double
+    val sequenceNr: Double
+    val deadlineEpoch: Double
+    val createdAtEpoch: Double
+    val claimedBy: js.UndefOr[String]
+    val claimedUntilEpoch: js.UndefOr[Double]
 
-    def toScheduled: ScheduledTimeout[String] =
-      ScheduledTimeout(
-        instanceId = instanceId,
-        stateHash = stateHash,
-        sequenceNr = sequenceNr,
-        deadline = Instant.ofEpochMilli(deadlineEpoch),
-        createdAt = Instant.ofEpochMilli(createdAtEpoch),
-        claimedBy = claimedBy.toOption,
-        claimedUntil = claimedUntilEpoch.toOption.map(ms => Instant.ofEpochMilli(ms.toLong)),
-      )
-  end TimeoutRow
+  object TimeoutRecord:
+    def fromScheduled(t: ScheduledTimeout[String]): TimeoutRecord =
+      new TimeoutRecord:
+        val instanceId: String                    = t.instanceId
+        val timeoutKey: String                    = t.name
+        val stateHash: Double                     = t.stateHash.toDouble
+        val sequenceNr: Double                    = t.sequenceNr.toDouble
+        val deadlineEpoch: Double                 = t.deadline.toEpochMilli.toDouble
+        val createdAtEpoch: Double                = t.createdAt.toEpochMilli.toDouble
+        val claimedBy: js.UndefOr[String]         = t.claimedBy.fold[js.UndefOr[String]](js.undefined)(identity)
+        val claimedUntilEpoch: js.UndefOr[Double] =
+          t.claimedUntil.fold[js.UndefOr[Double]](js.undefined)(_.toEpochMilli.toDouble)
 
-  object TimeoutRow:
-    def fromScheduled(t: ScheduledTimeout[String]): TimeoutRow =
-      TimeoutRow(
-        instanceId = t.instanceId,
-        stateHash = t.stateHash,
-        sequenceNr = t.sequenceNr,
-        deadlineEpoch = t.deadline.toEpochMilli,
-        createdAtEpoch = t.createdAt.toEpochMilli,
-        claimedBy = t.claimedBy.orUndefined,
-        claimedUntilEpoch = t.claimedUntil.map(_.toEpochMilli.toDouble).orUndefined,
-      )
-
-    def fromJs(raw: js.Dynamic): TimeoutRow =
-      TimeoutRow(
-        instanceId = raw.instanceId.asInstanceOf[String],
-        stateHash = raw.stateHash.asInstanceOf[Double].toInt,
-        sequenceNr = raw.sequenceNr.asInstanceOf[Double].toLong,
-        deadlineEpoch = raw.deadlineEpoch.asInstanceOf[Double].toLong,
-        createdAtEpoch = raw.createdAtEpoch.asInstanceOf[Double].toLong,
-        claimedBy = raw.claimedBy.asInstanceOf[js.UndefOr[String]],
-        claimedUntilEpoch = raw.claimedUntilEpoch.asInstanceOf[js.UndefOr[Double]],
-      )
-  end TimeoutRow
+    def toScheduled(row: TimeoutRecord): Option[ScheduledTimeout[String]] =
+      if row == null || js.isUndefined(row) then None
+      else
+        Some(
+          ScheduledTimeout(
+            instanceId = row.instanceId,
+            name = row.timeoutKey,
+            stateHash = row.stateHash.toInt,
+            sequenceNr = row.sequenceNr.toLong,
+            deadline = Instant.ofEpochMilli(row.deadlineEpoch.toLong),
+            createdAt = Instant.ofEpochMilli(row.createdAtEpoch.toLong),
+            claimedBy = row.claimedBy.toOption,
+            claimedUntil = row.claimedUntilEpoch.toOption.map(ms => Instant.ofEpochMilli(ms.toLong)),
+          )
+        )
+  end TimeoutRecord
 
   def make(
       dbName: String = "mechanoid",

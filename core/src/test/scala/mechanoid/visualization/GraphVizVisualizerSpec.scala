@@ -144,7 +144,7 @@ object GraphVizVisualizerSpec extends ZIOSpecDefault:
           )
         )
         val result = GraphVizVisualizer.digraph(machine)
-        assertTrue(result.contains("timeout:"))
+        assertTrue(result.contains("timeout Retry:"))
       },
       test("formats duration as milliseconds when < 1s") {
         val machine = Machine(
@@ -469,7 +469,7 @@ object GraphVizVisualizerSpec extends ZIOSpecDefault:
         val result = GraphVizVisualizer.digraphWithTrace(machine, trace)
         // Processing is visited (not current) but has timeout, should show timeout annotation
         assertTrue(
-          result.contains("timeout:") // Timeout annotation in label
+          result.contains("timeout Retry:")
         )
       },
       test("shows timeout color for unvisited state with timeout") {

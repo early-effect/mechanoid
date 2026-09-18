@@ -22,7 +22,7 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         store <- ZIO.service[TimeoutStore[String]]
         now   <- Clock.instant
         deadline = now.plusSeconds(60)
-        timeout <- store.schedule("instance-1", StateHash1, SeqNr1, deadline)
+        timeout <- store.schedule("instance-1", "t", StateHash1, SeqNr1, deadline)
       yield assertTrue(
         timeout.instanceId == "instance-1",
         timeout.stateHash == StateHash1,
@@ -38,8 +38,8 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         now   <- Clock.instant
         deadline1 = now.plusSeconds(60)
         deadline2 = now.plusSeconds(120)
-        _         <- store.schedule("instance-2", StateHash1, SeqNr1, deadline1)
-        timeout   <- store.schedule("instance-2", StateHash2, SeqNr2, deadline2)
+        _         <- store.schedule("instance-2", "t", StateHash1, SeqNr1, deadline1)
+        timeout   <- store.schedule("instance-2", "t", StateHash2, SeqNr2, deadline2)
         retrieved <- store.get("instance-2")
       yield assertTrue(
         timeout.stateHash == StateHash2,
@@ -53,7 +53,7 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
       for
         store     <- ZIO.service[TimeoutStore[String]]
         now       <- Clock.instant
-        _         <- store.schedule("instance-3", StateHash1, SeqNr1, now.plusSeconds(60))
+        _         <- store.schedule("instance-3", "t", StateHash1, SeqNr1, now.plusSeconds(60))
         cancelled <- store.cancel("instance-3")
         retrieved <- store.get("instance-3")
       yield assertTrue(
@@ -73,9 +73,9 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         now   <- Clock.instant
         past   = now.minusSeconds(10)
         future = now.plusSeconds(60)
-        _       <- store.schedule("expired-1", StateHash1, SeqNr1, past)
-        _       <- store.schedule("expired-2", StateHash1, SeqNr2, past.minusSeconds(5))
-        _       <- store.schedule("not-expired", StateHash1, 3L, future)
+        _       <- store.schedule("expired-1", "t", StateHash1, SeqNr1, past)
+        _       <- store.schedule("expired-2", "t", StateHash1, SeqNr2, past.minusSeconds(5))
+        _       <- store.schedule("not-expired", "t", StateHash1, 3L, future)
         expired <- store.queryExpired(10, now)
       yield assertTrue(
         expired.length == 2,
@@ -87,8 +87,8 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         store <- ZIO.service[TimeoutStore[String]]
         now   <- Clock.instant
         past = now.minusSeconds(10)
-        _      <- store.schedule("claim-test-1", StateHash1, SeqNr1, past)
-        result <- store.claim("claim-test-1", "node-1", Duration.fromSeconds(30), now)
+        _      <- store.schedule("claim-test-1", "t", StateHash1, SeqNr1, past)
+        result <- store.claim("claim-test-1", "t", "node-1", Duration.fromSeconds(30), now)
       yield result match
         case ClaimResult.Claimed(timeout) =>
           assertTrue(
@@ -103,9 +103,9 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         store <- ZIO.service[TimeoutStore[String]]
         now   <- Clock.instant
         past = now.minusSeconds(10)
-        _      <- store.schedule("claim-test-2", StateHash1, SeqNr1, past)
-        _      <- store.claim("claim-test-2", "node-1", Duration.fromSeconds(300), now)
-        result <- store.claim("claim-test-2", "node-2", Duration.fromSeconds(30), now)
+        _      <- store.schedule("claim-test-2", "t", StateHash1, SeqNr1, past)
+        _      <- store.claim("claim-test-2", "t", "node-1", Duration.fromSeconds(300), now)
+        result <- store.claim("claim-test-2", "t", "node-2", Duration.fromSeconds(30), now)
       yield result match
         case ClaimResult.AlreadyClaimed(byNode, _) => assertTrue(byNode == "node-1")
         case _                                     => assertTrue(false)
@@ -115,11 +115,11 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         store <- ZIO.service[TimeoutStore[String]]
         now   <- Clock.instant
         past = now.minusSeconds(10)
-        _ <- store.schedule("claim-test-3", StateHash1, SeqNr1, past)
+        _ <- store.schedule("claim-test-3", "t", StateHash1, SeqNr1, past)
         // First claim with very short duration
-        _ <- store.claim("claim-test-3", "node-1", Duration.fromMillis(1), now.minusSeconds(5))
+        _ <- store.claim("claim-test-3", "t", "node-1", Duration.fromMillis(1), now.minusSeconds(5))
         // Sleep past the claim expiry (the claim was in the past, so already expired)
-        result <- store.claim("claim-test-3", "node-2", Duration.fromSeconds(30), now)
+        result <- store.claim("claim-test-3", "t", "node-2", Duration.fromSeconds(30), now)
       yield result match
         case ClaimResult.Claimed(timeout) => assertTrue(timeout.claimedBy.contains("node-2"))
         case _                            => assertTrue(false)
@@ -128,8 +128,8 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
       for
         store     <- ZIO.service[TimeoutStore[String]]
         now       <- Clock.instant
-        _         <- store.schedule("complete-test", StateHash1, SeqNr1, now.plusSeconds(60))
-        completed <- store.complete("complete-test", SeqNr1)
+        _         <- store.schedule("complete-test", "t", StateHash1, SeqNr1, now.plusSeconds(60))
+        completed <- store.complete("complete-test", "t", SeqNr1)
         retrieved <- store.get("complete-test")
       yield assertTrue(
         completed,
@@ -140,12 +140,12 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
       for
         store     <- ZIO.service[TimeoutStore[String]]
         now       <- Clock.instant
-        _         <- store.schedule("complete-test-2", StateHash1, SeqNr1, now.plusSeconds(60))
-        completed <- store.complete("complete-test-2", SeqNr1 + 1) // Different sequenceNr
+        _         <- store.schedule("complete-test-2", "t", StateHash1, SeqNr1, now.plusSeconds(60))
+        completed <- store.complete("complete-test-2", "t", SeqNr1 + 1) // Different sequenceNr
         retrieved <- store.get("complete-test-2")
       yield assertTrue(
         !completed,
-        retrieved.isDefined, // Should NOT be removed
+        retrieved.nonEmpty,
       )
     },
     test("release clears claim fields") {
@@ -153,13 +153,30 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         store <- ZIO.service[TimeoutStore[String]]
         now   <- Clock.instant
         past = now.minusSeconds(10)
-        _         <- store.schedule("release-test", StateHash1, SeqNr1, past)
-        _         <- store.claim("release-test", "node-1", Duration.fromSeconds(30), now)
-        released  <- store.release("release-test")
+        _         <- store.schedule("release-test", "t", StateHash1, SeqNr1, past)
+        _         <- store.claim("release-test", "t", "node-1", Duration.fromSeconds(30), now)
+        released  <- store.release("release-test", "t")
         retrieved <- store.get("release-test")
       yield assertTrue(
         released,
         retrieved.exists(t => t.claimedBy.isEmpty && t.claimedUntil.isEmpty),
+      )
+    },
+    test("two names on one instance are independent") {
+      for
+        store <- ZIO.service[TimeoutStore[String]]
+        now   <- Clock.instant
+        _     <- store.schedule("multi", "daily", StateHash1, SeqNr1, now.plusMillis(50))
+        _     <- store.schedule("multi", "weekly", StateHash1, SeqNr1, now.plusMillis(100))
+        all   <- store.get("multi")
+        daily <- store.get("multi", "daily")
+        _     <- store.cancel("multi", "daily")
+        after <- store.get("multi")
+      yield assertTrue(
+        all.size == 2,
+        daily.exists(_.name == "daily"),
+        after.size == 1,
+        after.head.name == "weekly",
       )
     },
     test("get returns None for nonexistent timeout") {

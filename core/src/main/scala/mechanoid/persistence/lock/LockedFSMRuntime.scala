@@ -102,7 +102,7 @@ final class LockedFSMRuntime[Id, S, E] private[lock] (
 
   override def isRunning: UIO[Boolean] = underlying.isRunning
 
-  override def timeoutConfigForState(state: S): Option[(Duration, E)] =
+  override def timeoutConfigForState(state: S): Chunk[mechanoid.machine.TimeoutSpec[S, E]] =
     underlying.timeoutConfigForState(state)
 
   override def machine = underlying.machine

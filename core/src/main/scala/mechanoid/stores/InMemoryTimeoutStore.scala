@@ -12,23 +12,19 @@ import java.time.Instant
   *
   * ==Usage==
   * {{{
-  * // Create directly
   * for
   *   store <- InMemoryTimeoutStore.make[String]
-  *   _     <- store.schedule("instance-1", stateHash, sequenceNr, deadline)
+  *   _     <- store.schedule("instance-1", "PaymentTimeout", stateHash, sequenceNr, deadline)
   * yield ()
-  *
-  * // Or as a ZLayer
-  * val storeLayer = InMemoryTimeoutStore.layer[String]
-  * myProgram.provide(storeLayer)
   * }}}
   */
 final class InMemoryTimeoutStore[Id] private (
-    timeoutsRef: Ref[Map[Id, ScheduledTimeout[Id]]]
+    timeoutsRef: Ref[Map[(Id, String), ScheduledTimeout[Id]]]
 ) extends TimeoutStore[Id]:
 
   override def schedule(
       instanceId: Id,
+      name: String,
       stateHash: Int,
       sequenceNr: Long,
       deadline: Instant,
@@ -37,18 +33,25 @@ final class InMemoryTimeoutStore[Id] private (
       now <- Clock.instant
       timeout = ScheduledTimeout(
         instanceId = instanceId,
+        name = name,
         stateHash = stateHash,
         sequenceNr = sequenceNr,
         deadline = deadline,
         createdAt = now,
       )
-      _ <- timeoutsRef.update(_ + (instanceId -> timeout))
+      _ <- timeoutsRef.update(_ + ((instanceId, name) -> timeout))
     yield timeout
 
   override def cancel(instanceId: Id): ZIO[Any, MechanoidError, Boolean] =
     timeoutsRef.modify { timeouts =>
-      val existed = timeouts.contains(instanceId)
-      (existed, timeouts - instanceId)
+      val remaining = timeouts.filterNot(_._1._1 == instanceId)
+      (remaining.size < timeouts.size, remaining)
+    }
+
+  override def cancel(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean] =
+    timeoutsRef.modify { timeouts =>
+      val existed = timeouts.contains((instanceId, name))
+      (existed, timeouts - ((instanceId, name)))
     }
 
   override def queryExpired(
@@ -65,12 +68,13 @@ final class InMemoryTimeoutStore[Id] private (
 
   override def claim(
       instanceId: Id,
+      name: String,
       nodeId: String,
       claimDuration: Duration,
       now: Instant,
   ): ZIO[Any, MechanoidError, ClaimResult] =
     timeoutsRef.modify { timeouts =>
-      timeouts.get(instanceId) match
+      timeouts.get((instanceId, name)) match
         case None =>
           (ClaimResult.NotFound, timeouts)
 
@@ -82,33 +86,38 @@ final class InMemoryTimeoutStore[Id] private (
             claimedBy = Some(nodeId),
             claimedUntil = Some(now.plusMillis(claimDuration.toMillis)),
           )
-          (ClaimResult.Claimed(claimed), timeouts + (instanceId -> claimed))
+          (ClaimResult.Claimed(claimed), timeouts + ((instanceId, name) -> claimed))
     }
 
-  override def complete(instanceId: Id, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
+  override def complete(instanceId: Id, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
     timeoutsRef.modify { timeouts =>
-      timeouts.get(instanceId) match
+      timeouts.get((instanceId, name)) match
         case Some(t) if t.sequenceNr == sequenceNr =>
-          (true, timeouts - instanceId)
+          (true, timeouts - ((instanceId, name)))
         case _ =>
           (false, timeouts)
     }
 
-  override def release(instanceId: Id): ZIO[Any, MechanoidError, Boolean] =
+  override def release(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean] =
     timeoutsRef.modify { timeouts =>
-      timeouts.get(instanceId) match
+      timeouts.get((instanceId, name)) match
         case Some(t) =>
           val released = t.copy(claimedBy = None, claimedUntil = None)
-          (true, timeouts + (instanceId -> released))
+          (true, timeouts + ((instanceId, name) -> released))
         case None =>
           (false, timeouts)
     }
 
-  override def get(instanceId: Id): ZIO[Any, MechanoidError, Option[ScheduledTimeout[Id]]] =
-    timeoutsRef.get.map(_.get(instanceId))
+  override def get(instanceId: Id): ZIO[Any, MechanoidError, Chunk[ScheduledTimeout[Id]]] =
+    timeoutsRef.get.map { timeouts =>
+      Chunk.fromIterable(timeouts.collect { case ((id, _), t) if id == instanceId => t })
+    }
+
+  override def get(instanceId: Id, name: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[Id]]] =
+    timeoutsRef.get.map(_.get((instanceId, name)))
 
   /** Get all timeouts (for testing). */
-  def getAll: UIO[Map[Id, ScheduledTimeout[Id]]] =
+  def getAll: UIO[Map[(Id, String), ScheduledTimeout[Id]]] =
     timeoutsRef.get
 
   /** Clear all data (for testing). */
@@ -124,4 +133,8 @@ object InMemoryTimeoutStore:
 
   /** Create a new in-memory timeout store. */
   def make[Id]: UIO[InMemoryTimeoutStore[Id]] =
-    Ref.make(Map.empty[Id, ScheduledTimeout[Id]]).map(new InMemoryTimeoutStore(_))
+    Ref.make(Map.empty[(Id, String), ScheduledTimeout[Id]]).map(new InMemoryTimeoutStore(_))
+
+  def layer[Id: Tag]: ULayer[TimeoutStore[Id]] =
+    ZLayer.fromZIO(make[Id])
+end InMemoryTimeoutStore

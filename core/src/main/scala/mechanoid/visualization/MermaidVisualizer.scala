@@ -1,7 +1,7 @@
 package mechanoid.visualization
 
 import mechanoid.core.*
-import mechanoid.machine.Machine
+import mechanoid.machine.{Machine, TimeoutDeadline}
 import zio.Duration
 
 /** Generates Mermaid diagram syntax for FSM visualization. */
@@ -50,12 +50,14 @@ object MermaidVisualizer:
       }
     }
 
-    // Add state notes for timeouts
-    fsm.timeouts.foreach { case (stateCaseHash, duration) =>
-      val stateName = fsm.stateEnum.nameFor(stateCaseHash)
-      sb.append(s"    note right of $stateName\n")
-      sb.append(s"      timeout: ${formatDuration(duration)}\n")
-      sb.append(s"    end note\n")
+    fsm.timeouts.foreach { case (stateCaseHash, specs) =>
+      if specs.nonEmpty then
+        val stateName = fsm.stateEnum.nameFor(stateCaseHash)
+        sb.append(s"    note right of $stateName\n")
+        specs.foreach { spec =>
+          sb.append(s"      timeout ${spec.name}: ${formatDeadline(spec.deadline)}\n")
+        }
+        sb.append(s"    end note\n")
     }
 
     sb.toString
@@ -216,6 +218,12 @@ object MermaidVisualizer:
     else if d.toSeconds < 60 then s"${d.toSeconds}s"
     else if d.toMinutes < 60 then s"${d.toMinutes}m"
     else s"${d.toHours}h"
+
+  private def formatDeadline[S](deadline: TimeoutDeadline[S]): String =
+    deadline match
+      case TimeoutDeadline.After(d)       => formatDuration(d)
+      case TimeoutDeadline.At(instant)    => instant.toString
+      case TimeoutDeadline.FromPayload(_) => "from payload"
 
   /** Escape special characters for Mermaid diagram text. */
   private def escapeMermaid(text: String): String =

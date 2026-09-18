@@ -31,6 +31,10 @@ export machine.all
 export machine.anyOf
 export machine.via
 export machine.Aspect
+export machine.NamedTimeout
+export machine.TimeoutBuilder
+export machine.TimeoutDeadline
+export machine.TimeoutSpec
 export machine.stay
 export machine.stop
 export machine.TransitionSpec as MachineTransitionSpec

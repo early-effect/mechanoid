@@ -29,7 +29,7 @@ object Reference extends MechanoidDocSpecSuite:
       md"""
 | Construct | Role |
 |-----------|------|
-| `@@ Aspect.timeout(d, e)` | Schedule timeout event on entry to target |
+| `@@ Aspect.timeout(d, e)` / `@@ Aspect.timeout(e)(d)` | Named timeout on entry to target; stack to arm several |
 | `@@ Aspect.overriding` | Intentional duplicate; last wins |
 | `.onEntry` | Sync effect during `send` (failure → `ActionFailedError`) |
 | `.producing` | Fork effect that returns another event |

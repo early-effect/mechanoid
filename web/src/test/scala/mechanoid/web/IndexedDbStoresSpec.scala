@@ -93,10 +93,23 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           dbName  <- uniqueDb
           store   <- IndexedDbTimeoutStore.make(dbName)
           now     <- Clock.instant
-          _       <- store.schedule("o1", 1, 1L, now.minusSeconds(1))
-          got     <- store.get("o1")
+          _       <- store.schedule("o1", "t", 1, 1L, now.minusSeconds(1))
+          got     <- store.get("o1", "t")
           expired <- store.queryExpired(10, now)
         yield assertTrue(got.isDefined, expired.exists(_.instanceId == "o1"))
+      },
+      test("two names on one instance") {
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          store  <- IndexedDbTimeoutStore.make(dbName)
+          now    <- Clock.instant
+          _      <- store.schedule("o1", "daily", 1, 1L, now.plusMillis(50))
+          _      <- store.schedule("o1", "weekly", 1, 1L, now.plusMillis(100))
+          all    <- store.get("o1")
+          _      <- store.cancel("o1", "daily")
+          after  <- store.get("o1")
+        yield assertTrue(all.size == 2, after.size == 1, after.head.name == "weekly")
       },
       test("claim and complete") {
         for
@@ -104,10 +117,10 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           dbName  <- uniqueDb
           store   <- IndexedDbTimeoutStore.make(dbName)
           now     <- Clock.instant
-          _       <- store.schedule("o1", 1, 2L, now.minusSeconds(1))
-          claimed <- store.claim("o1", "node-a", 30.seconds, now)
-          done    <- store.complete("o1", 2L)
-          after   <- store.get("o1")
+          _       <- store.schedule("o1", "t", 1, 2L, now.minusSeconds(1))
+          claimed <- store.claim("o1", "t", "node-a", 30.seconds, now)
+          done    <- store.complete("o1", "t", 2L)
+          after   <- store.get("o1", "t")
         yield assertTrue(
           claimed match
             case ClaimResult.Claimed(_) => true

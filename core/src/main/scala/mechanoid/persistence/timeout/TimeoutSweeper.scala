@@ -122,12 +122,9 @@ final case class TimeoutSweeperImpl[Id, S, E](
     runtime: FSMRuntime[Id, S, E],
     leaseStore: Option[LeaseStore] = None,
 ):
-  /** Look up the timeout event for a state hash.
-    *
-    * Uses Machine.timeoutEvents which maps state hash -> timeout event.
-    */
-  def resolveTimeoutEvent(stateHash: Int): Option[E] =
-    runtime.machine.timeoutEvents.get(stateHash)
+  /** Look up the timeout event by armed name on the current leaf. */
+  def resolveTimeoutEvent(state: S, name: String): Option[E] =
+    runtime.timeoutConfigForState(state).find(_.name == name).map(_.event)
 end TimeoutSweeperImpl
 
 object TimeoutSweeper:
@@ -260,53 +257,48 @@ object TimeoutSweeper:
       now         <- Clock.instant
       claimResult <- impl.timeoutStore.claim(
         timeout.instanceId,
+        timeout.name,
         impl.config.nodeId,
         impl.config.claimDuration,
         now,
       )
       fired <- claimResult match
         case ClaimResult.Claimed(_) =>
-          // Successfully claimed - validate state before firing
           for
             currentState <- impl.runtime.currentState
-            currentSeqNr <- impl.runtime.lastSequenceNr
             currentStateHash = impl.runtime.machine.stateEnum.caseHash(currentState)
-
-            stateMatches = currentStateHash == timeout.stateHash
-            seqNrMatches = currentSeqNr == timeout.sequenceNr
+            stateMatches     = currentStateHash == timeout.stateHash
+            eventOpt         = impl.resolveTimeoutEvent(currentState, timeout.name)
 
             result <-
-              if stateMatches && seqNrMatches then
-                // Both match - this is the correct timeout for this visit to the state
-                impl.resolveTimeoutEvent(timeout.stateHash) match
+              if stateMatches then
+                eventOpt match
                   case Some(event) =>
                     impl.runtime
                       .send(event)
                       .flatMap { _ =>
-                        impl.timeoutStore.complete(timeout.instanceId, timeout.sequenceNr) *>
+                        impl.timeoutStore.complete(timeout.instanceId, timeout.name, timeout.sequenceNr) *>
                           metricsRef.update(m => m.copy(timeoutsFired = m.timeoutsFired + 1))
                       }
                       .catchAll { error =>
-                        // Release claim on error so another node can retry
-                        impl.timeoutStore.release(timeout.instanceId) *>
+                        impl.timeoutStore.release(timeout.instanceId, timeout.name) *>
                           ZIO.logWarning(
-                            s"Failed to fire timeout for ${timeout.instanceId}: $error"
+                            s"Failed to fire timeout ${timeout.name} for ${timeout.instanceId}: $error"
                           )
                       }
                       .as(true)
                   case None =>
-                    // No timeout event for this state (shouldn't happen in normal operation)
-                    ZIO.logWarning(s"No timeout event for state hash ${timeout.stateHash} on ${timeout.instanceId}") *>
-                      impl.timeoutStore.complete(timeout.instanceId, timeout.sequenceNr) *>
+                    ZIO.logWarning(
+                      s"No timeout named ${timeout.name} on current leaf for ${timeout.instanceId}"
+                    ) *>
+                      impl.timeoutStore.complete(timeout.instanceId, timeout.name, timeout.sequenceNr) *>
                       metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
               else
-                // State or seqNr changed - timeout is stale, just complete it
                 ZIO.logDebug(
-                  s"Skipping stale timeout for ${timeout.instanceId}: " +
-                    s"stateMatch=$stateMatches (expected=${timeout.stateHash}, actual=$currentStateHash), " +
-                    s"seqNrMatch=$seqNrMatches (expected=${timeout.sequenceNr}, actual=$currentSeqNr)"
+                  s"Skipping stale timeout ${timeout.name} for ${timeout.instanceId}: " +
+                    s"expected stateHash=${timeout.stateHash}, actual=$currentStateHash"
                 ) *>
-                  impl.timeoutStore.complete(timeout.instanceId, timeout.sequenceNr) *>
+                  impl.timeoutStore.complete(timeout.instanceId, timeout.name, timeout.sequenceNr) *>
                   metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
           yield result
 

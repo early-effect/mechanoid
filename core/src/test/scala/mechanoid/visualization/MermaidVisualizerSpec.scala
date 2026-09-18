@@ -95,7 +95,7 @@ object MermaidVisualizerSpec extends ZIOSpecDefault:
         val result = MermaidVisualizer.stateDiagram(machine)
         assertTrue(
           result.contains("note right of"),
-          result.contains("timeout:"),
+          result.contains("timeout Retry:"),
         )
       },
     ),

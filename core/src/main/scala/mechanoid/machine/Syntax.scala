@@ -1,6 +1,5 @@
 package mechanoid.machine
 
-import mechanoid.core.*
 import scala.DummyImplicit
 import zio.ZIO
 
@@ -169,20 +168,17 @@ final class ViaBuilder[S, E](
     * Idle via Start to timedWaiting
     * }}}
     */
-  infix def to[S2, TE](target: TimedTarget[S2, TE])(using Finite[TE]): TransitionSpec[S, E, S2] =
+  infix def to[S2, TE](target: TimedTarget[S2, TE]): TransitionSpec[S, E, S2] =
     TransitionSpec.gotoTimed[S, E, S2, TE](stateHashes, eventHashes, stateNames, eventNames, target)
 
   infix def to[S2, TE](target: TimedTarget[S2, TE])(f: (S, E) => S2)(using
-      Finite[TE],
-      DummyImplicit,
+      DummyImplicit
   ): TransitionSpec[S, E, S2] =
     TransitionSpec
       .gotoTimed[S, E, S2, TE](stateHashes, eventHashes, stateNames, eventNames, target)
       .copy(payload = Some(PayloadReducer.pure(f)))
 
-  infix def to[S2, TE](target: TimedTarget[S2, TE])(f: (S, E) => ZIO[Any, Any, S2])(using
-      Finite[TE]
-  ): TransitionSpec[S, E, S2] =
+  infix def to[S2, TE](target: TimedTarget[S2, TE])(f: (S, E) => ZIO[Any, Any, S2]): TransitionSpec[S, E, S2] =
     TransitionSpec
       .gotoTimed[S, E, S2, TE](stateHashes, eventHashes, stateNames, eventNames, target)
       .copy(payload = Some(PayloadReducer.effect(f)))

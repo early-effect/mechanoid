@@ -1,8 +1,8 @@
 package mechanoid.visualization
 
 import mechanoid.core.*
-import mechanoid.machine.Machine
-import zio.Duration
+import mechanoid.machine.{Machine, TimeoutDeadline}
+import zio.{Chunk, Duration}
 
 /** Generates GraphViz DOT syntax for FSM visualization. */
 object GraphVizVisualizer:
@@ -57,19 +57,17 @@ object GraphVizVisualizer:
     // Define state nodes with labels showing timeout info
     allStates.foreach { stateCaseHash =>
       val stateName = fsm.stateEnum.nameFor(stateCaseHash)
-      val timeout   = fsm.timeouts.get(stateCaseHash)
+      val specs     = fsm.timeouts.getOrElse(stateCaseHash, Chunk.empty)
 
-      val annotations = List(
-        timeout.map(d => s"timeout: ${formatDuration(d)}")
-      ).flatten
+      val annotations = specs.map(s => s"timeout ${s.name}: ${formatDeadline(s.deadline)}").toList
 
       val label =
         if annotations.isEmpty then stateName
         else s"$stateName\\n[${annotations.mkString(", ")}]"
 
-      val style = timeout match
-        case Some(_) => s", style=filled, fillcolor=\"${config.timeoutColor}\""
-        case None    => ""
+      val style =
+        if specs.nonEmpty then s", style=filled, fillcolor=\"${config.timeoutColor}\""
+        else ""
 
       sb.append(s"    $stateName [label=\"$label\"$style];\n")
     }
@@ -144,11 +142,9 @@ object GraphVizVisualizer:
     // Define state nodes with highlighting
     allStates.foreach { stateCaseHash =>
       val stateName = fsm.stateEnum.nameFor(stateCaseHash)
-      val timeout   = fsm.timeouts.get(stateCaseHash)
+      val specs     = fsm.timeouts.getOrElse(stateCaseHash, Chunk.empty)
 
-      val annotations = List(
-        timeout.map(d => s"timeout: ${formatDuration(d)}")
-      ).flatten
+      val annotations = specs.map(s => s"timeout ${s.name}: ${formatDeadline(s.deadline)}").toList
 
       val label =
         if annotations.isEmpty then stateName
@@ -157,7 +153,7 @@ object GraphVizVisualizer:
       val fillColor =
         if stateCaseHash == currentStateCaseHash then config.currentColor
         else if visitedStateCaseHashes.contains(stateCaseHash) then config.visitedColor
-        else if timeout.isDefined then config.timeoutColor
+        else if specs.nonEmpty then config.timeoutColor
         else "white"
 
       sb.append(s"    $stateName [label=\"$label\", style=filled, fillcolor=\"$fillColor\"];\n")
@@ -245,6 +241,12 @@ object GraphVizVisualizer:
     else if d.toSeconds < 60 then s"${d.toSeconds}s"
     else if d.toMinutes < 60 then s"${d.toMinutes}m"
     else s"${d.toHours}h"
+
+  private def formatDeadline[S](deadline: TimeoutDeadline[S]): String =
+    deadline match
+      case TimeoutDeadline.After(d)       => formatDuration(d)
+      case TimeoutDeadline.At(instant)    => instant.toString
+      case TimeoutDeadline.FromPayload(_) => "from payload"
 
   /** Format an event for DOT label display.
     *

@@ -204,9 +204,11 @@ with `@@ Aspect.overriding` (last wins). Here `SpecialState` escalates instead o
     ),
     section("Timeouts on transitions")(
       md"""
-Attach a deadline with `@@ Aspect.timeout(duration, timeoutEvent)`. Fiber-based timeouts fire
-in-process; pair with [Durable Timeouts](durable-timeouts.html) when deadlines must survive
-node failure. DocSpecs send the timeout event directly rather than waiting out the clock.
+Attach a deadline with `@@ Aspect.timeout(duration, timeoutEvent)`, or pin the event first:
+`@@ Aspect.timeout(PaymentTimeout)(30.minutes)`. Stack `@@` to arm several named timeouts on
+the same leaf. Fiber-based timeouts fire in-process; pair with
+[Durable Timeouts](durable-timeouts.html) when deadlines must survive node failure. DocSpecs
+send the timeout event directly rather than waiting out the clock.
 
 Entry/exit effects on assemblies (`.onEnter` / `.onExit`) and per-transition `.onEntry` /
 `.producing` are covered on [Side Effects](side-effects.html).

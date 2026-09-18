@@ -150,11 +150,7 @@ object SharedFSMRuntime:
 
     override def isRunning: UIO[Boolean] = runtime.flatMap(_.isRunning)
 
-    override def timeoutConfigForState(state: S): Option[(Duration, E)] =
-      val stateCaseHash = machine.stateEnum.caseHash(state)
-      for
-        duration <- machine.timeouts.get(stateCaseHash)
-        event    <- machine.timeoutEvents.get(stateCaseHash)
-      yield (duration, event)
+    override def timeoutConfigForState(state: S): Chunk[TimeoutSpec[S, E]] =
+      machine.timeoutsFor(state)
   end DelegatingFSMRuntime
 end SharedFSMRuntime

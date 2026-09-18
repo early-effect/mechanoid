@@ -3,7 +3,7 @@ package mechanoid.persistence.timeout
 import zio.*
 import zio.test.*
 import mechanoid.core.{Finite, MechanoidError, PersistenceError, FSMState, TransitionResult, TransitionOutcome}
-import mechanoid.machine.{Machine, Assembly, Aspect, assembly, via}
+import mechanoid.machine.{Assembly, Aspect, Machine, TimeoutDeadline, TimeoutSpec, assembly, via}
 import mechanoid.runtime.FSMRuntime
 import java.time.Instant
 
@@ -39,7 +39,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
   )
 
   // State hash for Waiting state (used for timeout store scheduling)
-  // The sweeper looks up timeout events via machine.timeoutEvents.get(stateHash)
+  // The sweeper looks up timeout events via timeoutConfigForState by name.
   // IMPORTANT: Use testMachine.stateEnum to ensure same Finite instance as the sweeper
   private val waitingStateHash: Int = testMachine.stateEnum.caseHash(Waiting)
 
@@ -109,16 +109,47 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
       override def isRunning: UIO[Boolean] = ZIO.succeed(true)
 
-      override def timeoutConfigForState(state: TestState): Option[(Duration, TestEvent)] =
+      override def timeoutConfigForState(state: TestState): Chunk[TimeoutSpec[TestState, TestEvent]] =
         state match
-          case Waiting => Some((10.seconds, TimeoutFired))
-          case _       => None
+          case Waiting =>
+            Chunk(TimeoutSpec(TimeoutFired, "TimeoutFired", TimeoutDeadline.After(10.seconds)))
+          case _ =>
+            Chunk.empty
     end new
   end makeMockRuntimeWithState
 
   // State hash for Processing state (for state mismatch tests)
   // IMPORTANT: Use testMachine.stateEnum to ensure same Finite instance as the sweeper
   private val processingStateHash: Int = testMachine.stateEnum.caseHash(Processing)
+
+  private def stubRow(instanceId: String, now: Instant): ScheduledTimeout[String] =
+    ScheduledTimeout(instanceId, "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10), now.minusSeconds(20))
+
+  trait StubTimeoutStore extends TimeoutStore[String]:
+    override def schedule(
+        instanceId: String,
+        name: String,
+        stateHash: Int,
+        sequenceNr: Long,
+        deadline: Instant,
+    ) =
+      Clock.instant.map(now => ScheduledTimeout(instanceId, name, stateHash, sequenceNr, deadline, now))
+    override def cancel(instanceId: String)                                   = ZIO.succeed(true)
+    override def cancel(instanceId: String, name: String)                     = ZIO.succeed(true)
+    override def get(instanceId: String)                                      = ZIO.succeed(Chunk.empty)
+    override def get(instanceId: String, name: String)                        = ZIO.succeed(None)
+    override def release(instanceId: String, name: String)                    = ZIO.succeed(true)
+    override def complete(instanceId: String, name: String, sequenceNr: Long) =
+      ZIO.succeed(true)
+    override def queryExpired(limit: Int, now: Instant) = ZIO.succeed(Nil)
+    override def claim(
+        instanceId: String,
+        name: String,
+        nodeId: String,
+        duration: Duration,
+        now: Instant,
+    ) = ZIO.succeed(ClaimResult.NotFound)
+  end StubTimeoutStore
 
   def spec = suite("TimeoutSweeper")(
     suite("basic operation")(
@@ -134,8 +165,8 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Schedule with the event hash - already expired
-          _ <- store.schedule("fsm-1", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
-          _ <- store.schedule("fsm-2", waitingStateHash, defaultSeqNr, now.minusSeconds(5))
+          _ <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          _ <- store.schedule("fsm-2", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(5))
 
           // Create mock runtime
           runtime = makeMockRuntime(eventsRef, "fsm-1")
@@ -173,7 +204,9 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _ <- ZIO.foreach(1 to 5)(i => store.schedule(s"fsm-$i", waitingStateHash, defaultSeqNr, now.minusSeconds(10)))
+          _   <- ZIO.foreach(1 to 5)(i =>
+            store.schedule(s"fsm-$i", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          )
 
           // Run for just enough time to complete one sweep (first sweep is immediate)
           _ <- ZIO.scoped {
@@ -201,8 +234,8 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _   <- store.schedule("expired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
-          _   <- store.schedule("future", waitingStateHash, defaultSeqNr, now.plusSeconds(60))
+          _   <- store.schedule("expired", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          _   <- store.schedule("future", "TimeoutFired", waitingStateHash, defaultSeqNr, now.plusSeconds(60))
 
           _ <- ZIO.scoped {
             for
@@ -233,7 +266,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _   <- store.schedule("fsm-1", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
 
           _ <- ZIO.scoped {
             for
@@ -265,7 +298,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           config2 = config1.withNodeId("node-2")
 
           now <- Clock.instant
-          _   <- store.schedule("fsm-1", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
 
           // Run two sweepers concurrently
           _ <- ZIO.scoped {
@@ -299,7 +332,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _   <- store.schedule("fsm-1", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
 
           _ <- ZIO.scoped {
             for
@@ -316,9 +349,9 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           timeout <- store.get("fsm-1")
           events  <- eventsRef.get
         yield assertTrue(
-          timeout.isDefined,
-          timeout.get.claimedBy.isEmpty, // Claim was released
-          events.nonEmpty,               // Event was attempted
+          timeout.nonEmpty,
+          timeout.head.claimedBy.isEmpty,
+          events.nonEmpty,
         )
       }
     ),
@@ -335,8 +368,8 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _   <- store.schedule("fsm-1", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
-          _   <- store.schedule("fsm-2", waitingStateHash, defaultSeqNr, now.minusSeconds(5))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          _   <- store.schedule("fsm-2", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(5))
 
           metrics <- ZIO.scoped {
             for
@@ -369,7 +402,9 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Schedule multiple timeouts to increase conflict chance
-          _ <- ZIO.foreach(1 to 5)(i => store.schedule(s"fsm-$i", waitingStateHash, defaultSeqNr, now.minusSeconds(10)))
+          _ <- ZIO.foreach(1 to 5)(i =>
+            store.schedule(s"fsm-$i", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          )
 
           result <- ZIO.scoped {
             for
@@ -504,7 +539,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Schedule with stateHash=waitingStateHash, sequenceNr=0 (matches runtime)
-          _ <- store.schedule("fsm-1", waitingStateHash, 0L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10))
 
           _ <- ZIO.scoped {
             for
@@ -537,7 +572,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _   <- store.schedule("fsm-1", waitingStateHash, defaultSeqNr, now.minusSeconds(1))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(1))
 
           _ <- ZIO.scoped {
             for
@@ -577,7 +612,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Timeout was scheduled when FSM was in Waiting with seq=5
-          _ <- store.schedule("fsm-1", waitingStateHash, 5L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 5L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -599,15 +634,12 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           metrics.timeoutsSkipped >= 1, // Should count as skipped
         )
       },
-      test("skips timeout when FSM re-entered same state (sequence mismatch)") {
-        // FSM in Waiting (seq=5), timeout T1 scheduled with seq=5
-        // FSM → Processing (seq=6) → Waiting again (seq=7)
-        // Sweeper tries to fire T1 (seq=5)
-        // stateHash matches but seqNr mismatch (5 != 7) → SKIP
+      test("fires when sequenceNr is from an earlier visit of the same leaf") {
+        // Goto away is what cancels the old row. The sweeper no longer uses sequenceNr as
+        // the fire condition, so Stay (which increments seqNr) does not drop siblings.
         for
           store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
-          // Runtime is in Waiting (same state) but seq=7 (different visit)
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 7L)
 
           config = TimeoutSweeperConfig()
@@ -616,8 +648,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          // OLD timeout was scheduled with seq=5 (stale)
-          _ <- store.schedule("fsm-1", waitingStateHash, 5L, now.minusSeconds(10))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 5L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -631,12 +662,10 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             yield m
           }
 
-          events    <- eventsRef.get
-          remaining <- store.get("fsm-1")
+          events <- eventsRef.get
         yield assertTrue(
-          events.isEmpty,              // No event should fire - stale timeout
-          remaining.isEmpty,           // Timeout should be completed (removed as stale)
-          metrics.timeoutsSkipped >= 1, // Should count as skipped
+          events.nonEmpty,
+          metrics.timeoutsFired >= 1,
         )
       },
       test("skips timeout when both state and sequenceNr mismatch") {
@@ -656,7 +685,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Timeout scheduled when in Waiting with seq=0
-          _ <- store.schedule("fsm-1", waitingStateHash, 0L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -678,7 +707,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
     ),
     suite("state validation - metrics verification")(
-      test("increments timeoutsFired only when state and seqNr match") {
+      test("increments timeoutsFired when state hash and name still match") {
         for
           store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
@@ -692,7 +721,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Schedule matching timeout
-          _ <- store.schedule("fsm-1", waitingStateHash, 5L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 5L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -724,7 +753,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Schedule timeout for Waiting state
-          _ <- store.schedule("fsm-1", waitingStateHash, 5L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 5L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -742,11 +771,10 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           metrics.timeoutsSkipped == 1,
         )
       },
-      test("increments timeoutsSkipped when sequenceNr mismatch") {
+      test("fires when sequenceNr differs but the leaf still declares the name") {
         for
           store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
-          // Runtime in Waiting with seq=10, but timeout was scheduled with seq=5
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 10L)
 
           config = TimeoutSweeperConfig()
@@ -755,8 +783,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          // Schedule timeout with old seqNr
-          _ <- store.schedule("fsm-1", waitingStateHash, 5L, now.minusSeconds(10))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 5L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -770,8 +797,8 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             yield m
           }
         yield assertTrue(
-          metrics.timeoutsFired == 0,
-          metrics.timeoutsSkipped == 1,
+          metrics.timeoutsFired == 1,
+          metrics.timeoutsSkipped == 0,
         )
       },
       test("tracks skipped vs fired ratio with mixed timeouts") {
@@ -789,11 +816,11 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Matching timeout (fires)
-          _ <- store.schedule("fsm-match-1", waitingStateHash, 5L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-match-1", "TimeoutFired", waitingStateHash, 5L, now.minusSeconds(10))
           // Stale timeout - wrong seqNr (skipped)
-          _ <- store.schedule("fsm-stale", waitingStateHash, 0L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-stale", "TimeoutFired", processingStateHash, 0L, now.minusSeconds(10))
           // Matching timeout (fires)
-          _ <- store.schedule("fsm-match-2", waitingStateHash, 5L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-match-2", "TimeoutFired", waitingStateHash, 5L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -831,7 +858,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _   <- store.schedule("fsm-1", waitingStateHash, 0L, now.minusSeconds(10))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -865,7 +892,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
 
           now <- Clock.instant
-          _   <- store.schedule("fsm-1", waitingStateHash, highSeqNr, now.minusSeconds(10))
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, highSeqNr, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -887,7 +914,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         end for
       },
       test("skips timeout for unknown state hash (no timeout event configured)") {
-        // Schedule timeout with a state hash that has no timeout event in machine.timeoutEvents
+        // Schedule timeout with a state hash that has no named timeout on the current leaf
         for
           store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
@@ -901,7 +928,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Schedule with Processing stateHash (no timeout event configured for Processing)
-          _ <- store.schedule("fsm-1", processingStateHash, 0L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-1", "TimeoutFired", processingStateHash, 0L, now.minusSeconds(10))
 
           metrics <- ZIO.scoped {
             for
@@ -955,7 +982,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
                 now   <- Clock.instant
                 count <- scheduleCountRef.updateAndGet(_ + 1)
                 newSeqNr = count.toLong // Each re-entry gets a new seqNr
-                _ <- store.schedule(instanceId, waitingStateHash, newSeqNr, now.plusSeconds(30))
+                _ <- store.schedule(instanceId, "TimeoutFired", waitingStateHash, newSeqNr, now.plusSeconds(30))
               yield TransitionOutcome(TransitionResult.Stay(Waiting))
 
             override def currentState: UIO[TestState]    = ZIO.succeed(Waiting)
@@ -969,10 +996,12 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             override def stop: UIO[Unit]                              = ZIO.unit
             override def stop(reason: String): UIO[Unit]              = ZIO.unit
             override def isRunning: UIO[Boolean]                      = ZIO.succeed(true)
-            override def timeoutConfigForState(state: TestState): Option[(Duration, TestEvent)] =
+            override def timeoutConfigForState(state: TestState): Chunk[TimeoutSpec[TestState, TestEvent]] =
               state match
-                case Waiting => Some((30.seconds, TimeoutFired))
-                case _       => None
+                case Waiting =>
+                  Chunk(TimeoutSpec(TimeoutFired, "TimeoutFired", TimeoutDeadline.After(30.seconds)))
+                case _ =>
+                  Chunk.empty
 
           config = TimeoutSweeperConfig()
             .withSweepInterval(Duration.fromMillis(50))
@@ -981,7 +1010,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           now <- Clock.instant
           // Schedule initial timeout with seqNr=0
-          _ <- store.schedule("fsm-1", waitingStateHash, 0L, now.minusSeconds(10))
+          _ <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10))
 
           // Run sweeper to fire the timeout
           _ <- ZIO.scoped {
@@ -1004,7 +1033,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           scheduleCount == 1, // Runtime scheduled a new timeout
           // BUG: newTimeout is None because complete() deleted it!
           // EXPECTED: newTimeout should be Some(...) with seqNr=1
-          newTimeout.isDefined, // This FAILS - proving the bug
+          newTimeout.nonEmpty,
         )
       }
     ),
@@ -1083,7 +1112,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withJitterFactor(0.0)
             .withNodeId("test-node")
           // Schedule a timeout that would fire
-          _       <- store.schedule("fsm-1", waitingStateHash, 0L, now.minusSeconds(10))
+          _       <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10))
           metrics <- ZIO.scoped {
             for
               sweeper <- TimeoutSweeper.make(config, store, runtime, Some(leaseStore))
@@ -1135,20 +1164,18 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           runtime = makeMockRuntime(eventsRef, "fsm-1")
           // Create a mock store that returns NotFound on claim
           claimCount <- Ref.make(0)
-          mockStore = new TimeoutStore[String]:
-            private val now = Instant.now()
-            override def schedule(instanceId: String, stateHash: Int, sequenceNr: Long, expiresAt: Instant) =
-              ZIO.succeed(ScheduledTimeout(instanceId, stateHash, sequenceNr, expiresAt, now))
-            override def cancel(instanceId: String)                  = ZIO.succeed(true)
-            override def get(instanceId: String)                     = ZIO.succeed(None)
+          mockStore = new StubTimeoutStore:
+            private val now                                          = Instant.now()
             override def queryExpired(limit: Int, queryNow: Instant) =
-              ZIO.succeed(
-                List(ScheduledTimeout("fsm-1", waitingStateHash, 0L, now.minusSeconds(10), now.minusSeconds(20)))
-              )
-            override def claim(instanceId: String, nodeId: String, duration: Duration, claimNow: Instant) =
+              ZIO.succeed(List(stubRow("fsm-1", now)))
+            override def claim(
+                instanceId: String,
+                name: String,
+                nodeId: String,
+                duration: Duration,
+                claimNow: Instant,
+            ) =
               claimCount.update(_ + 1).as(ClaimResult.NotFound)
-            override def release(instanceId: String)                    = ZIO.succeed(true)
-            override def complete(instanceId: String, sequenceNr: Long) = ZIO.succeed(true)
           config = TimeoutSweeperConfig()
             .withSweepInterval(Duration.fromMillis(50))
             .withJitterFactor(0.0)
@@ -1175,20 +1202,18 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
           claimCount <- Ref.make(0)
-          mockStore = new TimeoutStore[String]:
-            private val now = Instant.now()
-            override def schedule(instanceId: String, stateHash: Int, sequenceNr: Long, expiresAt: Instant) =
-              ZIO.succeed(ScheduledTimeout(instanceId, stateHash, sequenceNr, expiresAt, now))
-            override def cancel(instanceId: String)                  = ZIO.succeed(true)
-            override def get(instanceId: String)                     = ZIO.succeed(None)
+          mockStore = new StubTimeoutStore:
+            private val now                                          = Instant.now()
             override def queryExpired(limit: Int, queryNow: Instant) =
-              ZIO.succeed(
-                List(ScheduledTimeout("fsm-1", waitingStateHash, 0L, now.minusSeconds(10), now.minusSeconds(20)))
-              )
-            override def claim(instanceId: String, nodeId: String, duration: Duration, claimNow: Instant) =
+              ZIO.succeed(List(stubRow("fsm-1", now)))
+            override def claim(
+                instanceId: String,
+                name: String,
+                nodeId: String,
+                duration: Duration,
+                claimNow: Instant,
+            ) =
               claimCount.update(_ + 1).as(ClaimResult.StateChanged("Processing"))
-            override def release(instanceId: String)                    = ZIO.succeed(true)
-            override def complete(instanceId: String, sequenceNr: Long) = ZIO.succeed(true)
           config = TimeoutSweeperConfig()
             .withSweepInterval(Duration.fromMillis(50))
             .withJitterFactor(0.0)
@@ -1271,17 +1296,9 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
           // Create a mock store that throws on queryExpired
-          mockStore = new TimeoutStore[String]:
-            override def schedule(instanceId: String, stateHash: Int, sequenceNr: Long, expiresAt: Instant) =
-              ZIO.succeed(ScheduledTimeout(instanceId, stateHash, sequenceNr, expiresAt, Instant.now()))
-            override def cancel(instanceId: String)                  = ZIO.succeed(true)
-            override def get(instanceId: String)                     = ZIO.succeed(None)
+          mockStore = new StubTimeoutStore:
             override def queryExpired(limit: Int, queryNow: Instant) =
               ZIO.fail(PersistenceError("Database connection lost"))
-            override def claim(instanceId: String, nodeId: String, duration: Duration, claimNow: Instant) =
-              ZIO.succeed(ClaimResult.NotFound)
-            override def release(instanceId: String)                    = ZIO.succeed(true)
-            override def complete(instanceId: String, sequenceNr: Long) = ZIO.succeed(true)
           config = TimeoutSweeperConfig()
             .withSweepInterval(Duration.fromMillis(50))
             .withJitterFactor(0.0)

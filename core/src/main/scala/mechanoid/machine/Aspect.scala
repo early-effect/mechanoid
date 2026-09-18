@@ -16,44 +16,25 @@ object Aspect:
     */
   case object overriding extends Aspect
 
-  /** Configure a timeout for a target state with a user-defined timeout event.
-    *
-    * Apply to a transition using `@@`. When the FSM enters the target state via such a transition, a timeout timer
-    * starts. If no other transition occurs before the duration, the specified event is automatically fired.
-    *
-    * Usage:
-    * {{{
-    * import zio.Duration
-    *
-    * enum OrderEvent derives Finite:
-    *   case Pay, PaymentTimeout
-    *
-    * val machine = Machine(assembly[State, OrderEvent](
-    *   (Pending via Pay to Processing) @@ Aspect.timeout(30.seconds, PaymentTimeout),
-    *   Processing via Complete to Done,
-    *   Processing via PaymentTimeout to TimedOut, // Handle the timeout with user event
-    * ))
-    * }}}
-    *
-    * @param duration
-    *   How long to wait before firing the timeout event
-    * @param event
-    *   The event to fire when the timeout expires
-    */
-  case class timeout[E](duration: Duration, event: E) extends Aspect
+  /** Duration sugar. The timeout name is generated from the event at assembly (`Finite.nameOf`). */
+  def timeout[E](duration: Duration, event: E): NamedTimeout[Any, E] =
+    NamedTimeout(event, None, TimeoutDeadline.After(duration))
+
+  /** Pin the timeout event, then supply a Duration, Instant, or `S => Instant`. */
+  def timeout[E](event: E): TimeoutBuilder[E] =
+    TimeoutBuilder(event, None)
+
+  /** Pin the timeout event and an explicit name, then supply the deadline. */
+  def timeout[E](event: E, name: String): TimeoutBuilder[E] =
+    TimeoutBuilder(event, Some(name))
 end Aspect
 
 /** Internal wrapper for timeout configuration on a target state.
   *
-  * This is used internally by the assembly macros when processing transitions to `TimedTarget` values. Prefer using `@@
-  * Aspect.timeout(duration, event)` on transitions instead:
-  *
-  * {{{
-  * (A via E1 to B) @@ Aspect.timeout(30.seconds, TimeoutEvent)
-  * }}}
+  * Prefer `@@ Aspect.timeout(event)(deadline)` on transitions instead.
   *
   * @tparam S
-  *   The state type
+  *   The target state type
   * @tparam E
   *   The timeout event type
   * @param state
@@ -64,5 +45,3 @@ end Aspect
   *   The event to fire when the timeout expires
   */
 final case class TimedTarget[S, E](state: S, duration: Duration, timeoutEvent: E)
-
-// Extension methods for @@ are defined in Macros.scala to keep all extensions together

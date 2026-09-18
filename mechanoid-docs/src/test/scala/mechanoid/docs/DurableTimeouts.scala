@@ -75,15 +75,31 @@ a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
           .asDoc
       }.assert(state => assertTrue(state.toString == "Cancelled")),
     ),
+    section("Named timeouts on one leaf")(
+      md"""
+Stack `@@ Aspect.timeout(event)(deadline)` to arm independent cadences on the same leaf. The name
+defaults to `Finite.nameOf(event)` (`DailyCheck`, `EndCycle`). Stay on one timeout re-arms only
+that name; Goto cancels every name for the instance.
+
+```scala
+(Enqueueing via EnqueueComplete to Live) @@
+  Aspect.timeout(DailyCheck)(nextMidnight) @@
+  Aspect.timeout(EndCycle)(nextSunday)
+```
+
+`nextMidnight` / `nextSunday` can be an `Instant`, a `Duration`, or `S => Instant` evaluated at
+arm time (and again on Stay re-arm).
+"""
+    ),
     section("TimeoutSweeper")(
       md"""
 A background sweeper:
 
-1. Queries expired, unclaimed timeouts
-2. Claims each timeout
-3. Validates `(stateHash, sequenceNr)` so stale timeouts do not fire
-4. Looks up the timeout event via `Machine.timeoutEvents` and `runtime.send`s it
-5. Marks complete
+1. Queries expired, unclaimed timeouts (several rows per instance is allowed)
+2. Claims each timeout by `(instanceId, name)`
+3. Fires when `stateHash` still matches **and** that name is still configured on the current leaf
+4. Looks up the event from `timeoutConfigForState` by name and `runtime.send`s it
+5. Marks complete for that name only (`sequenceNr` must match so a Stay re-arm is not deleted)
 
 Use `TimeoutSweeperConfig` for interval, jitter, batch size, claim duration, and `nodeId`.
 Optional **leader election** via `LeaseStore` keeps a single active sweeper to reduce DB load.
