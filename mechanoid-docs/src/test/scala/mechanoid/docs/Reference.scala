@@ -21,6 +21,8 @@ object Reference extends MechanoidDocSpecSuite:
 | `state[S]` / `event[E]` | Match by type (payload cases) |
 | `viaAnyOf` / `anyOfEvents` / `viaAll` | Multi-event edges |
 | `stay` / `stop` / `stop("reason")` | Self-loop or terminal |
+| `.to[Leaf] { (s, e) => ... }` | Compute Goto payload for that leaf |
+| `.to(stay) { (s, e) => ... }` | Rewrite payload, Stay lifecycle (no timeout reset) |
 """
     ),
     section("Aspects and effects")(
@@ -34,6 +36,14 @@ object Reference extends MechanoidDocSpecSuite:
 | `.onEnter` / `.onExit` on `Assembly` | Per-state lifecycle hooks |
 """
     ),
+    section("Graph queries")(
+      md"""
+| Construct | Role |
+|-----------|------|
+| `MachineGraph.hasEdge(machine, from, event)` | Assembly edge? Not reducer success |
+| `MachineGraph.destLeaf(machine, from, event)` | Goto leaf, or current leaf for Stay/Stop; `None` if no edge |
+"""
+    ),
     section("Runtime layers")(
       md"""
 | Service | Common layers |
@@ -42,6 +52,10 @@ object Reference extends MechanoidDocSpecSuite:
 | `TimeoutStrategy` | `fiber[Id]`, `durable[Id]` (+ `TimeoutStore`) |
 | `LockingStrategy` | `optimistic[Id]`, `distributed[Id]` (+ `FSMInstanceLock`) |
 | `InstanceIndex` | `InMemoryInstanceIndex.layer`, `PostgresInstanceIndex`, `IndexedDbInstanceIndex` |
+| `AliasExtractor` | `derived[S]`, `apply`, `none` |
+| `IndexExtractor` | `derived[S]` (`@index` / `@indexCreated` / `@indexUpdated` / `@indexRank`), `apply` (nested payload) |
+| `Alias.of[S]` | Member select: `Alias.of[InitiativeState].campaign(id)` |
+| `IndexQuery.of[S]` | Member select plus `.only(state[Archived])` / `.only(all[Active])` / `.require.project` |
 """
     ),
     section("Errors")(
@@ -49,6 +63,7 @@ object Reference extends MechanoidDocSpecSuite:
 | Error | When |
 |-------|------|
 | `InvalidTransitionError` | No transition for state/event |
+| `PayloadLeafMismatchError` | Reducer built a different Finite leaf than declared |
 | `FSMStoppedError` | FSM already stopped |
 | `ProcessingTimeoutError` | Timeout during event processing |
 | `ActionFailedError` | Entry / lifecycle action failed |
@@ -58,6 +73,7 @@ object Reference extends MechanoidDocSpecSuite:
 | `LockingError` | Distributed lock busy / timeout |
 | `UniqueAliasError` | Alias already bound to a different instance |
 | `AliasNotFoundError` | `lookup` / resolve found no binding |
+| `InvalidIndexQuery` | `find` with both `startAfter` and `startBefore`, or `since` with a Rank sort |
 """
     ),
     section("Compact machine")(

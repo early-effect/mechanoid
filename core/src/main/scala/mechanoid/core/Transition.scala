@@ -27,9 +27,9 @@ object Transition:
   def goto[S, E, S2](target: S2): Transition[S, E, S2] =
     Transition((_, _) => ZIO.succeed(TransitionResult.Goto(target)), None)
 
-  /** Create a transition that stays in the current state. */
+  /** Create a transition that stays in the current instance. */
   def stay[S, E]: Transition[S, E, S] =
-    Transition((_, _) => ZIO.succeed(TransitionResult.Stay), None)
+    Transition((s, _) => ZIO.succeed(TransitionResult.Stay(s)), None)
 
 /** Timeout configuration for a state.
   *

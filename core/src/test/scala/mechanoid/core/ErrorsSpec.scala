@@ -19,6 +19,17 @@ object ErrorsSpec extends ZIOSpecDefault:
         assertTrue(error.message == "custom message")
       },
     ),
+    suite("PayloadLeafMismatchError")(
+      test("names the declared leaf and the actual value") {
+        val error = PayloadLeafMismatchError("Live", "Done", "done")
+        assertTrue(
+          error.declaredLeaf == "Live",
+          error.actualLeaf == "Done",
+          error.actual == "done",
+          error.getMessage.contains("Done"),
+        )
+      }
+    ),
     suite("FSMStoppedError")(
       test("stores reason") {
         val error = FSMStoppedError(Some("reason"))

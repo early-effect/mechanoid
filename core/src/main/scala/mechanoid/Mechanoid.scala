@@ -13,6 +13,7 @@ export core.StateTimeout
 export core.FSMState
 export core.MechanoidError
 export core.InvalidTransitionError
+export core.PayloadLeafMismatchError
 export core.FSMStoppedError
 export core.ActionFailedError
 export core.ProcessingTimeoutError
@@ -20,6 +21,7 @@ export core.CaseHasher
 
 // Re-export suite-style DSL
 export machine.Machine
+export machine.MachineGraph
 export machine.Assembly
 export machine.assembly
 export machine.assemblyAll
@@ -66,11 +68,24 @@ export core.SequenceConflictError
 export core.EventReplayError
 export core.UniqueAliasError
 export core.AliasNotFoundError
+export core.InvalidIndexQuery
 export persistence.Alias
 export persistence.AliasCodec
 export persistence.AliasCodec.given
 export persistence.InstanceIndex
 export persistence.AliasExtractor
+export persistence.IndexKey
+export persistence.IndexClocks
+export persistence.IndexMeta
+export persistence.Indexed
+export persistence.IndexFilter
+export persistence.IndexSort
+export persistence.IndexCursor
+export persistence.IndexPage
+export persistence.IndexQuery
+export persistence.IndexQueryBuilder
+export persistence.IndexExtractor
+export persistence.IndexScalar
 
 // Re-export visualization
 export visualization.TransitionKind
@@ -85,6 +100,10 @@ export visualization.GraphVizVisualizer
 // Re-export redaction
 export core.sensitive
 export core.alias
+export core.index
+export core.indexCreated
+export core.indexUpdated
+export core.indexRank
 export core.Redactor
 export core.Redactor.redacted
 export core.Redactor.redactedPretty

@@ -60,6 +60,39 @@ object PostgresSchema:
     .and(_.namespace)
     .named("idx_fsm_aliases_instance_ns")
 
+  private val indexesSchema = Schema[FsmIndexRow]
+    .withIndex(_.namespace)
+    .and(_.indexKey)
+    .and(_.stateName)
+    .and(_.editedAt)
+    .and(_.instanceId)
+    .named("idx_fsm_indexes_edited")
+    .withIndex(_.namespace)
+    .and(_.indexKey)
+    .and(_.stateName)
+    .and(_.touchedAt)
+    .and(_.instanceId)
+    .named("idx_fsm_indexes_touched")
+    .withIndex(_.namespace)
+    .and(_.indexKey)
+    .and(_.stateName)
+    .and(_.createdAt)
+    .and(_.instanceId)
+    .named("idx_fsm_indexes_created")
+    .withIndex(_.namespace)
+    .and(_.indexKey)
+    .and(_.stateName)
+    .and(_.startedAt)
+    .and(_.instanceId)
+    .named("idx_fsm_indexes_started")
+    .withIndex(_.instanceId)
+    .named("idx_fsm_indexes_instance")
+    .withIndex(_.namespace)
+    .and(_.indexKey)
+    .and(_.rank)
+    .and(_.instanceId)
+    .named("idx_fsm_indexes_rank")
+
   private final case class ManagedTable(
       verify: ZIO[ConnectionProvider & Scope, SaferisError, Unit],
       ddl: SqlFragment,
@@ -72,6 +105,7 @@ object PostgresSchema:
     ManagedTable(Schema[LockRow].verify, locksSchema.ddl()),
     ManagedTable(Schema[LeaseRow].verify, leasesSchema.ddl()),
     ManagedTable(Schema[AliasRow].verify, aliasesSchema.ddl()),
+    ManagedTable(Schema[FsmIndexRow].verify, indexesSchema.ddl()),
   )
 
   /** Initialize the schema: creates missing tables, verifies tables that already exist.
@@ -106,12 +140,32 @@ object PostgresSchema:
       }
 
   private def ensureTable(xa: Transactor, table: ManagedTable): ZIO[Any, SaferisError, Boolean] =
-    xa.run(table.verify)
-      .as(false)
-      .catchSome {
-        case SaferisError.SchemaValidation(issues) if issues.exists(_.isInstanceOf[SchemaIssue.TableNotFound]) =>
-          xa.run(table.ddl.dml).as(true)
-      }
+    def go(created: Boolean): ZIO[Any, SaferisError, Boolean] =
+      xa.run(table.verify)
+        .as(created)
+        .catchSome {
+          case SaferisError.SchemaValidation(issues) if issues.exists(_.isInstanceOf[SchemaIssue.TableNotFound]) =>
+            xa.run(table.ddl.dml) *> go(true)
+          case SaferisError.SchemaValidation(issues) if issues.exists(isMissingRankColumn) =>
+            xa.run(sql"alter table fsm_indexes add column if not exists rank bigint not null default 0".dml) *>
+              go(true)
+          case SaferisError.SchemaValidation(issues) if issues.exists(isMissingRankIndex) =>
+            xa.run(
+              sql"create index if not exists idx_fsm_indexes_rank on fsm_indexes (namespace, index_key, rank, instance_id)".dml
+            ) *> go(true)
+        }
+    go(false)
+  end ensureTable
+
+  private def isMissingRankColumn(issue: SchemaIssue): Boolean =
+    issue match
+      case SchemaIssue.MissingColumn("fsm_indexes", "rank", _) => true
+      case _                                                   => false
+
+  private def isMissingRankIndex(issue: SchemaIssue): Boolean =
+    issue match
+      case SchemaIssue.MissingIndex("fsm_indexes", Some("idx_fsm_indexes_rank"), _, _) => true
+      case _                                                                           => false
 
   private def verifyAllSchemas(xa: Transactor): ZIO[Any, SaferisError, Unit] =
     ZIO.foreachDiscard(managedTables)(t => xa.run(t.verify))

@@ -43,6 +43,18 @@ object FSMStateSpec extends ZIOSpecDefault:
         state.transitionCount == 2,
       )
     },
+    test("replaceCurrent keeps history and lastTransitionAt") {
+      val t1    = Instant.now()
+      val t2    = t1.plusSeconds(5)
+      val state = FSMState.initial(A).transitionTo(B, t1).replaceCurrent(C)
+      assertTrue(
+        state.current == C,
+        state.history == List(A),
+        state.lastTransitionAt == t1,
+        state.lastTransitionAt != t2,
+        state.transitionCount == 1,
+      )
+    },
     test("withData and getData round-trip") {
       val state = FSMState.initial(A).withData("saved", B)
       assertTrue(

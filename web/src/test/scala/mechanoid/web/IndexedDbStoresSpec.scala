@@ -5,10 +5,11 @@ import zio.json.*
 import zio.test.*
 import mechanoid.*
 import mechanoid.persistence.*
-import mechanoid.persistence.timeout.*
 import mechanoid.persistence.lock.*
-import java.time.Instant
 import scala.scalajs.js
+
+enum WebInitiative derives Finite:
+  case Live(@alias campaign: String, @alias template: String)
 
 object IndexedDbStoresSpec extends ZIOSpecDefault:
 
@@ -138,8 +139,8 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           _      <- installFakeIdb
           dbName <- uniqueDb
           index  <- IndexedDbInstanceIndex.make(dbName)
-          _      <- index.bind(Alias("campaign", "c-1"), "init-1")
-          got    <- index.resolve(Alias("campaign", "c-1"))
+          _      <- index.bind(Alias.of[WebInitiative].campaign("c-1"), "init-1")
+          got    <- index.resolve(Alias.of[WebInitiative].campaign("c-1"))
         yield assertTrue(got.contains("init-1"))
       },
       test("unique clash in bindAll does not insert earlier keys") {
@@ -147,9 +148,14 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           _      <- installFakeIdb
           dbName <- uniqueDb
           index  <- IndexedDbInstanceIndex.make(dbName)
-          _      <- index.bind(Alias("campaign", "taken"), "other")
-          result <- index.bindAll(Chunk(Alias("campaign", "fresh"), Alias("campaign", "taken")), "init-1").either
-          fresh  <- index.resolve(Alias("campaign", "fresh"))
+          _      <- index.bind(Alias.of[WebInitiative].campaign("taken"), "other")
+          result <- index
+            .bindAll(
+              Chunk(Alias.of[WebInitiative].campaign("fresh"), Alias.of[WebInitiative].campaign("taken")),
+              "init-1",
+            )
+            .either
+          fresh <- index.resolve(Alias.of[WebInitiative].campaign("fresh"))
         yield result match
           case Left(_: UniqueAliasError) => assertTrue(fresh.isEmpty)
           case _                         => assertTrue(false)
@@ -160,11 +166,13 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           dbName <- uniqueDb
           index  <- IndexedDbInstanceIndex.make(dbName)
           _      <- index.bindAll(
-            Chunk(Alias("campaign", "c-1"), Alias("template", "t-1")),
+            Chunk(Alias.of[WebInitiative].campaign("c-1"), Alias.of[WebInitiative].template("t-1")),
             "init-1",
           )
           got <- index.aliasesOf("init-1")
-        yield assertTrue(got.toSet == Set(Alias("campaign", "c-1"), Alias("template", "t-1")))
+        yield assertTrue(
+          got.toSet == Set(Alias.of[WebInitiative].campaign("c-1"), Alias.of[WebInitiative].template("t-1"))
+        )
       },
       test("opening a v1 database upgrades and creates aliases") {
         for
@@ -172,10 +180,14 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           dbName <- uniqueDb
           _      <- openV1(dbName)
           index  <- IndexedDbInstanceIndex.make(dbName)
-          _      <- index.bind(Alias("campaign", "c-1"), "init-1")
-          got    <- index.resolve(Alias("campaign", "c-1"))
+          _      <- index.bind(Alias.of[WebInitiative].campaign("c-1"), "init-1")
+          got    <- index.resolve(Alias.of[WebInitiative].campaign("c-1"))
         yield assertTrue(got.contains("init-1"))
       },
+      mechanoid.stores.InstanceIndexLaws(
+        installFakeIdb *> uniqueDb.flatMap(IndexedDbInstanceIndex.make(_)),
+        distractorN = 40,
+      ) @@ TestAspect.samples(10),
     ),
     suite("reconstruct via SharedFSMRuntime stores")(
       test("second runtime recovers peer appends") {

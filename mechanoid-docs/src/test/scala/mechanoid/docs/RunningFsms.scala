@@ -110,7 +110,7 @@ object RunningFsms extends MechanoidDocSpecSuite:
 | `EventStore[Id, S, E]` | Events and snapshots |
 | `TimeoutStrategy[Id]` | Fiber or durable timeouts |
 | `LockingStrategy[Id]` | Optimistic or distributed locking |
-| `InstanceIndex[Id]` | Unique aliases (optional; required for `lookup`) |
+| `InstanceIndex[Id]` | Unique `Alias.of[S]` plus many `IndexQuery.of[S]` (optional; required for `lookup`) |
 """,
       exampleZIO {
         enum OrderState derives Finite:
@@ -146,7 +146,7 @@ object RunningFsms extends MechanoidDocSpecSuite:
           .asDoc
       }.assert(state => assertTrue(state.toString == "Paid")),
       md"""
-Next: [Persistence](persistence.html) for recover-on-construct, snapshots, and lookup by alias.
+Next: [Persistence](persistence.html) for recover-on-construct, snapshots, and lookup by alias. [Indexing](indexing.html) for many-to-one `find`.
 """,
     ),
   )

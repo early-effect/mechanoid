@@ -8,6 +8,38 @@ import scala.quoted.*
   */
 object Macros:
 
+  /** Symbol Finite hashes for a leaf type.
+    *
+    * `via[E](event)` infers `E` as the parent enum, so `TypeRepr.of[T]` is the parent. Use the tree type. Direct cases
+    * are Case/Enum TermRefs. A val alias is a TermRef to the val; one `underlying` step is the case. Do not
+    * `widenTermRefByName` (that walks to the parent enum).
+    */
+  private def leafSymbol(using Quotes)(tpe: quotes.reflect.TypeRepr): quotes.reflect.Symbol =
+    import quotes.reflect.*
+    def isLeaf(sym: Symbol): Boolean =
+      sym.flags.is(Flags.Case) || sym.flags.is(Flags.Enum) || sym.flags.is(Flags.Module)
+
+    val d = tpe.dealias
+    d match
+      case TermRef(prefix, _) =>
+        val ts = d.termSymbol
+        if !ts.exists then d.typeSymbol
+        else if isLeaf(ts) then ts
+        else leafSymbol(prefix.memberType(ts).dealias)
+      case _ => d.typeSymbol
+  end leafSymbol
+
+  private def leafHash(using Quotes)(tpe: quotes.reflect.TypeRepr): Int =
+    import quotes.reflect.*
+    val sym = leafSymbol(tpe)
+    if !sym.exists then report.errorAndAbort(s"Cannot extract Finite leaf from type: ${tpe.show}")
+    val fullName   = sym.fullName
+    val normalized = if fullName.endsWith("$") then fullName.dropRight(1) else fullName
+    normalized.hashCode
+
+  private def leafHashOf(using Quotes)(expr: quotes.reflect.Term): Int =
+    leafHash(expr.tpe)
+
   /** Implementation of `all[T]` - expands sealed type to all leaf children. */
   def allImpl[T: Type](using Quotes): Expr[AllMatcher[T]] =
     import quotes.reflect.*
@@ -57,29 +89,12 @@ object Macros:
   )(using Quotes): Expr[AnyOfMatcher[S]] =
     import quotes.reflect.*
 
-    // Extract symbol and compute hash at compile time (same as Finite.caseHash)
-    def extractSymbolHash(expr: Expr[?]): Int =
-      val term                        = expr.asTerm
-      def findSymbol(t: Term): Symbol = t match
-        case Ident(_)             => t.symbol
-        case Select(_, _)         => t.symbol
-        case Inlined(_, _, inner) => findSymbol(inner)
-        case Apply(fn, _)         => findSymbol(fn)
-        case TypeApply(fn, _)     => findSymbol(fn)
-        case _                    => t.symbol
-
-      val sym = findSymbol(term)
-      if sym.exists then sym.fullName.hashCode
-      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-    end extractSymbolHash
-
-    // Extract values from varargs at compile time
     val restExprs: List[Expr[S]] = rest match
       case Varargs(exprs) => exprs.toList
       case _              => report.errorAndAbort("anyOf requires inline arguments")
 
     val allExprs  = first :: restExprs
-    val hashes    = allExprs.map(extractSymbolHash)
+    val hashes    = allExprs.map(e => leafHashOf(MacroUtils.unwrap(e.asTerm)))
     val hashesSet = Expr(hashes.toSet)
 
     '{
@@ -99,29 +114,12 @@ object Macros:
   )(using Quotes): Expr[AnyOfEventMatcher[E]] =
     import quotes.reflect.*
 
-    // Extract symbol and compute hash at compile time (same as Finite.caseHash)
-    def extractSymbolHash(expr: Expr[?]): Int =
-      val term                        = expr.asTerm
-      def findSymbol(t: Term): Symbol = t match
-        case Ident(_)             => t.symbol
-        case Select(_, _)         => t.symbol
-        case Inlined(_, _, inner) => findSymbol(inner)
-        case Apply(fn, _)         => findSymbol(fn)
-        case TypeApply(fn, _)     => findSymbol(fn)
-        case _                    => t.symbol
-
-      val sym = findSymbol(term)
-      if sym.exists then sym.fullName.hashCode
-      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-    end extractSymbolHash
-
-    // Extract values from varargs at compile time
     val restExprs: List[Expr[E]] = rest match
       case Varargs(exprs) => exprs.toList
       case _              => report.errorAndAbort("anyOfEvents requires inline arguments")
 
     val allExprs  = first :: restExprs
-    val hashes    = allExprs.map(extractSymbolHash)
+    val hashes    = allExprs.map(e => leafHashOf(MacroUtils.unwrap(e.asTerm)))
     val hashesSet = Expr(hashes.toSet)
 
     '{
@@ -140,26 +138,8 @@ object Macros:
       event: Expr[E],
   )(using Quotes): Expr[ViaBuilder[S, E]] =
     import quotes.reflect.*
-
-    def extractFullName(expr: Expr[?]): String =
-      val term                        = expr.asTerm
-      def findSymbol(t: Term): Symbol = t match
-        case Ident(_)             => t.symbol
-        case Select(_, _)         => t.symbol
-        case Inlined(_, _, inner) => findSymbol(inner)
-        case Apply(fn, _)         => findSymbol(fn)
-        case TypeApply(fn, _)     => findSymbol(fn)
-        case _                    => t.symbol
-
-      val sym = findSymbol(term)
-      if sym.exists then sym.fullName
-      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-    end extractFullName
-
-    val stateFullName = extractFullName(state)
-    val eventFullName = extractFullName(event)
-    val stateHash     = Expr(stateFullName.hashCode)
-    val eventHash     = Expr(eventFullName.hashCode)
+    val stateHash = Expr(leafHashOf(MacroUtils.unwrap(state.asTerm)))
+    val eventHash = Expr(leafHashOf(MacroUtils.unwrap(event.asTerm)))
 
     '{
       new ViaBuilder[S, E](
@@ -177,102 +157,59 @@ object Macros:
 
   def computeHashForImpl[T: Type](value: Expr[T])(using Quotes): Expr[Int] =
     import quotes.reflect.*
+    Expr(leafHashOf(MacroUtils.unwrap(value.asTerm)))
 
-    def findSymbol(t: Term): Symbol = t match
-      case Ident(_)             => t.symbol
-      case Select(_, _)         => t.symbol
-      case Inlined(_, _, inner) => findSymbol(inner)
-      case Apply(fn, _)         => findSymbol(fn)
-      case TypeApply(fn, _)     => findSymbol(fn)
-      case _                    => t.symbol
+  /** Finite leaf hash of a type, matching `state[T]` / `Finite.caseHash` for that case. */
+  inline def hashForType[T]: Int = ${ hashForTypeImpl[T] }
 
-    val term = value.asTerm
-    val sym  = findSymbol(term)
+  /** Unqualified type name, used as mermaid/error leaf label. */
+  inline def nameForType[T]: String = ${ nameForTypeImpl[T] }
 
-    if sym.exists then Expr(sym.fullName.hashCode)
-    else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-  end computeHashForImpl
+  /** Abort unless `T` is a leaf case, not a sealed parent. */
+  inline def requireLeaf[T]: Unit = ${ requireLeafImpl[T] }
+
+  private def hashForTypeImpl[T: Type](using Quotes): Expr[Int] =
+    import quotes.reflect.*
+    Expr(leafHash(TypeRepr.of[T]))
+
+  private def nameForTypeImpl[T: Type](using Quotes): Expr[String] =
+    import quotes.reflect.*
+    Expr(leafSymbol(TypeRepr.of[T]).name)
+
+  private def requireLeafImpl[T: Type](using Quotes): Expr[Unit] =
+    import quotes.reflect.*
+    val sym      = TypeRepr.of[T].dealias.typeSymbol
+    val isParent = (sym.flags.is(Flags.Sealed) || sym.flags.is(Flags.Enum)) && sym.children.nonEmpty
+    if isParent then
+      report.errorAndAbort(
+        s"${sym.name} is not a leaf case. Name the target case in `to[...]`, not the parent type."
+      )
+    '{ () }
 
   /** Implementation of `event[T]` - creates a type-based event matcher.
     *
-    * Returns EventMatcher parameterized with the sealed parent type to enable proper type bounds in `producing`.
+    * Parameterized with `T` itself so payload reducers receive the leaf event, not the parent.
     */
-  def eventMatcherImpl[E: Type](using Quotes): Expr[EventMatcher[?]] =
+  def eventMatcherImpl[E: Type](using Quotes): Expr[EventMatcher[E]] =
     import quotes.reflect.*
     val tpe  = TypeRepr.of[E]
-    val sym  = tpe.typeSymbol
-    val hash = sym.fullName.hashCode
+    val sym  = leafSymbol(tpe)
+    val hash = leafHash(tpe)
     val name = sym.name
-
-    // Find the sealed parent type for proper type bounds
-    // Check for both Sealed flag (sealed trait/class) and Enum flag (Scala 3 enum)
-    def isSealedOrEnum(s: Symbol): Boolean =
-      s.flags.is(Flags.Sealed) || s.flags.is(Flags.Enum)
-
-    def findSealedParent(s: Symbol): Option[Symbol] =
-      if !s.exists then None
-      else if isSealedOrEnum(s) then Some(s)
-      else if s.flags.is(Flags.Module) then
-        // For enum cases, owner is the companion object (Module)
-        // Look for the companion class which should be the sealed enum
-        val companion = s.companionClass
-        if companion.exists && isSealedOrEnum(companion) then Some(companion)
-        else None
-      else
-        s.owner match
-          case owner if owner.isClassDef => findSealedParent(owner)
-          case _                         => None
-
-    val parentSym = findSealedParent(sym.owner)
-
-    parentSym match
-      case Some(parent) =>
-        parent.typeRef.asType match
-          case '[p] => '{ new EventMatcher[p](${ Expr(hash) }, ${ Expr(name) }) }
-      case None =>
-        // No sealed parent found, use E directly
-        '{ new EventMatcher[E](${ Expr(hash) }, ${ Expr(name) }) }
+    '{ new EventMatcher[E](${ Expr(hash) }, ${ Expr(name) }) }
   end eventMatcherImpl
 
   /** Implementation of `state[T]` - creates a type-based state matcher.
     *
-    * Returns StateMatcher parameterized with the sealed parent type for consistency with event[T].
+    * Parameterized with `T` itself so payload reducers receive the leaf, not the parent.
     */
-  def stateMatcherImpl[S: Type](using Quotes): Expr[StateMatcher[?]] =
+  def stateMatcherImpl[S: Type](using Quotes): Expr[StateMatcher[S]] =
     import quotes.reflect.*
     val tpe  = TypeRepr.of[S]
-    val sym  = tpe.typeSymbol
-    val hash = sym.fullName.hashCode
+    val sym  = leafSymbol(tpe)
+    val hash = leafHash(tpe)
     val name = sym.name
-
-    // Find the sealed parent type for consistency
-    // Check for both Sealed flag (sealed trait/class) and Enum flag (Scala 3 enum)
-    def isSealedOrEnum(s: Symbol): Boolean =
-      s.flags.is(Flags.Sealed) || s.flags.is(Flags.Enum)
-
-    def findSealedParent(s: Symbol): Option[Symbol] =
-      if !s.exists then None
-      else if isSealedOrEnum(s) then Some(s)
-      else if s.flags.is(Flags.Module) then
-        // For enum cases, owner is the companion object (Module)
-        // Look for the companion class which should be the sealed enum
-        val companion = s.companionClass
-        if companion.exists && isSealedOrEnum(companion) then Some(companion)
-        else None
-      else
-        s.owner match
-          case owner if owner.isClassDef => findSealedParent(owner)
-          case _                         => None
-
-    val parentSym = findSealedParent(sym.owner)
-
-    parentSym match
-      case Some(parent) =>
-        parent.typeRef.asType match
-          case '[p] => '{ new StateMatcher[p](${ Expr(hash) }, ${ Expr(name) }) }
-      case None =>
-        // No sealed parent found, use S directly
-        '{ new StateMatcher[S](${ Expr(hash) }, ${ Expr(name) }) }
+    '{ new StateMatcher[S](${ Expr(hash) }, ${ Expr(name) }) }
   end stateMatcherImpl
 
 end Macros
@@ -388,7 +325,7 @@ inline def all[T]: AllMatcher[T] = ${ Macros.allImpl[T] }
   * @return
   *   An EventMatcher that matches by type
   */
-transparent inline def event[E]: EventMatcher[?] = ${ Macros.eventMatcherImpl[E] }
+transparent inline def event[E]: EventMatcher[E] = ${ Macros.eventMatcherImpl[E] }
 
 /** Create a type-based state matcher for parameterized case classes.
   *
@@ -409,7 +346,7 @@ transparent inline def event[E]: EventMatcher[?] = ${ Macros.eventMatcherImpl[E]
   * @return
   *   A StateMatcher that matches by type
   */
-transparent inline def state[S]: StateMatcher[?] = ${ Macros.stateMatcherImpl[S] }
+transparent inline def state[S]: StateMatcher[S] = ${ Macros.stateMatcherImpl[S] }
 
 /** Match multiple specific state values in a single transition.
   *

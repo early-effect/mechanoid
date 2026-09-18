@@ -7,7 +7,7 @@ import zio.*
 /** Browser entry: mount each interactive example into its SSR `#<page-slug>-ex-N` wrapper. */
 object ClientMain extends ZIOAppDefault:
 
-  private val pages = Vector(Interactive.doc)
+  private val pages = Vector(Interactive.doc, Indexing.doc)
 
   def run =
     val examples = ExampleRegistry.fromPages(pages*)

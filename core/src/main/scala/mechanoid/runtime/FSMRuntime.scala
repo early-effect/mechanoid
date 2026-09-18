@@ -3,7 +3,16 @@ package mechanoid.runtime
 import zio.*
 import mechanoid.core.*
 import mechanoid.machine.{Machine, EntryEffect, ProducingEffect}
-import mechanoid.persistence.{Alias, AliasExtractor, EventStore, FSMSnapshot, InstanceIndex, StoredEvent}
+import mechanoid.persistence.{
+  Alias,
+  AliasExtractor,
+  EventStore,
+  FSMSnapshot,
+  IndexExtractor,
+  IndexMeta,
+  InstanceIndex,
+  StoredEvent,
+}
 import mechanoid.stores.InMemoryEventStore
 import mechanoid.runtime.timeout.{TimeoutStrategy, FiberTimeoutStrategy}
 import mechanoid.runtime.locking.{LockingStrategy, OptimisticLockingStrategy}
@@ -149,7 +158,7 @@ object FSMRuntime:
       timeoutStrategy <- FiberTimeoutStrategy.make[Unit]
       lockingStrategy = OptimisticLockingStrategy.make[Unit]
       runtime <- ZIO.acquireRelease(
-        createRuntime((), machine, initial, eventStore, timeoutStrategy, lockingStrategy, None, None)
+        createRuntime((), machine, initial, eventStore, timeoutStrategy, lockingStrategy, None, None, None)
       )(_.stop)
     yield runtime
 
@@ -227,7 +236,7 @@ object FSMRuntime:
       timeoutStrategy <- ZIO.service[TimeoutStrategy[Id]]
       lockingStrategy <- ZIO.service[LockingStrategy[Id]]
       runtime         <- ZIO.acquireRelease(
-        createRuntime(id, machine, initialState, store, timeoutStrategy, lockingStrategy, None, None)
+        createRuntime(id, machine, initialState, store, timeoutStrategy, lockingStrategy, None, None, None)
       )(_.stop)
     yield runtime
 
@@ -268,6 +277,63 @@ object FSMRuntime:
           lockingStrategy,
           Some(index),
           Some(extractor),
+          None,
+        )
+      )(_.stop)
+    yield runtime
+
+  /** Persistent FSM that keeps non-unique index rows in sync from state. */
+  def apply[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      indexes: IndexExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & LockingStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    apply(id, machine, initialState, AliasExtractor.none[S], indexes)
+
+  /** Persistent FSM that keeps unique aliases and non-unique indexes in sync from state. */
+  @nowarn("msg=unused implicit parameter")
+  def apply[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+      indexes: IndexExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & LockingStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    for
+      store           <- ZIO.service[EventStore[Id, S, E]]
+      timeoutStrategy <- ZIO.service[TimeoutStrategy[Id]]
+      lockingStrategy <- ZIO.service[LockingStrategy[Id]]
+      index           <- ZIO.service[InstanceIndex[Id]]
+      runtime         <- ZIO.acquireRelease(
+        createRuntime(
+          id,
+          machine,
+          initialState,
+          store,
+          timeoutStrategy,
+          lockingStrategy,
+          Some(index),
+          Some(extractor).filter(_ ne AliasExtractor.none[S]),
+          Some(indexes).filter(_ ne IndexExtractor.none[S]),
         )
       )(_.stop)
     yield runtime
@@ -319,6 +385,28 @@ object FSMRuntime:
       runtime <- apply(id, machine, initialState, extractor)
     yield runtime
 
+  def lookup[Id: Tag, S, E](
+      alias: Alias,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+      indexes: IndexExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & LockingStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    for
+      index   <- ZIO.service[InstanceIndex[Id]]
+      id      <- resolveAlias(index, alias)
+      runtime <- apply(id, machine, initialState, extractor, indexes)
+    yield runtime
+
   private def resolveAlias[Id](index: InstanceIndex[Id], alias: Alias): ZIO[Any, MechanoidError, Id] =
     index.resolve(alias).flatMap {
       case Some(id) => ZIO.succeed(id)
@@ -355,6 +443,7 @@ object FSMRuntime:
       lockingStrategy: LockingStrategy[Id],
       index: Option[InstanceIndex[Id]],
       extractor: Option[AliasExtractor[S]],
+      indexExtractor: Option[IndexExtractor[S]],
   ): ZIO[Any, MechanoidError, FSMRuntimeImpl[Id, S, E]] =
     for
       // Load snapshot and events to rebuild state
@@ -391,6 +480,7 @@ object FSMRuntime:
         lockingStrategy,
         index,
         extractor,
+        indexExtractor,
         stateRef,
         seqNrRef,
         runningRef,
@@ -399,8 +489,9 @@ object FSMRuntime:
 
       _ <- runtimeRef.set(Some(runtime))
 
-      // Reconcile aliases from rebuilt state (once per reconstruct, not per replayed event)
+      // Reconcile aliases and indexes from rebuilt state (once per reconstruct, not per replayed event)
       _ <- runtime.reindexAliases(rebuiltState.current)
+      _ <- runtime.reindexIndexes(rebuiltState)
 
       // Start timeout for current state if configured (durable schedule preserves matching deadlines)
       _ <- runtime.startTimeout(rebuiltState.current)
@@ -411,29 +502,26 @@ object FSMRuntime:
     * This applies each event in sequence to reconstruct the current state. Transition actions ARE executed to determine
     * the target state. Entry/exit actions are NOT executed during replay.
     *
-    * @throws EventReplayError
-    *   if an event doesn't match the current FSM definition
+    * Fails with [[EventReplayError]] if an event has no edge, or with the action error if a reducer fails.
     */
   private[runtime] def rebuildState[S, E](
       machine: Machine[S, E],
       startState: S,
       events: List[StoredEvent[?, E]],
-  ): ZIO[Any, EventReplayError[S, E], FSMState[S]] =
+  ): ZIO[Any, MechanoidError, FSMState[S]] =
     ZIO.foldLeft(events)(FSMState.initial(startState)) { (fsmState, stored) =>
       val currentCaseHash = machine.stateEnum.caseHash(fsmState.current)
       val eventCaseHash   = machine.eventEnum.caseHash(stored.event)
       machine.transitions.get((currentCaseHash, eventCaseHash)) match
         case Some(transition) =>
-          // Execute the transition action to get the result
-          // During replay, errors are ignored (events were already validated when stored)
-          transition
-            .action(fsmState.current, stored.event)
-            .catchAll(_ => ZIO.succeed(TransitionResult.Stay))
-            .map {
-              case TransitionResult.Goto(newState) =>
-                fsmState.transitionTo(newState, stored.timestamp)
-              case _ => fsmState
-            }
+          transition.action(fsmState.current, stored.event).map {
+            case TransitionResult.Goto(newState) =>
+              fsmState.transitionTo(newState, stored.timestamp)
+            case TransitionResult.Stay(newState) =>
+              fsmState.replaceCurrent(newState)
+            case TransitionResult.Stop(_) =>
+              fsmState
+          }
         case None =>
           // Event doesn't match current FSM definition - fail explicitly
           ZIO.fail(EventReplayError(fsmState.current, stored.event, stored.sequenceNr))
@@ -454,6 +542,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
     lockingStrategy: LockingStrategy[Id],
     index: Option[InstanceIndex[Id]],
     extractor: Option[AliasExtractor[S]],
+    indexExtractor: Option[IndexExtractor[S]],
     stateRef: Ref[FSMState[S]],
     seqNrRef: Ref[Long],
     runningRef: Ref[Boolean],
@@ -502,26 +591,27 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       // If it fails (e.g., external service call), the event is NOT persisted
       result <- transition.action(fsmState.current, event)
 
-      // Determine target state for alias indexing and effects
       targetState = result match
         case TransitionResult.Goto(s) => s
-        case _                        => fsmState.current
+        case TransitionResult.Stay(s) => s
+        case TransitionResult.Stop(_) => fsmState.current
 
       // Bind added aliases BEFORE append so a uniqueness clash fails send and does not persist
       _ <- result match
-        case TransitionResult.Goto(_) => bindAddedAliases(fsmState.current, targetState)
-        case _                        => ZIO.unit
+        case TransitionResult.Goto(_) | TransitionResult.Stay(_) =>
+          bindAddedAliases(fsmState.current, targetState)
+        case _ => ZIO.unit
 
       // Only persist after successful action execution
-      // Use optimistic locking to detect concurrent modifications
       currentSeqNr <- seqNrRef.get
       seqNr        <- store.append(instanceId, event, currentSeqNr)
       _            <- seqNrRef.set(seqNr)
 
-      // Drop aliases the new state no longer owns
       _ <- result match
-        case TransitionResult.Goto(_) => unbindRemovedAliases(fsmState.current, targetState)
-        case _                        => ZIO.unit
+        case TransitionResult.Goto(_) | TransitionResult.Stay(_) =>
+          unbindRemovedAliases(fsmState.current, targetState) *>
+            syncIndexes(fsmState.current, targetState, fsmState.startedAt)
+        case _ => ZIO.unit
 
       // Update state
       _ <- handleTransitionResult(fsmState, event, result)
@@ -600,8 +690,8 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
           _ <- startTimeout(newState)
         yield ()
 
-      case TransitionResult.Stay =>
-        ZIO.unit
+      case TransitionResult.Stay(newState) =>
+        stateRef.update(_.replaceCurrent(newState))
 
       case TransitionResult.Stop(_) =>
         for
@@ -731,5 +821,49 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
           _ <- ZIO.when(added.nonEmpty)(idx.bindAll(added, instanceId))
           _ <- ZIO.when(removed.nonEmpty)(idx.unbindAll(removed).unit)
         yield ()
+      case _ => ZIO.unit
+
+  private def indexMeta(state: S, startedAt: Instant, now: Instant): IndexMeta =
+    IndexMeta(
+      stateName = machine.stateEnum.nameOf(state),
+      startedAt = startedAt,
+      touchedAt = now,
+      clocks = indexExtractor.flatMap(_.clocks(state)),
+      rank = indexExtractor.flatMap(_.rank(state)).getOrElse(0L),
+    )
+
+  private def syncIndexes(from: S, to: S, startedAt: Instant): ZIO[Any, MechanoidError, Unit] =
+    (index, indexExtractor) match
+      case (Some(idx), Some(ext)) =>
+        val before = ext.indexes(from).toSet
+        val after  = ext.indexes(to).toSet
+        for
+          now <- Clock.instant
+          meta    = indexMeta(to, startedAt, now)
+          added   = Chunk.fromIterable(after -- before)
+          removed = Chunk.fromIterable(before -- after)
+          _ <- ZIO.when(added.nonEmpty)(idx.bindIndexes(added, instanceId, meta))
+          _ <- ZIO.when(removed.nonEmpty)(idx.unbindIndexes(removed, instanceId).unit)
+          _ <- ZIO.when(after.nonEmpty)(idx.touchIndex(instanceId, meta).unit)
+        yield ()
+      case _ => ZIO.unit
+
+  private[runtime] def reindexIndexes(fsmState: FSMState[S]): ZIO[Any, MechanoidError, Unit] =
+    (index, indexExtractor) match
+      case (Some(idx), Some(ext)) =>
+        val state     = fsmState.current
+        val wanted    = ext.indexes(state).distinct
+        val wantedSet = wanted.toSet
+        for
+          now     <- Clock.instant
+          current <- idx.indexesOf(instanceId).map(_.toSet)
+          added   = Chunk.fromIterable(wantedSet -- current)
+          removed = Chunk.fromIterable(current -- wantedSet)
+          meta    = indexMeta(state, fsmState.startedAt, now)
+          _ <- ZIO.when(added.nonEmpty)(idx.bindIndexes(added, instanceId, meta))
+          _ <- ZIO.when(removed.nonEmpty)(idx.unbindIndexes(removed, instanceId).unit)
+          _ <- ZIO.when(wantedSet.nonEmpty)(idx.touchIndex(instanceId, meta).unit)
+        yield ()
+        end for
       case _ => ZIO.unit
 end FSMRuntimeImpl

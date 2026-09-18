@@ -27,6 +27,17 @@ object ProducingEffect:
   extension [E, S, R](effect: ProducingEffect[E, S, R])
     def run(event: E, state: S): ZIO[Any, Any, R] = effect(event, state)
 
+/** Reducer that builds the next state instance from `(current, event)`. */
+opaque type PayloadReducer[-S, -E, +S2] = (S, E) => ZIO[Any, Any, S2]
+
+object PayloadReducer:
+  def pure[S, E, S2](f: (S, E) => S2): PayloadReducer[S, E, S2] =
+    (s, e) => ZIO.succeed(f(s, e))
+
+  def effect[S, E, S2](f: (S, E) => ZIO[Any, Any, S2]): PayloadReducer[S, E, S2] = f
+
+  extension [S, E, S2](reducer: PayloadReducer[S, E, S2]) def run(s: S, e: E): ZIO[Any, Any, S2] = reducer(s, e)
+
 /** Handler for what happens when a transition fires.
   *
   * The type parameter represents the target state type for Goto transitions.
@@ -34,14 +45,18 @@ object ProducingEffect:
 sealed trait Handler[+Target]
 
 object Handler:
-  /** Transition to a specific target state. */
+  /** Transition to a specific target instance (constant `to`). */
   case class Goto[+S](target: S) extends Handler[S]
 
-  /** Stay in the current state. */
+  /** Goto whose instance is computed at send/replay. The leaf is fixed at assembly. */
+  case class ComputeGoto[+S](leafHash: Int, leafName: String) extends Handler[S]
+
+  /** Stay in the current leaf. Optional payload reducer rewrites the instance. */
   case object Stay extends Handler[Nothing]
 
   /** Stop the FSM. */
   case class Stop(reason: Option[String]) extends Handler[Nothing]
+end Handler
 
 /** Type-safe holder for timeout event configuration.
   *
@@ -81,6 +96,7 @@ final case class TransitionSpec[+SourceS, +E, +TargetS](
     // Compile-time validation: sealed ancestor hashes of the produced event type (E2).
     // Used by assembly macro to validate E2 shares a common ancestor (LUB) with FSM's event type E.
     producingAncestorHashes: Option[Set[Int]] = None,
+    payload: Option[PayloadReducer[SourceS @uncheckedVariance, E @uncheckedVariance, TargetS @uncheckedVariance]] = None,
 ):
   /** Synchronous side effect on entry. Receives (event, targetState).
     *
@@ -127,7 +143,7 @@ final case class TransitionSpec[+SourceS, +E, +TargetS](
     * @return
     *   A new TransitionSpec with the producing effect configured
     */
-  inline infix def producing[E2 <: E @uncheckedVariance](
+  inline infix def producing[E2](
       f: (E, TargetS) => ZIO[Any, Any, E2]
   ): TransitionSpec[SourceS, E, TargetS] =
     ${ ProducingMacros.producingImpl[SourceS, E, TargetS, E2]('{ this }, 'f) }
@@ -285,5 +301,51 @@ object TransitionSpec:
       targetTimeout = None,
       entryEffect = None,
       producingEffect = None,
+    )
+
+  /** Goto whose instance is computed from `(current, event)`. `leafHash` is the declared Finite leaf. */
+  def computeGoto[SourceS, SourceE, TargetS](
+      stateHashes: Set[Int],
+      eventHashes: Set[Int],
+      stateNames: List[String],
+      eventNames: List[String],
+      leafHash: Int,
+      leafName: String,
+      reducer: PayloadReducer[SourceS, SourceE, TargetS],
+  ): TransitionSpec[SourceS, SourceE, TargetS] =
+    TransitionSpec(
+      stateHashes = stateHashes,
+      eventHashes = eventHashes,
+      stateNames = stateNames,
+      eventNames = eventNames,
+      targetDesc = s"-> $leafName",
+      isOverride = false,
+      handler = Handler.ComputeGoto(leafHash, leafName),
+      targetTimeout = None,
+      entryEffect = None,
+      producingEffect = None,
+      payload = Some(reducer),
+    )
+
+  /** Stay that rewrites the current instance. Lifecycle stays Stay (no timeout reset). */
+  def computeStay[SourceS, SourceE](
+      stateHashes: Set[Int],
+      eventHashes: Set[Int],
+      stateNames: List[String],
+      eventNames: List[String],
+      reducer: PayloadReducer[SourceS, SourceE, SourceS],
+  ): TransitionSpec[SourceS, SourceE, SourceS] =
+    TransitionSpec(
+      stateHashes = stateHashes,
+      eventHashes = eventHashes,
+      stateNames = stateNames,
+      eventNames = eventNames,
+      targetDesc = "stay",
+      isOverride = false,
+      handler = Handler.Stay,
+      targetTimeout = None,
+      entryEffect = None,
+      producingEffect = None,
+      payload = Some(reducer),
     )
 end TransitionSpec

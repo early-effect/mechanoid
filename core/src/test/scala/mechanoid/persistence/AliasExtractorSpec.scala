@@ -9,7 +9,7 @@ object AliasExtractorSpec extends ZIOSpecDefault:
   enum InitiativeState derives Finite:
     case Draft
     case Live(
-        @alias("campaign") campaignIds: List[Long],
+        @alias campaign: List[Long],
         @alias templateId: String,
         @alias maybeTemplate: Option[Int],
     )
@@ -21,7 +21,7 @@ object AliasExtractorSpec extends ZIOSpecDefault:
   object CampaignId:
     given AliasCodec[CampaignId] = _.raw
 
-  case class Tagged(@alias("campaign") id: CampaignId)
+  case class Tagged(@alias campaign: CampaignId)
 
   def spec = suite("AliasExtractor.derived")(
     test("empty states and unannotated types yield no aliases") {

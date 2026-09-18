@@ -40,6 +40,13 @@ final case class FSMState[S](
       lastTransitionAt = at,
     )
 
+  /** Replace the current instance without recording a leaf transition.
+    *
+    * Stay-with-rewrite uses this so payload edits do not reset `lastTransitionAt` or push history.
+    */
+  def replaceCurrent(newState: S): FSMState[S] =
+    copy(current = newState)
+
   /** Store a value in the state data. */
   def withData(key: String, value: S): FSMState[S] =
     copy(stateData = stateData + (key -> value))
