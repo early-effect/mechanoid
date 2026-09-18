@@ -16,6 +16,7 @@ full runnable mains (Postgres, sweepers, services).
 |------|-------|
 | [Document Workflow](document-workflow.html) | Nested sealed states, `all[T]`, `++` |
 | [Heartbeat](heartbeat.html) | `.producing` + `@@ Aspect.timeout` |
+| [Durable Timeouts](durable-timeouts.html) | Named DailyCheck + EndCycle clocks on one leaf |
 | [Orders](orders.html) | `event[T]` payloads, shipping timeout self-loop |
 """
     ),

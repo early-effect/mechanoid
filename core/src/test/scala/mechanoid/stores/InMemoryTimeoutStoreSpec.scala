@@ -20,7 +20,7 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          timeout <- store.schedule("fsm-1", 12345, 1L, now.plusSeconds(60))
+          timeout <- store.schedule("fsm-1", "t", 12345, 1L, now.plusSeconds(60))
         yield assertTrue(
           timeout.instanceId == "fsm-1",
           timeout.stateHash == 12345,
@@ -31,8 +31,8 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          _       <- store.schedule("fsm-1", 111, 1L, now.plusSeconds(60))
-          timeout <- store.schedule("fsm-1", 222, 2L, now.plusSeconds(120))
+          _       <- store.schedule("fsm-1", "t", 111, 1L, now.plusSeconds(60))
+          timeout <- store.schedule("fsm-1", "t", 222, 2L, now.plusSeconds(120))
           size    <- store.size
         yield assertTrue(
           size == 1,
@@ -46,7 +46,7 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store    <- InMemoryTimeoutStore.make[String]
           now      <- Clock.instant
-          _        <- store.schedule("fsm-1", 123, 1L, now.plusSeconds(60))
+          _        <- store.schedule("fsm-1", "t", 123, 1L, now.plusSeconds(60))
           canceled <- store.cancel("fsm-1")
           size     <- store.size
         yield assertTrue(canceled, size == 0)
@@ -63,8 +63,8 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          _       <- store.schedule("fsm-1", 123, 1L, now.minusSeconds(10))
-          _       <- store.schedule("fsm-2", 456, 1L, now.minusSeconds(5))
+          _       <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10))
+          _       <- store.schedule("fsm-2", "t", 456, 1L, now.minusSeconds(5))
           expired <- store.queryExpired(10, now)
         yield assertTrue(expired.size == 2)
       },
@@ -72,8 +72,8 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          _       <- store.schedule("fsm-1", 123, 1L, now.minusSeconds(10)) // expired
-          _       <- store.schedule("fsm-2", 456, 1L, now.plusSeconds(60))  // not expired
+          _       <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10)) // expired
+          _       <- store.schedule("fsm-2", "t", 456, 1L, now.plusSeconds(60))  // not expired
           expired <- store.queryExpired(10, now)
         yield assertTrue(
           expired.size == 1,
@@ -84,8 +84,8 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          _       <- store.schedule("fsm-1", 123, 1L, now.minusSeconds(10))
-          _       <- store.claim("fsm-1", "node-1", 30.seconds, now)
+          _       <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10))
+          _       <- store.claim("fsm-1", "t", "node-1", 30.seconds, now)
           expired <- store.queryExpired(10, now)
         yield assertTrue(expired.isEmpty)
       },
@@ -93,9 +93,9 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          _       <- store.schedule("fsm-1", 111, 1L, now.minusSeconds(30))
-          _       <- store.schedule("fsm-2", 222, 1L, now.minusSeconds(20))
-          _       <- store.schedule("fsm-3", 333, 1L, now.minusSeconds(10))
+          _       <- store.schedule("fsm-1", "t", 111, 1L, now.minusSeconds(30))
+          _       <- store.schedule("fsm-2", "t", 222, 1L, now.minusSeconds(20))
+          _       <- store.schedule("fsm-3", "t", 333, 1L, now.minusSeconds(10))
           expired <- store.queryExpired(2, now)
         yield assertTrue(expired.size == 2)
       },
@@ -103,9 +103,9 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          _       <- store.schedule("fsm-2", 222, 1L, now.minusSeconds(20))
-          _       <- store.schedule("fsm-1", 111, 1L, now.minusSeconds(30))
-          _       <- store.schedule("fsm-3", 333, 1L, now.minusSeconds(10))
+          _       <- store.schedule("fsm-2", "t", 222, 1L, now.minusSeconds(20))
+          _       <- store.schedule("fsm-1", "t", 111, 1L, now.minusSeconds(30))
+          _       <- store.schedule("fsm-3", "t", 333, 1L, now.minusSeconds(10))
           expired <- store.queryExpired(10, now)
         yield assertTrue(
           expired(0).instanceId == "fsm-1", // oldest
@@ -119,8 +119,8 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store  <- InMemoryTimeoutStore.make[String]
           now    <- Clock.instant
-          _      <- store.schedule("fsm-1", 123, 1L, now.minusSeconds(10))
-          result <- store.claim("fsm-1", "node-1", 30.seconds, now)
+          _      <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10))
+          result <- store.claim("fsm-1", "t", "node-1", 30.seconds, now)
         yield result match
           case ClaimResult.Claimed(timeout) =>
             assertTrue(
@@ -133,16 +133,16 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store  <- InMemoryTimeoutStore.make[String]
           now    <- Clock.instant
-          result <- store.claim("non-existent", "node-1", 30.seconds, now)
+          result <- store.claim("non-existent", "t", "node-1", 30.seconds, now)
         yield assertTrue(result == ClaimResult.NotFound)
       },
       test("returns AlreadyClaimed for claimed timeout") {
         for
           store  <- InMemoryTimeoutStore.make[String]
           now    <- Clock.instant
-          _      <- store.schedule("fsm-1", 123, 1L, now.minusSeconds(10))
-          _      <- store.claim("fsm-1", "node-1", 30.seconds, now)
-          result <- store.claim("fsm-1", "node-2", 30.seconds, now)
+          _      <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10))
+          _      <- store.claim("fsm-1", "t", "node-1", 30.seconds, now)
+          result <- store.claim("fsm-1", "t", "node-2", 30.seconds, now)
         yield result match
           case ClaimResult.AlreadyClaimed(byNode, _) =>
             assertTrue(byNode == "node-1")
@@ -152,10 +152,10 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store <- InMemoryTimeoutStore.make[String]
           now   <- Clock.instant
-          _     <- store.schedule("fsm-1", 123, 1L, now.minusSeconds(10))
-          _     <- store.claim("fsm-1", "node-1", 5.seconds, now.minusSeconds(10))
+          _     <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10))
+          _     <- store.claim("fsm-1", "t", "node-1", 5.seconds, now.minusSeconds(10))
           // Now the claim is expired, another node can claim
-          result <- store.claim("fsm-1", "node-2", 30.seconds, now)
+          result <- store.claim("fsm-1", "t", "node-2", 30.seconds, now)
         yield result match
           case ClaimResult.Claimed(timeout) =>
             assertTrue(timeout.claimedBy.contains("node-2"))
@@ -167,8 +167,8 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store     <- InMemoryTimeoutStore.make[String]
           now       <- Clock.instant
-          _         <- store.schedule("fsm-1", 123, 5L, now.plusSeconds(60))
-          completed <- store.complete("fsm-1", 5L)
+          _         <- store.schedule("fsm-1", "t", 123, 5L, now.plusSeconds(60))
+          completed <- store.complete("fsm-1", "t", 5L)
           size      <- store.size
         yield assertTrue(completed, size == 0)
       },
@@ -176,15 +176,15 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store     <- InMemoryTimeoutStore.make[String]
           now       <- Clock.instant
-          _         <- store.schedule("fsm-1", 123, 5L, now.plusSeconds(60))
-          completed <- store.complete("fsm-1", 999L)
+          _         <- store.schedule("fsm-1", "t", 123, 5L, now.plusSeconds(60))
+          completed <- store.complete("fsm-1", "t", 999L)
           size      <- store.size
         yield assertTrue(!completed, size == 1)
       },
       test("returns false for non-existent instance") {
         for
           store     <- InMemoryTimeoutStore.make[String]
-          completed <- store.complete("non-existent", 1L)
+          completed <- store.complete("non-existent", "t", 1L)
         yield assertTrue(!completed)
       },
     ),
@@ -193,21 +193,21 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store    <- InMemoryTimeoutStore.make[String]
           now      <- Clock.instant
-          _        <- store.schedule("fsm-1", 123, 1L, now.minusSeconds(10))
-          _        <- store.claim("fsm-1", "node-1", 30.seconds, now)
-          released <- store.release("fsm-1")
+          _        <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10))
+          _        <- store.claim("fsm-1", "t", "node-1", 30.seconds, now)
+          released <- store.release("fsm-1", "t")
           timeout  <- store.get("fsm-1")
         yield assertTrue(
           released,
-          timeout.isDefined,
-          timeout.get.claimedBy.isEmpty,
-          timeout.get.claimedUntil.isEmpty,
+          timeout.nonEmpty,
+          timeout.head.claimedBy.isEmpty,
+          timeout.head.claimedUntil.isEmpty,
         )
       },
       test("returns false for non-existent instance") {
         for
           store    <- InMemoryTimeoutStore.make[String]
-          released <- store.release("non-existent")
+          released <- store.release("non-existent", "t")
         yield assertTrue(!released)
       },
     ),
@@ -216,11 +216,11 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store   <- InMemoryTimeoutStore.make[String]
           now     <- Clock.instant
-          _       <- store.schedule("fsm-1", 123, 1L, now.plusSeconds(60))
+          _       <- store.schedule("fsm-1", "t", 123, 1L, now.plusSeconds(60))
           timeout <- store.get("fsm-1")
         yield assertTrue(
-          timeout.isDefined,
-          timeout.get.instanceId == "fsm-1",
+          timeout.nonEmpty,
+          timeout.head.instanceId == "fsm-1",
         )
       },
       test("returns None for non-existent instance") {
@@ -235,8 +235,8 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store <- InMemoryTimeoutStore.make[String]
           now   <- Clock.instant
-          _     <- store.schedule("fsm-1", 111, 1L, now.plusSeconds(60))
-          _     <- store.schedule("fsm-2", 222, 1L, now.plusSeconds(60))
+          _     <- store.schedule("fsm-1", "t", 111, 1L, now.plusSeconds(60))
+          _     <- store.schedule("fsm-2", "t", 222, 1L, now.plusSeconds(60))
           _     <- store.clear
           size  <- store.size
         yield assertTrue(size == 0)
@@ -247,13 +247,13 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
         for
           store <- InMemoryTimeoutStore.make[String]
           now   <- Clock.instant
-          _     <- store.schedule("fsm-1", 111, 1L, now.plusSeconds(60))
-          _     <- store.schedule("fsm-2", 222, 1L, now.plusSeconds(60))
+          _     <- store.schedule("fsm-1", "t", 111, 1L, now.plusSeconds(60))
+          _     <- store.schedule("fsm-2", "t", 222, 1L, now.plusSeconds(60))
           all   <- store.getAll
         yield assertTrue(
           all.size == 2,
-          all.contains("fsm-1"),
-          all.contains("fsm-2"),
+          all.contains(("fsm-1", "t")),
+          all.contains(("fsm-2", "t")),
         )
       }
     ),

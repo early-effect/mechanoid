@@ -21,53 +21,64 @@ object DurableTimeoutStrategySpec extends ZIOSpecDefault:
         for
           store <- liveStores.InMemoryTimeoutStore.make[String]
           strategy = DurableTimeoutStrategy.make[String](store)
-          _         <- strategy.schedule("fsm-1", 12345, 1L, 100.millis, ZIO.unit)
+          now       <- Clock.instant
+          _         <- strategy.schedule("fsm-1", "t", 12345, 1L, now.plusMillis(100), ZIO.unit)
           scheduled <- store.getAll
         yield assertTrue(
-          scheduled.contains("fsm-1"),
-          scheduled("fsm-1").stateHash == 12345,
-          scheduled("fsm-1").sequenceNr == 1L,
+          scheduled.contains(("fsm-1", "t")),
+          scheduled(("fsm-1", "t")).stateHash == 12345,
+          scheduled(("fsm-1", "t")).sequenceNr == 1L,
         )
       },
-      test("computes deadline from current time plus duration") {
+      test("writes the given absolute deadline") {
+        for
+          store <- liveStores.InMemoryTimeoutStore.make[String]
+          strategy = DurableTimeoutStrategy.make[String](store)
+          now <- Clock.instant
+          deadline = now.plusSeconds(1)
+          _         <- strategy.schedule("fsm-1", "t", 123, 1L, deadline, ZIO.unit)
+          scheduled <- store.get("fsm-1", "t")
+        yield assertTrue(
+          scheduled.isDefined,
+          scheduled.get.deadline == deadline,
+        )
+      },
+      test("overwrites existing timeout for same name when state hash changes") {
         for
           store <- liveStores.InMemoryTimeoutStore.make[String]
           strategy = DurableTimeoutStrategy.make[String](store)
           now       <- Clock.instant
-          _         <- strategy.schedule("fsm-1", 123, 1L, 1.second, ZIO.unit)
-          scheduled <- store.get("fsm-1")
-          expectedDeadline = now.plusMillis(1000)
-        yield assertTrue(
-          scheduled.isDefined,
-          scheduled.get.deadline.toEpochMilli >= expectedDeadline.toEpochMilli - 100,
-          scheduled.get.deadline.toEpochMilli <= expectedDeadline.toEpochMilli + 100,
-        )
-      },
-      test("overwrites existing timeout for same instance when generation changes") {
-        for
-          store <- liveStores.InMemoryTimeoutStore.make[String]
-          strategy = DurableTimeoutStrategy.make[String](store)
-          _         <- strategy.schedule("fsm-1", 111, 1L, 100.millis, ZIO.unit)
-          _         <- strategy.schedule("fsm-1", 222, 2L, 200.millis, ZIO.unit)
+          _         <- strategy.schedule("fsm-1", "t", 111, 1L, now.plusMillis(100), ZIO.unit)
+          _         <- strategy.schedule("fsm-1", "t", 222, 2L, now.plusMillis(200), ZIO.unit)
           scheduled <- store.getAll
         yield assertTrue(
           scheduled.size == 1,
-          scheduled("fsm-1").stateHash == 222,
-          scheduled("fsm-1").sequenceNr == 2L,
+          scheduled(("fsm-1", "t")).stateHash == 222,
+          scheduled(("fsm-1", "t")).sequenceNr == 2L,
         )
       },
-      test("preserves absolute deadline when recovering the same generation") {
+      test("preserves absolute deadline when recovering the same name and state hash") {
         for
           store <- liveStores.InMemoryTimeoutStore.make[String]
           strategy = DurableTimeoutStrategy.make[String](store)
           now   <- Clock.instant
-          _     <- store.schedule("fsm-1", 123, 5L, now.plusSeconds(60))
-          _     <- strategy.schedule("fsm-1", 123, 5L, 1.hour, ZIO.unit)
-          after <- store.get("fsm-1")
+          _     <- store.schedule("fsm-1", "t", 123, 5L, now.plusSeconds(60))
+          _     <- strategy.schedule("fsm-1", "t", 123, 5L, now.plusSeconds(3600), ZIO.unit)
+          after <- store.get("fsm-1", "t")
         yield assertTrue(
           after.isDefined,
           after.get.deadline == now.plusSeconds(60),
         )
+      },
+      test("keeps a sibling name when scheduling another") {
+        for
+          store <- liveStores.InMemoryTimeoutStore.make[String]
+          strategy = DurableTimeoutStrategy.make[String](store)
+          now       <- Clock.instant
+          _         <- strategy.schedule("fsm-1", "daily", 123, 1L, now.plusSeconds(1), ZIO.unit)
+          _         <- strategy.schedule("fsm-1", "weekly", 123, 1L, now.plusSeconds(7), ZIO.unit)
+          scheduled <- store.getAll
+        yield assertTrue(scheduled.size == 2)
       },
     ),
     suite("cancel")(
@@ -75,10 +86,11 @@ object DurableTimeoutStrategySpec extends ZIOSpecDefault:
         for
           store <- liveStores.InMemoryTimeoutStore.make[String]
           strategy = DurableTimeoutStrategy.make[String](store)
-          _         <- strategy.schedule("fsm-1", 123, 1L, 100.millis, ZIO.unit)
+          now       <- Clock.instant
+          _         <- strategy.schedule("fsm-1", "t", 123, 1L, now.plusMillis(100), ZIO.unit)
           _         <- strategy.cancel("fsm-1")
           scheduled <- store.getAll
-        yield assertTrue(!scheduled.contains("fsm-1"))
+        yield assertTrue(scheduled.isEmpty)
       },
       test("is idempotent for non-existent instance") {
         for
@@ -92,20 +104,22 @@ object DurableTimeoutStrategySpec extends ZIOSpecDefault:
       test("provides TimeoutStrategy from TimeoutStore") {
         for
           store <- liveStores.InMemoryTimeoutStore.make[String]
+          now   <- Clock.instant
           _     <- TimeoutStrategy
-            .schedule[String]("fsm-1", 123, 1L, 100.millis, ZIO.unit)
+            .schedule[String]("fsm-1", "t", 123, 1L, now.plusMillis(100), ZIO.unit)
             .provide(DurableTimeoutStrategy.layer[String], ZLayer.succeed[TimeoutStore[String]](store))
           scheduled <- store.getAll
-        yield assertTrue(scheduled.contains("fsm-1"))
+        yield assertTrue(scheduled.contains(("fsm-1", "t")))
       },
       test("TimeoutStrategy.durable convenience method provides layer") {
         for
           store <- liveStores.InMemoryTimeoutStore.make[String]
+          now   <- Clock.instant
           _     <- TimeoutStrategy
-            .schedule[String]("fsm-1", 123, 1L, 100.millis, ZIO.unit)
+            .schedule[String]("fsm-1", "t", 123, 1L, now.plusMillis(100), ZIO.unit)
             .provide(TimeoutStrategy.durable[String], ZLayer.succeed[TimeoutStore[String]](store))
           scheduled <- store.getAll
-        yield assertTrue(scheduled.contains("fsm-1"))
+        yield assertTrue(scheduled.contains(("fsm-1", "t")))
       },
     ),
   ) @@ TestAspect.timeout(10.seconds)

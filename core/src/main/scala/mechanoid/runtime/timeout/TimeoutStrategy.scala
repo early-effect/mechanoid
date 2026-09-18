@@ -11,121 +11,63 @@ import zio.*
   *   - [[DurableTimeoutStrategy]]: Persists to a [[mechanoid.persistence.timeout.TimeoutStore]]. Survives node failures
   *     when combined with a [[mechanoid.persistence.timeout.TimeoutSweeper]].
   *
-  * ==Usage==
-  *
-  * The timeout strategy is an environment dependency for FSMRuntime. Use the companion object layer helpers:
-  *
-  * {{{
-  * // In-memory timeouts (development, testing, single-node)
-  * val program = ZIO.scoped {
-  *   for
-  *     fsm <- FSMRuntime(id, machine, initial)
-  *     _   <- fsm.send(event)
-  *   yield ()
-  * }.provide(
-  *   eventStoreLayer,
-  *   TimeoutStrategy.fiber[OrderId],
-  *   LockingStrategy.optimistic[OrderId]
-  * )
-  *
-  * // Durable timeouts (production, multi-node)
-  * val program = ZIO.scoped {
-  *   for
-  *     fsm <- FSMRuntime(id, machine, initial)
-  *     _   <- fsm.send(event)
-  *   yield ()
-  * }.provide(
-  *   eventStoreLayer,
-  *   timeoutStoreLayer,
-  *   TimeoutStrategy.durable[OrderId],
-  *   LockingStrategy.optimistic[OrderId]
-  * )
-  * }}}
-  *
-  * ==Choosing a Strategy==
-  *
-  * | Strategy  | When to Use                                                        |
-  * |:----------|:-------------------------------------------------------------------|
-  * | `fiber`   | Development, testing, single-node deployments, low-stakes timeouts |
-  * | `durable` | Production multi-node deployments, business-critical timeouts      |
-  *
   * @tparam Id
   *   FSM instance identifier type
   */
 trait TimeoutStrategy[Id]:
 
-  /** Schedule a timeout for the given FSM instance.
+  /** Schedule a named timeout for the given FSM instance.
     *
-    * When the timeout fires, it should invoke the provided callback. The implementation determines how the timeout is
-    * tracked (in-memory vs persisted).
+    * When the timeout fires, it should invoke the provided callback. Scheduling the same name replaces that timeout;
+    * other names on the instance stay armed.
     *
-    * For durable timeouts, the `stateHash` and `sequenceNr` are persisted and used by the sweeper to validate that the
-    * FSM is still in the expected state before firing. This prevents stale timeouts from firing after the FSM has
-    * transitioned or re-entered the same state.
-    *
-    * @param instanceId
-    *   The FSM instance identifier
-    * @param stateHash
-    *   Hash of the state the FSM should be in when this timeout fires
-    * @param sequenceNr
-    *   The sequence number when timeout was scheduled (generation counter)
-    * @param duration
-    *   How long until the timeout fires
-    * @param onTimeout
-    *   Callback to invoke when the timeout expires (used by fiber-based strategy)
-    * @return
-    *   An effect that completes when the timeout is scheduled
+    * For durable timeouts, `stateHash` is persisted so the sweeper can skip rows after Goto away. Reconstructing a
+    * runtime that is still in the same leaf reuses the existing absolute deadline (see [[DurableTimeoutStrategy]]).
     */
   def schedule(
       instanceId: Id,
+      name: String,
       stateHash: Int,
       sequenceNr: Long,
-      duration: Duration,
+      deadline: java.time.Instant,
       onTimeout: UIO[Unit],
   ): UIO[Unit]
 
-  /** Cancel any pending timeout for the given FSM instance.
-    *
-    * @param instanceId
-    *   The FSM instance identifier
-    * @return
-    *   An effect that completes when cancellation is processed
-    */
+  /** Cancel every pending timeout for the given FSM instance. */
   def cancel(instanceId: Id): UIO[Unit]
+
+  /** Cancel one named timeout. Idempotent if that name is not armed. */
+  def cancel(instanceId: Id, name: String): UIO[Unit]
+
+  /** Drop names not in `keep` for this instance. Used on reconstruct / enter so extra keys do not linger. */
+  def retain(instanceId: Id, keep: Set[String]): UIO[Unit]
 
 end TimeoutStrategy
 
 object TimeoutStrategy:
 
-  /** Access the timeout strategy from the environment. */
   def schedule[Id: Tag](
       instanceId: Id,
+      name: String,
       stateHash: Int,
       sequenceNr: Long,
-      duration: Duration,
+      deadline: java.time.Instant,
       onTimeout: UIO[Unit],
   ): ZIO[TimeoutStrategy[Id], Nothing, Unit] =
-    ZIO.serviceWithZIO[TimeoutStrategy[Id]](_.schedule(instanceId, stateHash, sequenceNr, duration, onTimeout))
+    ZIO.serviceWithZIO[TimeoutStrategy[Id]](_.schedule(instanceId, name, stateHash, sequenceNr, deadline, onTimeout))
 
-  /** Cancel a pending timeout. */
   def cancel[Id: Tag](instanceId: Id): ZIO[TimeoutStrategy[Id], Nothing, Unit] =
     ZIO.serviceWithZIO[TimeoutStrategy[Id]](_.cancel(instanceId))
 
-  // ============================================
-  // Layer constructors
-  // ============================================
+  def cancel[Id: Tag](instanceId: Id, name: String): ZIO[TimeoutStrategy[Id], Nothing, Unit] =
+    ZIO.serviceWithZIO[TimeoutStrategy[Id]](_.cancel(instanceId, name))
 
-  /** Layer providing a fiber-based (in-memory) timeout strategy.
-    *
-    * Fast but doesn't survive node failures. Good for development, testing, and single-node deployments.
-    */
+  def retain[Id: Tag](instanceId: Id, keep: Set[String]): ZIO[TimeoutStrategy[Id], Nothing, Unit] =
+    ZIO.serviceWithZIO[TimeoutStrategy[Id]](_.retain(instanceId, keep))
+
   def fiber[Id: Tag]: ULayer[TimeoutStrategy[Id]] =
     FiberTimeoutStrategy.layer[Id]
 
-  /** Layer providing a durable timeout strategy backed by a TimeoutStore.
-    *
-    * Survives node failures when combined with a TimeoutSweeper. Requires `TimeoutStore[Id]` in the environment.
-    */
   def durable[Id: Tag]: URLayer[mechanoid.persistence.timeout.TimeoutStore[Id], TimeoutStrategy[Id]] =
     DurableTimeoutStrategy.layer[Id]
 

@@ -8,7 +8,8 @@ package mechanoid.core
 enum TransitionResult[+S]:
   /** Remain in the current leaf. `state` is the instance to keep (identity or rewritten payload).
     *
-    * Stay does not run state exit/entry, does not cancel or restart timeouts, and does not push history.
+    * Stay does not run state exit/entry and does not push history. Non-timeout events leave armed timeouts alone. A
+    * named timeout event that Stays completes and re-arms only that name.
     */
   case Stay(state: S)
 

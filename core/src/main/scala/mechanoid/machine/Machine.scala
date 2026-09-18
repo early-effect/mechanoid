@@ -21,8 +21,7 @@ import mechanoid.visualization.{TransitionMeta, TransitionKind}
 final class Machine[S, E] private[machine] (
     // Runtime data - events are just E now (no Timed wrapper)
     private[mechanoid] val transitions: Map[(Int, Int), Transition[S, E, S]],
-    private[mechanoid] val timeouts: Map[Int, Duration],
-    private[mechanoid] val timeoutEvents: Map[Int, E], // state hash -> event to fire on timeout
+    private[mechanoid] val timeouts: Map[Int, Chunk[TimeoutSpec[S, E]]],
     private[mechanoid] val transitionMeta: List[TransitionMeta],
     // Per-transition effects: (event, targetState) => effect
     private[mechanoid] val entryEffects: Map[(Int, Int), EntryEffect[E, S]],
@@ -49,6 +48,10 @@ final class Machine[S, E] private[machine] (
 
   /** Get event names for visualization (caseHash -> name, includes Timeout). */
   def eventNames: Map[Int, String] = eventEnum.caseNames
+
+  /** Named timeouts armed when entering this leaf. Empty if none. */
+  def timeoutsFor(state: S): Chunk[TimeoutSpec[S, E]] =
+    timeouts.getOrElse(stateEnum.caseHash(state), Chunk.empty)
 
 end Machine
 
@@ -103,12 +106,40 @@ object Machine:
   ): Machine[S, E] =
     var transitions         = Map.empty[(Int, Int), Transition[S, E, S]]
     var transitionMetaList  = List.empty[TransitionMeta]
-    var stateTimeouts       = Map.empty[Int, Duration]
-    var stateTimeoutEvents  = Map.empty[Int, E]
+    var stateTimeouts       = Map.empty[Int, Chunk[TimeoutSpec[S, E]]]
     var entryEffectsMap     = Map.empty[(Int, Int), EntryEffect[E, S]]
     var producingEffectsMap = Map.empty[(Int, Int), ProducingEffect[E, S, E]]
 
     val stateEnumInstance = summon[Finite[S]]
+    val eventEnumInstance = summon[Finite[E]]
+
+    def sameDeadline(a: TimeoutDeadline[S], b: TimeoutDeadline[S]): Boolean =
+      (a, b) match
+        case (TimeoutDeadline.After(d1), TimeoutDeadline.After(d2))           => d1 == d2
+        case (TimeoutDeadline.At(i1), TimeoutDeadline.At(i2))                 => i1 == i2
+        case (TimeoutDeadline.FromPayload(_), TimeoutDeadline.FromPayload(_)) => true
+        case _                                                                => false
+
+    def addTimeouts(leafHash: Int, decls: Chunk[NamedTimeout[?, ?]]): Unit =
+      decls.foreach { decl =>
+        val event    = decl.event.asInstanceOf[E]
+        val name     = decl.name.getOrElse(eventEnumInstance.nameOf(event))
+        val deadline = decl.deadline.asInstanceOf[TimeoutDeadline[S]]
+        val spec     = TimeoutSpec(event, name, deadline)
+        val existing = stateTimeouts.getOrElse(leafHash, Chunk.empty)
+        existing.find(_.name == name) match
+          case Some(prev)
+              if eventEnumInstance.caseHash(prev.event) == eventEnumInstance.caseHash(event) &&
+                sameDeadline(prev.deadline, deadline) =>
+            ()
+          case Some(_) =>
+            throw IllegalArgumentException(
+              s"Duplicate timeout name '$name' on leaf ${stateEnumInstance.nameFor(leafHash)}"
+            )
+          case None =>
+            stateTimeouts = stateTimeouts.updated(leafHash, existing :+ spec)
+        end match
+      }
 
     def wrapReducer(reducer: PayloadReducer[S, E, S])(s: S, e: E): ZIO[Any, MechanoidError, S] =
       reducer
@@ -212,18 +243,11 @@ object Machine:
         }
       end for
 
-      (spec.targetTimeout, spec.handler) match
-        case (Some(duration), Handler.Goto(target)) =>
-          val targetStateHash = stateEnumInstance.caseHash(target.asInstanceOf[S])
-          stateTimeouts = stateTimeouts + (targetStateHash -> duration)
-          spec.targetTimeoutConfig.foreach { config =>
-            stateTimeoutEvents = stateTimeoutEvents + (targetStateHash -> config.event.asInstanceOf[E])
-          }
-        case (Some(duration), Handler.ComputeGoto(leafHash, _)) =>
-          stateTimeouts = stateTimeouts + (leafHash -> duration)
-          spec.targetTimeoutConfig.foreach { config =>
-            stateTimeoutEvents = stateTimeoutEvents + (leafHash -> config.event.asInstanceOf[E])
-          }
+      spec.handler match
+        case Handler.Goto(target) if spec.targetTimeouts.nonEmpty =>
+          addTimeouts(stateEnumInstance.caseHash(target.asInstanceOf[S]), spec.targetTimeouts)
+        case Handler.ComputeGoto(leafHash, _) if spec.targetTimeouts.nonEmpty =>
+          addTimeouts(leafHash, spec.targetTimeouts)
         case _ =>
       end match
     end for
@@ -231,7 +255,6 @@ object Machine:
     new Machine(
       transitions,
       stateTimeouts,
-      stateTimeoutEvents,
       transitionMetaList,
       entryEffectsMap,
       producingEffectsMap,
@@ -243,5 +266,5 @@ object Machine:
 
   /** Create an empty Machine. */
   def empty[S: Finite, E: Finite]: Machine[S, E] =
-    new Machine(Map.empty, Map.empty, Map.empty, Nil, Map.empty, Map.empty, Map.empty, Map.empty, Nil)
+    new Machine(Map.empty, Map.empty, Nil, Map.empty, Map.empty, Map.empty, Map.empty, Nil)
 end Machine

@@ -400,9 +400,11 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
               base / "ExampleRegistry.scala",
               base / "DocZIO.scala",
               base / "Indexing.scala",
+              base / "DurableTimeouts.scala",
               base / "platform" / "OrderDemoUi.scala",
               base / "platform" / "PublishDemoUi.scala",
               base / "platform" / "TicketIndexDemoUi.scala",
+              base / "platform" / "NamedTimeoutDemoUi.scala",
             )
           },
           scalaJSUseMainModuleInitializer := true,

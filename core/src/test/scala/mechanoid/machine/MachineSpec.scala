@@ -358,18 +358,46 @@ object MachineSpec extends ZIOSpecDefault:
           )
         )
         val waitingHash = machine.stateEnum.caseHash(WaitingForPayment)
+        val specs       = machine.timeouts.getOrElse(waitingHash, Chunk.empty)
         assertTrue(
-          machine.timeouts.contains(waitingHash),
-          machine.timeouts(waitingHash) == 30.seconds,
-          machine.timeoutEvents.contains(waitingHash),
-          machine.timeoutEvents(waitingHash) == PaymentTimeout,
+          specs.size == 1,
+          specs.head.event == PaymentTimeout,
+          specs.head.name == "PaymentTimeout",
+          specs.head.deadline == TimeoutDeadline.After(30.seconds),
         )
+      },
+      test("fromSpecs accumulates two named timeouts on one leaf") {
+        val machine = Machine(
+          assembly[TimeoutState, TimeoutEvent](
+            (Idle via Start to WaitingForPayment) @@
+              Aspect.timeout(PaymentTimeout)(30.seconds) @@
+              Aspect.timeout(ShipmentTimeout, "ship")(60.seconds)
+          )
+        )
+        val specs = machine.timeoutsFor(WaitingForPayment)
+        assertTrue(
+          specs.size == 2,
+          specs.map(_.name).toSet == Set("PaymentTimeout", "ship"),
+        )
+      },
+      test("fromSpecs rejects duplicate timeout names on one leaf") {
+        val ex = try
+          Machine(
+            assembly[TimeoutState, TimeoutEvent](
+              (Idle via Start to WaitingForPayment) @@
+                Aspect.timeout(PaymentTimeout)(30.seconds) @@
+                Aspect.timeout(ShipmentTimeout, "PaymentTimeout")(60.seconds)
+            )
+          )
+          None
+        catch case e: IllegalArgumentException => Some(e.getMessage)
+        assertTrue(ex.exists(_.contains("Duplicate timeout name")))
       },
       test("fromSpecs skips timeout for Stay handler") {
         // Timeout on Stay doesn't make sense - verify it's not set
         val machine = Machine(
           assembly[TestState, TestEvent](
-            (A via E1 to stay).withTimeout(30.seconds)
+            (A via E1 to stay) @@ Aspect.timeout(30.seconds, E1)
           )
         )
         // Timeout should not be set for Stay
@@ -378,7 +406,7 @@ object MachineSpec extends ZIOSpecDefault:
       test("fromSpecs skips timeout for Stop handler") {
         val machine = Machine(
           assembly[TestState, TestEvent](
-            (A via E1 to stop("done")).withTimeout(30.seconds)
+            (A via E1 to stop("done")) @@ Aspect.timeout(30.seconds, E1)
           )
         )
         assertTrue(machine.timeouts.isEmpty)

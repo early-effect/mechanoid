@@ -5,25 +5,13 @@ import mechanoid.core.MechanoidError
 import java.time.Instant
 import scala.collection.mutable
 
-/** In-memory implementation of [[TimeoutStore]] for testing.
-  *
-  * Uses synchronization for thread safety. Not suitable for production - use a database-backed implementation instead.
-  *
-  * ==Usage==
-  * {{{
-  * val store = new InMemoryTimeoutStore[String]()
-  * val storeLayer = ZLayer.succeed[TimeoutStore[String]](store)
-  *
-  * ZIO.scoped {
-  *   // ... tests using the store
-  * }.provide(storeLayer)
-  * }}}
-  */
+/** In-memory implementation of [[TimeoutStore]] for testing. */
 class InMemoryTimeoutStore[Id] extends TimeoutStore[Id]:
-  private val timeouts = mutable.Map[Id, ScheduledTimeout[Id]]()
+  private val timeouts = mutable.Map[(Id, String), ScheduledTimeout[Id]]()
 
   def schedule(
       instanceId: Id,
+      name: String,
       stateHash: Int,
       sequenceNr: Long,
       deadline: Instant,
@@ -32,12 +20,13 @@ class InMemoryTimeoutStore[Id] extends TimeoutStore[Id]:
       synchronized {
         val timeout = ScheduledTimeout(
           instanceId = instanceId,
+          name = name,
           stateHash = stateHash,
           sequenceNr = sequenceNr,
           deadline = deadline,
           createdAt = Instant.now(),
         )
-        timeouts(instanceId) = timeout
+        timeouts((instanceId, name)) = timeout
         timeout
       }
     }
@@ -45,7 +34,16 @@ class InMemoryTimeoutStore[Id] extends TimeoutStore[Id]:
   def cancel(instanceId: Id): ZIO[Any, MechanoidError, Boolean] =
     ZIO.succeed {
       synchronized {
-        timeouts.remove(instanceId).isDefined
+        val keys = timeouts.keys.filter(_._1 == instanceId).toList
+        keys.foreach(timeouts.remove)
+        keys.nonEmpty
+      }
+    }
+
+  def cancel(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean] =
+    ZIO.succeed {
+      synchronized {
+        timeouts.remove((instanceId, name)).isDefined
       }
     }
 
@@ -65,13 +63,14 @@ class InMemoryTimeoutStore[Id] extends TimeoutStore[Id]:
 
   def claim(
       instanceId: Id,
+      name: String,
       nodeId: String,
       claimDuration: Duration,
       now: Instant,
   ): ZIO[Any, MechanoidError, ClaimResult] =
     ZIO.succeed {
       synchronized {
-        timeouts.get(instanceId) match
+        timeouts.get((instanceId, name)) match
           case None =>
             ClaimResult.NotFound
 
@@ -83,57 +82,59 @@ class InMemoryTimeoutStore[Id] extends TimeoutStore[Id]:
               claimedBy = Some(nodeId),
               claimedUntil = Some(now.plusMillis(claimDuration.toMillis)),
             )
-            timeouts(instanceId) = claimed
+            timeouts((instanceId, name)) = claimed
             ClaimResult.Claimed(claimed)
       }
     }
 
-  def complete(instanceId: Id, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
+  def complete(instanceId: Id, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
     ZIO.succeed {
       synchronized {
-        timeouts.get(instanceId) match
+        timeouts.get((instanceId, name)) match
           case Some(t) if t.sequenceNr == sequenceNr =>
-            timeouts.remove(instanceId)
+            timeouts.remove((instanceId, name))
             true
           case _ =>
             false
       }
     }
 
-  def release(instanceId: Id): ZIO[Any, MechanoidError, Boolean] =
+  def release(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean] =
     ZIO.succeed {
       synchronized {
-        timeouts.get(instanceId) match
+        timeouts.get((instanceId, name)) match
           case Some(t) =>
-            timeouts(instanceId) = t.copy(claimedBy = None, claimedUntil = None)
+            timeouts((instanceId, name)) = t.copy(claimedBy = None, claimedUntil = None)
             true
           case None =>
             false
       }
     }
 
-  def get(instanceId: Id): ZIO[Any, MechanoidError, Option[ScheduledTimeout[Id]]] =
+  def get(instanceId: Id): ZIO[Any, MechanoidError, Chunk[ScheduledTimeout[Id]]] =
     ZIO.succeed {
       synchronized {
-        timeouts.get(instanceId)
+        Chunk.fromIterable(timeouts.collect { case ((id, _), t) if id == instanceId => t })
       }
     }
 
-  // Test helpers
+  def get(instanceId: Id, name: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[Id]]] =
+    ZIO.succeed {
+      synchronized {
+        timeouts.get((instanceId, name))
+      }
+    }
 
-  /** Get all timeouts (for assertions). */
-  def getAll: Map[Id, ScheduledTimeout[Id]] =
+  def getAll: Map[(Id, String), ScheduledTimeout[Id]] =
     synchronized {
       timeouts.toMap
     }
 
-  /** Clear all timeouts (for test isolation). */
   def clear(): Unit =
     synchronized {
       timeouts.clear()
     }
 
-  /** Get the count of scheduled timeouts. */
   def size: Int =
     synchronized {
       timeouts.size

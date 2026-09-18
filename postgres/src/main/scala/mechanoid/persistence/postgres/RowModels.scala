@@ -33,6 +33,7 @@ object SnapshotRow:
 @tableName("scheduled_timeouts")
 final case class TimeoutRow(
     @key @label("instance_id") instanceId: String,
+    @key @label("timeout_key") timeoutKey: String,
     @label("state_hash") stateHash: Int,
     @label("sequence_nr") sequenceNr: Long,
     deadline: Instant,

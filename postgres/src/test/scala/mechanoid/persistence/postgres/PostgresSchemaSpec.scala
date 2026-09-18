@@ -24,13 +24,15 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
            )""".dml)
       _ <- xa.run(sql"""CREATE TABLE scheduled_timeouts (
-             instance_id TEXT PRIMARY KEY,
+             instance_id TEXT NOT NULL,
+             timeout_key TEXT NOT NULL,
              state_hash INT NOT NULL,
              sequence_nr BIGINT NOT NULL,
              deadline TIMESTAMPTZ NOT NULL,
              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
              claimed_by TEXT,
-             claimed_until TIMESTAMPTZ
+             claimed_until TIMESTAMPTZ,
+             PRIMARY KEY (instance_id, timeout_key)
            )""".dml)
       _ <- xa.run(sql"""CREATE TABLE fsm_instance_locks (
              instance_id TEXT PRIMARY KEY,

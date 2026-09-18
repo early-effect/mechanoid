@@ -1,12 +1,14 @@
 package mechanoid.docs
 
 import mechanoid.docs.DocZIO.*
+import mechanoid.docs.platform.NamedTimeoutDemo
+import mechanoid.docs.platform.NamedTimeoutDemoUi.{Campaign, machine as campaignMachine}
 import mechanoid.*
 import specular.*
 import zio.*
 import zio.test.*
 
-object DurableTimeouts extends MechanoidDocSpecSuite:
+object DurableTimeouts extends DocSpec:
 
   type OrderId = String
 
@@ -75,15 +77,32 @@ a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
           .asDoc
       }.assert(state => assertTrue(state.toString == "Cancelled")),
     ),
+    section("Named timeouts on one leaf")(
+      md"""
+Stack `@@ Aspect.timeout(event)(deadline)` to arm independent cadences on the same leaf. The name
+defaults to `Finite.nameOf(event)`. Stay on one timeout re-arms only that name; Goto cancels
+every name for the instance.
+
+The panel is a campaign: **Go live** arms `DailyCheck` (3s, Stay) and `EndCycle` (9s, Goto
+Ended). Wait for DailyCheck, or fire it: the weekly clock keeps running. EndCycle (or wait it
+out) cancels both.
+""",
+      exampleZIO {
+        ZIO.succeed(campaignMachine.timeoutsFor(Campaign.Live).map(_.name).toSet)
+      }.assert(names => assertTrue(names == Set("DailyCheck", "EndCycle"))),
+      exampleIO {
+        NamedTimeoutDemo.ui
+      }.interactive.assert(ui => assertTrue(ui.toString.nonEmpty)),
+    ),
     section("TimeoutSweeper")(
       md"""
 A background sweeper:
 
-1. Queries expired, unclaimed timeouts
-2. Claims each timeout
-3. Validates `(stateHash, sequenceNr)` so stale timeouts do not fire
-4. Looks up the timeout event via `Machine.timeoutEvents` and `runtime.send`s it
-5. Marks complete
+1. Queries expired, unclaimed timeouts (several rows per instance is allowed)
+2. Claims each timeout by `(instanceId, name)`
+3. Fires when `stateHash` still matches **and** that name is still configured on the current leaf
+4. Looks up the event from `timeoutConfigForState` by name and `runtime.send`s it
+5. Marks complete for that name only (`sequenceNr` must match so a Stay re-arm is not deleted)
 
 Use `TimeoutSweeperConfig` for interval, jitter, batch size, claim duration, and `nodeId`.
 Optional **leader election** via `LeaseStore` keeps a single active sweeper to reduce DB load.

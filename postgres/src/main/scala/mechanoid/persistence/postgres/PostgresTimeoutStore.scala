@@ -9,8 +9,7 @@ import java.time.Instant
 
 /** PostgreSQL implementation of TimeoutStore using Saferis.
   *
-  * This implementation uses atomic UPDATE ... RETURNING for claim operations to ensure exactly-once timeout processing
-  * in distributed environments.
+  * Atomic UPDATE ... RETURNING for claim operations, keyed by `(instance_id, timeout_key)`.
   */
 class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
 
@@ -18,22 +17,24 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
 
   override def schedule(
       instanceId: String,
+      name: String,
       stateHash: Int,
       sequenceNr: Long,
       deadline: Instant,
   ): ZIO[Any, MechanoidError, ScheduledTimeout[String]] =
     (for
       now <- Clock.instant
-      row = TimeoutRow(instanceId, stateHash, sequenceNr, deadline, now, None, None)
+      row = TimeoutRow(instanceId, name, stateHash, sequenceNr, deadline, now, None, None)
       _ <- transactor.run {
         Upsert[TimeoutRow]
           .values(row)
           .onConflict(_.instanceId)
+          .and(_.timeoutKey)
           .doUpdateAll
           .build
           .dml
       }
-    yield ScheduledTimeout(instanceId, stateHash, sequenceNr, deadline, now, None, None))
+    yield ScheduledTimeout(instanceId, name, stateHash, sequenceNr, deadline, now, None, None))
       .mapError(PersistenceError.fromError)
 
   override def cancel(instanceId: String): ZIO[Any, MechanoidError, Boolean] =
@@ -42,6 +43,20 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
         Delete[TimeoutRow]
           .where(_.instanceId)
           .eq(instanceId)
+          .build
+          .dml
+      }
+      .map(_ > 0)
+      .mapError(PersistenceError.fromError)
+
+  override def cancel(instanceId: String, name: String): ZIO[Any, MechanoidError, Boolean] =
+    transactor
+      .run {
+        Delete[TimeoutRow]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .where(_.timeoutKey)
+          .eq(name)
           .build
           .dml
       }
@@ -64,6 +79,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
 
   override def claim(
       instanceId: String,
+      name: String,
       nodeId: String,
       claimDuration: Duration,
       now: Instant,
@@ -76,6 +92,8 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
           .set(_.claimedUntil, Some(claimedUntil))
           .where(_.instanceId)
           .eq(instanceId)
+          .where(_.timeoutKey)
+          .eq(name)
           .andWhere(w => w(_.claimedBy).isNull.or(_.claimedUntil).lt(Some(now)))
           .returningAs
           .queryOne
@@ -84,12 +102,10 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
         case Some(row) =>
           ZIO.succeed(ClaimResult.Claimed(rowToTimeout(row)))
         case None =>
-          // Check if it exists but is claimed, or doesn't exist
-          get(instanceId).map {
+          get(instanceId, name).map {
             case Some(timeout) if timeout.isClaimed(now) =>
               ClaimResult.AlreadyClaimed(timeout.claimedBy.getOrElse("unknown"), timeout.claimedUntil.getOrElse(now))
             case Some(_) =>
-              // Exists but not claimed - race condition, treat as already claimed
               ClaimResult.AlreadyClaimed("unknown", now)
             case None =>
               ClaimResult.NotFound
@@ -101,12 +117,14 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       }
   end claim
 
-  override def complete(instanceId: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
+  override def complete(instanceId: String, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
         Delete[TimeoutRow]
           .where(_.instanceId)
           .eq(instanceId)
+          .where(_.timeoutKey)
+          .eq(name)
           .where(_.sequenceNr)
           .eq(sequenceNr)
           .build
@@ -115,7 +133,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .map(_ > 0)
       .mapError(PersistenceError.fromError)
 
-  override def release(instanceId: String): ZIO[Any, MechanoidError, Boolean] =
+  override def release(instanceId: String, name: String): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
         Update[TimeoutRow]
@@ -123,18 +141,33 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
           .set(_.claimedUntil, Option.empty[Instant])
           .where(_.instanceId)
           .eq(instanceId)
+          .where(_.timeoutKey)
+          .eq(name)
           .build
           .dml
       }
       .map(_ > 0)
       .mapError(PersistenceError.fromError)
 
-  override def get(instanceId: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[String]]] =
+  override def get(instanceId: String): ZIO[Any, MechanoidError, Chunk[ScheduledTimeout[String]]] =
     transactor
       .run {
         Query[TimeoutRow]
           .where(_.instanceId)
           .eq(instanceId)
+          .query[TimeoutRow]
+      }
+      .map(rows => Chunk.fromIterable(rows.map(rowToTimeout)))
+      .mapError(PersistenceError.fromError)
+
+  override def get(instanceId: String, name: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[String]]] =
+    transactor
+      .run {
+        Query[TimeoutRow]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .where(_.timeoutKey)
+          .eq(name)
           .queryOne[TimeoutRow]
       }
       .map(_.map(rowToTimeout))
@@ -143,6 +176,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
   private def rowToTimeout(row: TimeoutRow): ScheduledTimeout[String] =
     ScheduledTimeout(
       instanceId = row.instanceId,
+      name = row.timeoutKey,
       stateHash = row.stateHash,
       sequenceNr = row.sequenceNr,
       deadline = row.deadline,

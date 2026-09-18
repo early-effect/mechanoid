@@ -31,13 +31,15 @@ CREATE TABLE IF NOT EXISTS fsm_snapshots (
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS scheduled_timeouts (
-  instance_id   VARCHAR(255) PRIMARY KEY NOT NULL,
+  instance_id   VARCHAR(255) NOT NULL,
+  timeout_key   VARCHAR(255) NOT NULL,
   state_hash    INTEGER NOT NULL,
   sequence_nr   BIGINT NOT NULL,
   deadline      TIMESTAMPTZ NOT NULL,
   created_at    TIMESTAMPTZ NOT NULL,
   claimed_by    VARCHAR(255),
-  claimed_until TIMESTAMPTZ
+  claimed_until TIMESTAMPTZ,
+  PRIMARY KEY (instance_id, timeout_key)
 );
 
 CREATE INDEX idx_timeouts_deadline ON scheduled_timeouts (deadline);

@@ -26,92 +26,61 @@ import mechanoid.core.MechanoidError
   *
   * {{{
   * CREATE TABLE scheduled_timeouts (
-  *   instance_id    TEXT PRIMARY KEY,
+  *   instance_id    TEXT NOT NULL,
+  *   timeout_key    TEXT NOT NULL,
   *   state_hash     INT NOT NULL,
   *   sequence_nr    BIGINT NOT NULL,
   *   deadline       TIMESTAMPTZ NOT NULL,
   *   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   *   claimed_by     TEXT,
-  *   claimed_until  TIMESTAMPTZ
+  *   claimed_until  TIMESTAMPTZ,
+  *   PRIMARY KEY (instance_id, timeout_key)
   * );
   *
-  * -- Index for efficient expired timeout queries
   * CREATE INDEX idx_timeouts_deadline ON scheduled_timeouts (deadline)
   *   WHERE claimed_by IS NULL OR claimed_until < NOW();
   * }}}
-  *
-  * ==Example PostgreSQL Implementation==
-  *
-  * {{{
-  * class PostgresTimeoutStore[Id](xa: Transactor[Task]) extends TimeoutStore[Id]:
-  *
-  *   def claim(instanceId: Id, nodeId: String, claimDuration: Duration, now: Instant) =
-  *     sql"""
-  *       UPDATE scheduled_timeouts
-  *       SET claimed_by = $nodeId,
-  *           claimed_until = ${now.plusMillis(claimDuration.toMillis)}
-  *       WHERE instance_id = $instanceId
-  *         AND (claimed_by IS NULL OR claimed_until < $now)
-  *       RETURNING *
-  *     """.query[ScheduledTimeout[Id]].option.transact(xa).map {
-  *       case Some(t) => ClaimResult.Claimed(t)
-  *       case None    => // Check if exists but claimed, or not found
-  *         // ... determine appropriate ClaimResult
-  *     }
-  * }}}
-  *
-  * ==Coordination with EventStore==
-  *
-  * When the sweeper fires a timeout, it should use the normal FSM event path (via EventStore's `append` with optimistic
-  * locking). This ensures:
-  *
-  *   - State transitions follow the FSM definition
-  *   - Sequence numbers are maintained
-  *   - Concurrent modifications are detected
   *
   * @tparam Id
   *   The FSM instance identifier type (e.g., UUID, String, Long)
   */
 trait TimeoutStore[Id]:
 
-  /** Schedule a timeout for an FSM instance.
+  /** Schedule a named timeout for an FSM instance.
     *
-    * This is called when the FSM enters a state that has a timeout configured. If a timeout already exists for this
-    * instance, it MUST be replaced (upsert). Only one active timeout per instance is supported.
-    *
-    * The `stateHash` and `sequenceNr` are used by the sweeper to validate that the FSM is still in the expected state
-    * before firing the timeout. This prevents stale timeouts from firing after the FSM has transitioned or re-entered
-    * the same state.
+    * Called when the FSM enters a leaf (or Stay re-arms one name). If a row already exists for `(instanceId, name)`, it
+    * MUST be replaced (upsert). Other names on the same instance are left alone.
     *
     * @param instanceId
     *   The FSM instance identifier
+    * @param name
+    *   Timeout key (generated event name, or an explicit name)
     * @param stateHash
-    *   Hash of the state the FSM should be in when this timeout fires
+    *   Hash of the leaf the FSM should be in when this timeout fires
     * @param sequenceNr
-    *   The sequence number when timeout was scheduled (generation counter)
+    *   The sequence number when the timeout was scheduled (diagnostics; Stay re-arm uses the new seq)
     * @param deadline
     *   When the timeout should fire
-    * @return
-    *   The created/updated timeout record
     */
   def schedule(
       instanceId: Id,
+      name: String,
       stateHash: Int,
       sequenceNr: Long,
       deadline: Instant,
   ): ZIO[Any, MechanoidError, ScheduledTimeout[Id]]
 
-  /** Cancel a timeout for an FSM instance.
+  /** Cancel every timeout for an FSM instance.
     *
-    * Called when exiting a state with a timeout (either via event or timeout). No-op if no timeout exists - this is not
-    * an error.
+    * Called on Goto away and Stop. No-op if none exist.
     *
-    * @param instanceId
-    *   The FSM instance identifier
     * @return
-    *   true if a timeout was cancelled, false if none existed
+    *   true if at least one timeout was cancelled
     */
   def cancel(instanceId: Id): ZIO[Any, MechanoidError, Boolean]
+
+  /** Cancel one named timeout. No-op if that name is not armed. */
+  def cancel(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean]
 
   /** Query expired timeouts that are not currently claimed.
     *
@@ -120,92 +89,43 @@ trait TimeoutStore[Id]:
     * deadline <= now AND (claimed_by IS NULL OR claimed_until < now)
     * }}}
     *
-    * Results should be ordered by deadline (oldest first) to ensure fairness.
-    *
-    * '''Performance Note''': This query should use an index. See the recommended schema above for PostgreSQL partial
-    * index example.
+    * Results should be ordered by deadline (oldest first). May return several rows per instance.
     *
     * @param limit
     *   Maximum number of timeouts to return (batch size)
     * @param now
     *   The current timestamp (passed explicitly for testability)
-    * @return
-    *   Expired, unclaimed timeouts ordered by deadline
     */
   def queryExpired(
       limit: Int,
       now: Instant,
   ): ZIO[Any, MechanoidError, List[ScheduledTimeout[Id]]]
 
-  /** Atomically claim a timeout for processing.
+  /** Atomically claim one named timeout for processing.
     *
     * '''CRITICAL''': This MUST be atomic. Use optimistic locking or database-level atomicity (e.g.,
     * `UPDATE ... WHERE claimed_by IS NULL RETURNING *`).
-    *
-    * The claim grants exclusive processing rights for `claimDuration`. If the sweeper crashes, the claim expires and
-    * another node can retry.
-    *
-    * ==Implementation Pattern (PostgreSQL)==
-    * {{{
-    * UPDATE scheduled_timeouts
-    * SET claimed_by = $nodeId, claimed_until = $now + $claimDuration
-    * WHERE instance_id = $instanceId
-    *   AND (claimed_by IS NULL OR claimed_until < $now)
-    * RETURNING *
-    * }}}
-    *
-    * @param instanceId
-    *   The FSM instance to claim
-    * @param nodeId
-    *   The claiming node's identifier
-    * @param claimDuration
-    *   How long to hold the claim
-    * @param now
-    *   The current timestamp
-    * @return
-    *   ClaimResult indicating success or failure reason
     */
   def claim(
       instanceId: Id,
+      name: String,
       nodeId: String,
       claimDuration: Duration,
       now: Instant,
   ): ZIO[Any, MechanoidError, ClaimResult]
 
-  /** Complete (remove) a timeout after successful processing.
+  /** Complete (remove) a named timeout after successful processing.
     *
-    * Called after the timeout event has been successfully fired. Only deletes the timeout if the `sequenceNr` matches,
-    * preventing deletion of newly scheduled timeouts when the FSM re-enters the same state.
-    *
-    * @param instanceId
-    *   The FSM instance identifier
-    * @param sequenceNr
-    *   The sequence number of the timeout that was fired (must match to delete)
-    * @return
-    *   true if deleted, false if not found or sequenceNr mismatch
+    * Only deletes if `sequenceNr` matches, so a Stay re-arm of the same name is not deleted.
     */
-  def complete(instanceId: Id, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean]
+  def complete(instanceId: Id, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean]
 
-  /** Release a claim without completing.
-    *
-    * Called when timeout processing fails and should be retried by another node. Clears the `claimedBy` and
-    * `claimedUntil` fields so the timeout can be re-claimed immediately.
-    *
-    * @param instanceId
-    *   The FSM instance identifier
-    * @return
-    *   true if released, false if not found
-    */
-  def release(instanceId: Id): ZIO[Any, MechanoidError, Boolean]
+  /** Release a claim without completing. */
+  def release(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean]
 
-  /** Get the current timeout for an instance (if any).
-    *
-    * Useful for debugging, testing, and diagnostics.
-    *
-    * @param instanceId
-    *   The FSM instance identifier
-    * @return
-    *   The scheduled timeout if one exists
-    */
-  def get(instanceId: Id): ZIO[Any, MechanoidError, Option[ScheduledTimeout[Id]]]
+  /** All timeouts currently armed for an instance. */
+  def get(instanceId: Id): ZIO[Any, MechanoidError, Chunk[ScheduledTimeout[Id]]]
+
+  /** One named timeout for an instance, if armed. */
+  def get(instanceId: Id, name: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[Id]]]
 end TimeoutStore

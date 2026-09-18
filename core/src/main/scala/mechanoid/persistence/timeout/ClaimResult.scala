@@ -10,10 +10,10 @@ import java.time.Instant
   * ==Usage Pattern==
   *
   * {{{
-  * store.claim(instanceId, nodeId, claimDuration, now).flatMap {
+  * store.claim(instanceId, name, nodeId, claimDuration, now).flatMap {
   *   case ClaimResult.Claimed(timeout) =>
   *     // Successfully claimed - fire the timeout
-  *     fireTimeout(timeout) *> store.complete(instanceId)
+  *     fireTimeout(timeout) *> store.complete(instanceId, name, timeout.sequenceNr)
   *
   *   case ClaimResult.AlreadyClaimed(byNode, until) =>
   *     // Another node is processing - skip
@@ -25,7 +25,7 @@ import java.time.Instant
   *
   *   case ClaimResult.StateChanged(currentState) =>
   *     // FSM state changed - timeout no longer valid
-  *     store.complete(instanceId)
+  *     store.complete(instanceId, name, timeout.sequenceNr)
   * }
   * }}}
   */

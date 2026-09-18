@@ -32,20 +32,9 @@ object TransitionSpecSpec extends ZIOSpecDefault:
           spec.eventNames == List("E1"),
           spec.targetDesc == "-> B",
           !spec.isOverride,
-          spec.targetTimeout.isEmpty,
+          spec.targetTimeouts.isEmpty,
         )
-      },
-      test("creates goto spec with timeout") {
-        val spec = TransitionSpec.goto[TestState, TestEvent, TestState](
-          stateHashes = Set(1),
-          eventHashes = Set(2),
-          stateNames = List("A"),
-          eventNames = List("E1"),
-          target = B,
-          timeout = Some(30.seconds),
-        )
-        assertTrue(spec.targetTimeout == Some(30.seconds))
-      },
+      }
     ),
     suite("TransitionSpec.gotoTimed")(
       test("creates timed goto spec") {
@@ -58,9 +47,9 @@ object TransitionSpecSpec extends ZIOSpecDefault:
           target = timedTarget,
         )
         assertTrue(
-          spec.targetTimeout == Some(30.seconds),
-          spec.targetTimeoutConfig.isDefined,
-          spec.targetTimeoutConfig.get.event == Timeout,
+          spec.targetTimeouts.size == 1,
+          spec.targetTimeouts.head.event == Timeout,
+          spec.targetTimeouts.head.deadline == TimeoutDeadline.After(30.seconds),
         )
       }
     ),
@@ -139,20 +128,6 @@ object TransitionSpecSpec extends ZIOSpecDefault:
         )
       },
     ),
-    suite("TransitionSpec.withTimeout")(
-      test("adds timeout to spec") {
-        val spec = TransitionSpec
-          .goto[TestState, TestEvent, TestState](
-            stateHashes = Set(1),
-            eventHashes = Set(2),
-            stateNames = List("A"),
-            eventNames = List("E1"),
-            target = B,
-          )
-          .withTimeout(60.seconds)
-        assertTrue(spec.targetTimeout == Some(60.seconds))
-      }
-    ),
     suite("TransitionSpec.@@")(
       test("applies overriding aspect") {
         val spec = TransitionSpec.goto[TestState, TestEvent, TestState](
@@ -173,20 +148,30 @@ object TransitionSpecSpec extends ZIOSpecDefault:
           target = B,
         ) @@ Aspect.timeout(30.seconds, Timeout)
         assertTrue(
-          spec.targetTimeout == Some(30.seconds),
-          spec.targetTimeoutConfig.isDefined,
-          spec.targetTimeoutConfig.get.event == Timeout,
+          spec.targetTimeouts.size == 1,
+          spec.targetTimeouts.head.event == Timeout,
+          spec.targetTimeouts.head.deadline == TimeoutDeadline.After(30.seconds),
+        )
+      },
+      test("accumulates stacked timeout aspects") {
+        val spec = TransitionSpec.goto[TestState, TestEvent, TestState](
+          stateHashes = Set(1),
+          eventHashes = Set(2),
+          stateNames = List("A"),
+          eventNames = List("E1"),
+          target = B,
+        ) @@ Aspect.timeout(E1)(1.second) @@ Aspect.timeout(Timeout)(2.seconds)
+        assertTrue(
+          spec.targetTimeouts.size == 2,
+          spec.targetTimeouts.map(_.event).toSet == Set(E1, Timeout),
         )
       },
       test("applies timeout aspect with non-enum (case class) event") {
-        // Test the case _ branch in @@ for non-Enum events
-        // Use a sealed trait with a case class child (not a scala.reflect.Enum)
         sealed trait ParamEvent derives Finite
         case class TimeoutWithData(reason: String) extends ParamEvent
 
         val timeoutEvent = TimeoutWithData("expired")
 
-        // Create a spec using the timeout aspect with a non-enum event
         val spec = TransitionSpec[TestState, ParamEvent, TestState](
           stateHashes = Set(1),
           eventHashes = Set(2),
@@ -195,13 +180,11 @@ object TransitionSpecSpec extends ZIOSpecDefault:
           targetDesc = "-> B",
           isOverride = false,
           handler = Handler.Goto(B),
-          targetTimeout = None,
         ) @@ Aspect.timeout(30.seconds, timeoutEvent)
 
         assertTrue(
-          spec.targetTimeout == Some(30.seconds),
-          spec.targetTimeoutConfig.isDefined,
-          spec.targetTimeoutConfig.get.event == timeoutEvent,
+          spec.targetTimeouts.size == 1,
+          spec.targetTimeouts.head.event == timeoutEvent,
         )
       },
     ),
@@ -247,12 +230,6 @@ object TransitionSpecSpec extends ZIOSpecDefault:
         val effect = ProducingEffect[TestEvent, TestState, TestEvent]((_, _) => ZIO.succeed(E2))
         for result <- effect.run(E1, A)
         yield assertTrue(result == E2)
-      }
-    ),
-    suite("TimeoutEventConfig")(
-      test("stores event and hash") {
-        val config = TimeoutEventConfig(Timeout, 123)
-        assertTrue(config.event == Timeout, config.hash == 123)
       }
     ),
     suite("TimedTarget")(
@@ -305,7 +282,6 @@ object TransitionSpecSpec extends ZIOSpecDefault:
           targetDesc = "-> B",
           isOverride = false,
           handler = Handler.Goto(B),
-          targetTimeout = None,
         )
         assertTrue(spec.entryEffect.isEmpty)
       },
@@ -319,8 +295,6 @@ object TransitionSpecSpec extends ZIOSpecDefault:
           targetDesc = "-> B",
           isOverride = false,
           handler = Handler.Goto(B),
-          targetTimeout = None,
-          targetTimeoutConfig = None,
         )
         assertTrue(spec.producingEffect.isEmpty)
       },
