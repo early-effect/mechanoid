@@ -15,10 +15,13 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
 
   enum AliasInitState derives Finite:
     case Draft
-    case Live(@alias("campaign") campaignIds: List[Long], @alias templateId: String)
+    case Live(@alias campaign: List[Long], @alias templateId: String)
 
   enum AliasInitEvent derives Finite:
     case Launch
+
+  enum LookupCampaign derives Finite:
+    case Live(@alias campaign: String)
 
   import TestState.*
   import TestEvent.*
@@ -268,7 +271,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         import mechanoid.runtime.timeout.FiberTimeoutStrategy
         import mechanoid.runtime.locking.OptimisticLockingStrategy
 
-        val alias = Alias("campaign", "c-1")
+        val alias = Alias.of[LookupCampaign].campaign("c-1")
         ZIO.scoped {
           for
             store <- InMemoryEventStore.make[String, TestState, TestEvent]()
@@ -300,7 +303,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         import mechanoid.runtime.locking.OptimisticLockingStrategy
 
         val program = FSMRuntime
-          .lookup[String, TestState, TestEvent](Alias("campaign", "missing"), simpleMachine, A)
+          .lookup[String, TestState, TestEvent](Alias.of[LookupCampaign].campaign("missing"), simpleMachine, A)
           .either
 
         program

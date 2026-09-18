@@ -78,6 +78,113 @@ object DocsChrome:
       |.mechanoid-role-card .mechanoid-live-actions button {
       |  text-align: left;
       |}
+      |.mechanoid-ticket-index-demo {
+      |  color: #e8e6dc;
+      |}
+      |.mechanoid-ticket-index-demo .note {
+      |  margin: 0;
+      |  color: #b8b9bd;
+      |  font-size: 0.9rem;
+      |}
+      |.mechanoid-ticket-field {
+      |  display: flex;
+      |  flex-direction: column;
+      |  gap: 0.35rem;
+      |  margin: 0 0 0.75rem;
+      |}
+      |.mechanoid-ticket-field > span {
+      |  font-size: 0.75rem;
+      |  letter-spacing: 0.04em;
+      |  text-transform: uppercase;
+      |  color: #9a9b9f;
+      |}
+      |.mechanoid-ticket-field-row {
+      |  display: flex;
+      |  gap: 0.45rem;
+      |  align-items: center;
+      |  flex-wrap: wrap;
+      |}
+      |.mechanoid-ticket-index-demo button {
+      |  font: inherit;
+      |  padding: 0.4rem 0.9rem;
+      |  cursor: pointer;
+      |  border-radius: 4px;
+      |  border: 1px solid #c46a52;
+      |  background: #2a2b2e;
+      |  color: #e8e6dc;
+      |}
+      |.mechanoid-ticket-index-demo button:hover {
+      |  filter: brightness(1.1);
+      |}
+      |.mechanoid-ticket-index-demo button.is-on {
+      |  background: #c46a52;
+      |  border-color: #d27b63;
+      |  color: #1c1d1f;
+      |}
+      |.mechanoid-ticket-index-demo input[type="text"],
+      |.mechanoid-ticket-index-demo input[type="number"] {
+      |  font: inherit;
+      |  min-width: 6rem;
+      |  flex: 1;
+      |  padding: 0.4rem 0.65rem;
+      |  border-radius: 4px;
+      |  border: 1px solid #4a4b50;
+      |  background: #1a1b1e;
+      |  color: #f4f2ea;
+      |}
+      |.mechanoid-ticket-status {
+      |  min-height: 1.2rem;
+      |  margin: 0.55rem 0 0;
+      |  font-size: 0.85rem;
+      |  color: #e8a090;
+      |}
+      |.mechanoid-ticket-counts {
+      |  margin: 0 0 0.65rem;
+      |  font-size: 0.85rem;
+      |  color: #b8b9bd;
+      |}
+      |.mechanoid-ticket-list {
+      |  list-style: none;
+      |  margin: 0 0 0.75rem;
+      |  padding: 0;
+      |  display: flex;
+      |  flex-direction: column;
+      |  gap: 0.45rem;
+      |}
+      |.mechanoid-ticket-row {
+      |  display: flex;
+      |  flex-wrap: wrap;
+      |  align-items: center;
+      |  gap: 0.5rem 0.75rem;
+      |  padding: 0.55rem 0.65rem;
+      |  border: 1px solid #4a4b50;
+      |  border-radius: 4px;
+      |  background: #1a1b1e;
+      |}
+      |.mechanoid-ticket-row-id {
+      |  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      |  font-size: 0.9rem;
+      |  color: #f4f2ea;
+      |}
+      |.mechanoid-ticket-row-state {
+      |  font-weight: 600;
+      |  font-size: 0.85rem;
+      |  color: #e8a090;
+      |}
+      |.mechanoid-ticket-row-meta {
+      |  font-size: 0.8rem;
+      |  color: #b8b9bd;
+      |  margin-right: auto;
+      |}
+      |.mechanoid-ticket-empty {
+      |  margin: 0.25rem 0 0.75rem;
+      |  font-size: 0.85rem;
+      |  color: #9a9b9f;
+      |}
+      |.mechanoid-ticket-row .mechanoid-live-actions {
+      |  flex-direction: row;
+      |  align-items: center;
+      |}
       |""".stripMargin
 
   val layers: ZLayer[Any, Nothing, SiteBuilder] =

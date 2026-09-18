@@ -130,19 +130,22 @@ an initiative holds.
 fail with `AliasNotFoundError` (no machine is created). For a GET of current state without
 a live runtime: `index.resolve(alias)` then `EventStore.currentState(id)`.
 
-Mark constructor fields with `@alias` (optional namespace; default is the field name) and pass
-`AliasExtractor.derived[S]`. Scalars, `Option`, and collections (`List` / `Seq` / `Chunk`) all
-work. Values encode with `AliasCodec` (`toString` unless you provide a given):
+Mark constructor fields with `@alias` (the namespace is the field name) and pass
+`AliasExtractor.derived[S]`. Call sites use `Alias.of[S].campaign(id)` /
+`FSMRuntime.lookup(Alias.of[S].campaign(id), …)`. Scalars, `Option`, and collections
+(`List` / `Seq` / `Chunk`) all work. Values encode with `AliasCodec`
+(`toString` unless you provide a given):
 
 ```scala
 enum InitiativeState derives Finite:
   case Draft
   case Live(
-    @alias("campaign") campaignIds: List[Long],
+    @alias campaign: List[Long],
     @alias templateId: String,
   )
 
 FSMRuntime(id, machine, Draft, AliasExtractor.derived[InitiativeState])
+index.resolve(Alias.of[InitiativeState].campaign(id))
 ```
 """,
       exampleZIO {
@@ -161,8 +164,11 @@ FSMRuntime(id, machine, Draft, AliasExtractor.derived[InitiativeState])
           )
         )
 
+        enum Initiative derives Finite:
+          case Live(@alias campaign: String)
+
         val orderId: OrderId = "order-alias-1"
-        val campaign         = Alias("campaign", "camp-42")
+        val campaign         = Alias.of[Initiative].campaign("camp-42")
 
         ZIO.scoped {
           for
@@ -193,7 +199,8 @@ FSMRuntime(id, machine, Draft, AliasExtractor.derived[InitiativeState])
       md"""
 PostgreSQL stores aliases in `fsm_aliases` (`PostgresInstanceIndex`); `PostgresSchema.initialize`
 creates that table even when the other tables already exist. IndexedDB uses an `aliases` object
-store (database version 2) via `IndexedDbInstanceIndex` / `SharedFSMRuntime.lookup`.
+store (database version 4) via `IndexedDbInstanceIndex` / `SharedFSMRuntime.lookup`.
+Many-to-one lookup (person to N machines, filter, sort, cursor) is [Indexing](indexing.html).
 """,
     ),
     section("EventStore and codecs")(
@@ -211,8 +218,8 @@ PostgreSQL ships as `mechanoid-postgres`. Derive JSON codecs with
 `mechanoid-web` persists to **IndexedDB** (`IndexedDbEventStore`, `IndexedDbTimeoutStore`,
 `IndexedDbInstanceLock`, `IndexedDbInstanceIndex`) and notifies peer tabs over **BroadcastChannel**.
 Peers reconstruct `FSMRuntime` from the store (same load-on-demand model as server nodes) so
-several tabs share one instance without a server. `SharedFSMRuntime.lookup` resolves a unique
-alias then starts that instance.
+several tabs share one instance without a server. `SharedFSMRuntime.lookup` takes
+`Alias.of[S].campaign(id)`, then starts that instance.
 
 ```scala
 libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "<version>"

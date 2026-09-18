@@ -52,6 +52,10 @@ object Reference extends MechanoidDocSpecSuite:
 | `TimeoutStrategy` | `fiber[Id]`, `durable[Id]` (+ `TimeoutStore`) |
 | `LockingStrategy` | `optimistic[Id]`, `distributed[Id]` (+ `FSMInstanceLock`) |
 | `InstanceIndex` | `InMemoryInstanceIndex.layer`, `PostgresInstanceIndex`, `IndexedDbInstanceIndex` |
+| `AliasExtractor` | `derived[S]`, `apply`, `none` |
+| `IndexExtractor` | `derived[S]` (`@index` / `@indexCreated` / `@indexUpdated` / `@indexRank`), `apply` (nested payload) |
+| `Alias.of[S]` | Member select: `Alias.of[InitiativeState].campaign(id)` |
+| `IndexQuery.of[S]` | Member select plus `.only(state[Archived])` / `.only(all[Active])` / `.require.project` |
 """
     ),
     section("Errors")(
@@ -69,6 +73,7 @@ object Reference extends MechanoidDocSpecSuite:
 | `LockingError` | Distributed lock busy / timeout |
 | `UniqueAliasError` | Alias already bound to a different instance |
 | `AliasNotFoundError` | `lookup` / resolve found no binding |
+| `InvalidIndexQuery` | `find` with both `startAfter` and `startBefore`, or `since` with a Rank sort |
 """
     ),
     section("Compact machine")(

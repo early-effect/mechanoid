@@ -24,6 +24,7 @@ timeouts, and distributed coordination as ZIO layers when you need them. In the 
 - **Composable assemblies** — reusable fragments with full compile-time checks
 - **ZIO on every edge** — entry effects, producing effects, env and errors
 - **Optional production rungs** — event sourcing, durable timeouts, distributed locks
+- **Typed aliases and indexes** — `Alias.of[S].campaign(id)`, `IndexQuery.of[S].assignee(me).only(state[Archived])`
 - **Scala.js + IndexedDB** — multi-tab shared instances via `mechanoid-web`
 
 ## Installation
@@ -80,7 +81,7 @@ Full guide with Mermaid diagrams and docs-as-tests examples:
 - [Overview](https://www.earlyeffect.rocks/mechanoid/) — story and production ladder
 - [Quick Start](https://www.earlyeffect.rocks/mechanoid/quick-start.html)
 - [Core Concepts](https://www.earlyeffect.rocks/mechanoid/core-concepts.html)
-- [Persistence](https://www.earlyeffect.rocks/mechanoid/persistence.html) · [Browser Persistence](https://www.earlyeffect.rocks/mechanoid/browser-persistence.html) · [Durable Timeouts](https://www.earlyeffect.rocks/mechanoid/durable-timeouts.html) · [Distributed Coordination](https://www.earlyeffect.rocks/mechanoid/distributed-coordination.html)
+- [Persistence](https://www.earlyeffect.rocks/mechanoid/persistence.html) · [Indexing](https://www.earlyeffect.rocks/mechanoid/indexing.html) · [Browser Persistence](https://www.earlyeffect.rocks/mechanoid/browser-persistence.html) · [Durable Timeouts](https://www.earlyeffect.rocks/mechanoid/durable-timeouts.html) · [Distributed Coordination](https://www.earlyeffect.rocks/mechanoid/distributed-coordination.html)
 
 ## Development
 

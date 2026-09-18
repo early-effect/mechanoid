@@ -7,6 +7,9 @@ import mechanoid.*
 import scala.scalajs.js
 
 /** Multi-tab reconstruct proof in Scala.js (jsdom + fake-indexeddb + BroadcastChannel polyfill). */
+enum WebCampaign derives Finite:
+  case Live(@alias campaign: String)
+
 object SharedFSMRuntimeSpec extends ZIOSpecDefault:
 
   private val installEnv: UIO[Unit] =
@@ -104,8 +107,8 @@ object SharedFSMRuntimeSpec extends ZIOSpecDefault:
             stores <- SharedFSMRuntime.stores[TestState, TestEvent](dbName, channel)
             fsm    <- SharedFSMRuntime.start("order-1", machine, Pending, stores)
             _      <- fsm.send(Pay)
-            _      <- stores.index.bind(Alias("campaign", "c-1"), "order-1")
-            found  <- SharedFSMRuntime.lookup(Alias("campaign", "c-1"), machine, Pending, stores)
+            _      <- stores.index.bind(Alias.of[WebCampaign].campaign("c-1"), "order-1")
+            found  <- SharedFSMRuntime.lookup(Alias.of[WebCampaign].campaign("c-1"), machine, Pending, stores)
             state  <- found.currentState
           yield assertTrue(state == Paid, found.instanceId == "order-1")
         }

@@ -29,6 +29,7 @@ object BuildSite extends DocsSite:
   final case class RunningNav(
       running: RunningFsms.type,
       persistence: Persistence.type,
+      indexing: Indexing.type,
       timeouts: DurableTimeouts.type,
       distributed: DistributedCoordination.type,
       browser: Interactive.type,

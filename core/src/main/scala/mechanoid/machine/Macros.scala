@@ -8,6 +8,38 @@ import scala.quoted.*
   */
 object Macros:
 
+  /** Symbol Finite hashes for a leaf type.
+    *
+    * `via[E](event)` infers `E` as the parent enum, so `TypeRepr.of[T]` is the parent. Use the tree type. Direct cases
+    * are Case/Enum TermRefs. A val alias is a TermRef to the val; one `underlying` step is the case. Do not
+    * `widenTermRefByName` (that walks to the parent enum).
+    */
+  private def leafSymbol(using Quotes)(tpe: quotes.reflect.TypeRepr): quotes.reflect.Symbol =
+    import quotes.reflect.*
+    def isLeaf(sym: Symbol): Boolean =
+      sym.flags.is(Flags.Case) || sym.flags.is(Flags.Enum) || sym.flags.is(Flags.Module)
+
+    val d = tpe.dealias
+    d match
+      case TermRef(prefix, _) =>
+        val ts = d.termSymbol
+        if !ts.exists then d.typeSymbol
+        else if isLeaf(ts) then ts
+        else leafSymbol(prefix.memberType(ts).dealias)
+      case _ => d.typeSymbol
+  end leafSymbol
+
+  private def leafHash(using Quotes)(tpe: quotes.reflect.TypeRepr): Int =
+    import quotes.reflect.*
+    val sym = leafSymbol(tpe)
+    if !sym.exists then report.errorAndAbort(s"Cannot extract Finite leaf from type: ${tpe.show}")
+    val fullName   = sym.fullName
+    val normalized = if fullName.endsWith("$") then fullName.dropRight(1) else fullName
+    normalized.hashCode
+
+  private def leafHashOf(using Quotes)(expr: quotes.reflect.Term): Int =
+    leafHash(expr.tpe)
+
   /** Implementation of `all[T]` - expands sealed type to all leaf children. */
   def allImpl[T: Type](using Quotes): Expr[AllMatcher[T]] =
     import quotes.reflect.*
@@ -57,29 +89,12 @@ object Macros:
   )(using Quotes): Expr[AnyOfMatcher[S]] =
     import quotes.reflect.*
 
-    // Extract symbol and compute hash at compile time (same as Finite.caseHash)
-    def extractSymbolHash(expr: Expr[?]): Int =
-      val term                        = expr.asTerm
-      def findSymbol(t: Term): Symbol = t match
-        case Ident(_)             => t.symbol
-        case Select(_, _)         => t.symbol
-        case Inlined(_, _, inner) => findSymbol(inner)
-        case Apply(fn, _)         => findSymbol(fn)
-        case TypeApply(fn, _)     => findSymbol(fn)
-        case _                    => t.symbol
-
-      val sym = findSymbol(term)
-      if sym.exists then sym.fullName.hashCode
-      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-    end extractSymbolHash
-
-    // Extract values from varargs at compile time
     val restExprs: List[Expr[S]] = rest match
       case Varargs(exprs) => exprs.toList
       case _              => report.errorAndAbort("anyOf requires inline arguments")
 
     val allExprs  = first :: restExprs
-    val hashes    = allExprs.map(extractSymbolHash)
+    val hashes    = allExprs.map(e => leafHashOf(MacroUtils.unwrap(e.asTerm)))
     val hashesSet = Expr(hashes.toSet)
 
     '{
@@ -99,29 +114,12 @@ object Macros:
   )(using Quotes): Expr[AnyOfEventMatcher[E]] =
     import quotes.reflect.*
 
-    // Extract symbol and compute hash at compile time (same as Finite.caseHash)
-    def extractSymbolHash(expr: Expr[?]): Int =
-      val term                        = expr.asTerm
-      def findSymbol(t: Term): Symbol = t match
-        case Ident(_)             => t.symbol
-        case Select(_, _)         => t.symbol
-        case Inlined(_, _, inner) => findSymbol(inner)
-        case Apply(fn, _)         => findSymbol(fn)
-        case TypeApply(fn, _)     => findSymbol(fn)
-        case _                    => t.symbol
-
-      val sym = findSymbol(term)
-      if sym.exists then sym.fullName.hashCode
-      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-    end extractSymbolHash
-
-    // Extract values from varargs at compile time
     val restExprs: List[Expr[E]] = rest match
       case Varargs(exprs) => exprs.toList
       case _              => report.errorAndAbort("anyOfEvents requires inline arguments")
 
     val allExprs  = first :: restExprs
-    val hashes    = allExprs.map(extractSymbolHash)
+    val hashes    = allExprs.map(e => leafHashOf(MacroUtils.unwrap(e.asTerm)))
     val hashesSet = Expr(hashes.toSet)
 
     '{
@@ -140,26 +138,8 @@ object Macros:
       event: Expr[E],
   )(using Quotes): Expr[ViaBuilder[S, E]] =
     import quotes.reflect.*
-
-    def extractFullName(expr: Expr[?]): String =
-      val term                        = expr.asTerm
-      def findSymbol(t: Term): Symbol = t match
-        case Ident(_)             => t.symbol
-        case Select(_, _)         => t.symbol
-        case Inlined(_, _, inner) => findSymbol(inner)
-        case Apply(fn, _)         => findSymbol(fn)
-        case TypeApply(fn, _)     => findSymbol(fn)
-        case _                    => t.symbol
-
-      val sym = findSymbol(term)
-      if sym.exists then sym.fullName
-      else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-    end extractFullName
-
-    val stateFullName = extractFullName(state)
-    val eventFullName = extractFullName(event)
-    val stateHash     = Expr(stateFullName.hashCode)
-    val eventHash     = Expr(eventFullName.hashCode)
+    val stateHash = Expr(leafHashOf(MacroUtils.unwrap(state.asTerm)))
+    val eventHash = Expr(leafHashOf(MacroUtils.unwrap(event.asTerm)))
 
     '{
       new ViaBuilder[S, E](
@@ -177,21 +157,7 @@ object Macros:
 
   def computeHashForImpl[T: Type](value: Expr[T])(using Quotes): Expr[Int] =
     import quotes.reflect.*
-
-    def findSymbol(t: Term): Symbol = t match
-      case Ident(_)             => t.symbol
-      case Select(_, _)         => t.symbol
-      case Inlined(_, _, inner) => findSymbol(inner)
-      case Apply(fn, _)         => findSymbol(fn)
-      case TypeApply(fn, _)     => findSymbol(fn)
-      case _                    => t.symbol
-
-    val term = value.asTerm
-    val sym  = findSymbol(term)
-
-    if sym.exists then Expr(sym.fullName.hashCode)
-    else report.errorAndAbort(s"Cannot extract symbol from expression: ${term.show}")
-  end computeHashForImpl
+    Expr(leafHashOf(MacroUtils.unwrap(value.asTerm)))
 
   /** Finite leaf hash of a type, matching `state[T]` / `Finite.caseHash` for that case. */
   inline def hashForType[T]: Int = ${ hashForTypeImpl[T] }
@@ -204,11 +170,11 @@ object Macros:
 
   private def hashForTypeImpl[T: Type](using Quotes): Expr[Int] =
     import quotes.reflect.*
-    Expr(TypeRepr.of[T].dealias.typeSymbol.fullName.hashCode)
+    Expr(leafHash(TypeRepr.of[T]))
 
   private def nameForTypeImpl[T: Type](using Quotes): Expr[String] =
     import quotes.reflect.*
-    Expr(TypeRepr.of[T].dealias.typeSymbol.name)
+    Expr(leafSymbol(TypeRepr.of[T]).name)
 
   private def requireLeafImpl[T: Type](using Quotes): Expr[Unit] =
     import quotes.reflect.*
@@ -227,8 +193,8 @@ object Macros:
   def eventMatcherImpl[E: Type](using Quotes): Expr[EventMatcher[E]] =
     import quotes.reflect.*
     val tpe  = TypeRepr.of[E]
-    val sym  = tpe.typeSymbol
-    val hash = sym.fullName.hashCode
+    val sym  = leafSymbol(tpe)
+    val hash = leafHash(tpe)
     val name = sym.name
     '{ new EventMatcher[E](${ Expr(hash) }, ${ Expr(name) }) }
   end eventMatcherImpl
@@ -240,8 +206,8 @@ object Macros:
   def stateMatcherImpl[S: Type](using Quotes): Expr[StateMatcher[S]] =
     import quotes.reflect.*
     val tpe  = TypeRepr.of[S]
-    val sym  = tpe.typeSymbol
-    val hash = sym.fullName.hashCode
+    val sym  = leafSymbol(tpe)
+    val hash = leafHash(tpe)
     val name = sym.name
     '{ new StateMatcher[S](${ Expr(hash) }, ${ Expr(name) }) }
   end stateMatcherImpl

@@ -41,6 +41,7 @@ object SharedFSMRuntime:
       stores: SharedStores[S, E],
       onState: S => UIO[Unit] = (_: S) => ZIO.unit,
       extractor: AliasExtractor[S] = AliasExtractor.none,
+      indexes: IndexExtractor[S] = IndexExtractor.none,
   ): ZIO[Scope, MechanoidError, FSMRuntime[String, S, E]] =
     for
       parent     <- ZIO.scope
@@ -54,7 +55,7 @@ object SharedFSMRuntime:
           _         <- parent.addFinalizerExit(ex => child.close(ex))
           _         <- childRef.set(Some(child))
           runtime   <- child.extend(
-            openRuntime(instanceId, machine, initial, stores, extractor)
+            openRuntime(instanceId, machine, initial, stores, extractor, indexes)
           )
         yield runtime
       first <- open
@@ -81,9 +82,10 @@ object SharedFSMRuntime:
       stores: SharedStores[S, E],
       onState: S => UIO[Unit] = (_: S) => ZIO.unit,
       extractor: AliasExtractor[S] = AliasExtractor.none,
+      indexes: IndexExtractor[S] = IndexExtractor.none,
   ): ZIO[Scope, MechanoidError, FSMRuntime[String, S, E]] =
     stores.index.resolve(alias).flatMap {
-      case Some(id) => start(id, machine, initial, stores, onState, extractor)
+      case Some(id) => start(id, machine, initial, stores, onState, extractor, indexes)
       case None     => ZIO.fail(AliasNotFoundError(alias.namespace, alias.key))
     }
 
@@ -94,10 +96,9 @@ object SharedFSMRuntime:
       initial: S,
       stores: SharedStores[S, E],
       extractor: AliasExtractor[S],
+      indexes: IndexExtractor[S],
   ): ZIO[Scope, MechanoidError, FSMRuntime[String, S, E]] =
-    val make =
-      if extractor eq AliasExtractor.none[S] then FSMRuntime(instanceId, machine, initial)
-      else FSMRuntime(instanceId, machine, initial, extractor)
+    val make = FSMRuntime(instanceId, machine, initial, extractor, indexes)
     make.provideSome[Scope](
       ZLayer.succeed[EventStore[String, S, E]](stores.events),
       ZLayer.succeed[TimeoutStore[String]](stores.timeouts),

@@ -47,6 +47,18 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
              PRIMARY KEY (namespace, alias_key)
            )""".dml)
+      _ <- xa.run(sql"""CREATE TABLE fsm_indexes (
+             namespace TEXT NOT NULL,
+             index_key TEXT NOT NULL,
+             instance_id TEXT NOT NULL,
+             state_name TEXT NOT NULL,
+             started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+             touched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+             edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+             rank BIGINT NOT NULL DEFAULT 0,
+             PRIMARY KEY (namespace, index_key, instance_id)
+           )""".dml)
     yield ()
 
   def spec = suite("PostgresSchema")(

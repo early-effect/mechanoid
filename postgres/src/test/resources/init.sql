@@ -82,3 +82,27 @@ CREATE TABLE IF NOT EXISTS fsm_aliases (
 
 CREATE INDEX idx_fsm_aliases_instance ON fsm_aliases (instance_id);
 CREATE INDEX idx_fsm_aliases_instance_ns ON fsm_aliases (instance_id, namespace);
+
+-- ============================================
+-- Non-unique covering index (many-to-one lookup)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS fsm_indexes (
+  namespace     VARCHAR(255) NOT NULL,
+  index_key     VARCHAR(255) NOT NULL,
+  instance_id   VARCHAR(255) NOT NULL,
+  state_name    VARCHAR(255) NOT NULL,
+  started_at    TIMESTAMPTZ NOT NULL,
+  touched_at    TIMESTAMPTZ NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL,
+  edited_at     TIMESTAMPTZ NOT NULL,
+  rank          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (namespace, index_key, instance_id)
+);
+
+CREATE INDEX idx_fsm_indexes_edited ON fsm_indexes (namespace, index_key, state_name, edited_at, instance_id);
+CREATE INDEX idx_fsm_indexes_touched ON fsm_indexes (namespace, index_key, state_name, touched_at, instance_id);
+CREATE INDEX idx_fsm_indexes_created ON fsm_indexes (namespace, index_key, state_name, created_at, instance_id);
+CREATE INDEX idx_fsm_indexes_started ON fsm_indexes (namespace, index_key, state_name, started_at, instance_id);
+CREATE INDEX idx_fsm_indexes_instance ON fsm_indexes (instance_id);
+CREATE INDEX idx_fsm_indexes_rank ON fsm_indexes (namespace, index_key, rank, instance_id);
