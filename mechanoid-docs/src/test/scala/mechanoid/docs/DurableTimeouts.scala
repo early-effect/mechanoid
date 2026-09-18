@@ -1,12 +1,14 @@
 package mechanoid.docs
 
 import mechanoid.docs.DocZIO.*
+import mechanoid.docs.platform.NamedTimeoutDemo
+import mechanoid.docs.platform.NamedTimeoutDemoUi.{Campaign, machine as campaignMachine}
 import mechanoid.*
 import specular.*
 import zio.*
 import zio.test.*
 
-object DurableTimeouts extends MechanoidDocSpecSuite:
+object DurableTimeouts extends DocSpec:
 
   type OrderId = String
 
@@ -78,18 +80,19 @@ a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
     section("Named timeouts on one leaf")(
       md"""
 Stack `@@ Aspect.timeout(event)(deadline)` to arm independent cadences on the same leaf. The name
-defaults to `Finite.nameOf(event)` (`DailyCheck`, `EndCycle`). Stay on one timeout re-arms only
-that name; Goto cancels every name for the instance.
+defaults to `Finite.nameOf(event)`. Stay on one timeout re-arms only that name; Goto cancels
+every name for the instance.
 
-```scala
-(Enqueueing via EnqueueComplete to Live) @@
-  Aspect.timeout(DailyCheck)(nextMidnight) @@
-  Aspect.timeout(EndCycle)(nextSunday)
-```
-
-`nextMidnight` / `nextSunday` can be an `Instant`, a `Duration`, or `S => Instant` evaluated at
-arm time (and again on Stay re-arm).
-"""
+The panel is a campaign: **Go live** arms `DailyCheck` (3s, Stay) and `EndCycle` (9s, Goto
+Ended). Wait for DailyCheck, or fire it: the weekly clock keeps running. EndCycle (or wait it
+out) cancels both.
+""",
+      exampleZIO {
+        ZIO.succeed(campaignMachine.timeoutsFor(Campaign.Live).map(_.name).toSet)
+      }.assert(names => assertTrue(names == Set("DailyCheck", "EndCycle"))),
+      exampleIO {
+        NamedTimeoutDemo.ui
+      }.interactive.assert(ui => assertTrue(ui.toString.nonEmpty)),
     ),
     section("TimeoutSweeper")(
       md"""

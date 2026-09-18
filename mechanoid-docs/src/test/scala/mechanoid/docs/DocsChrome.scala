@@ -185,6 +185,35 @@ object DocsChrome:
       |  flex-direction: row;
       |  align-items: center;
       |}
+      |.mechanoid-timeout-rows {
+      |  display: grid;
+      |  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+      |  gap: 0.65rem;
+      |}
+      |.mechanoid-timeout-card {
+      |  border: 1px solid #4a4b50;
+      |  border-radius: 6px;
+      |  padding: 0.65rem 0.75rem;
+      |  background: #222326;
+      |  color: #e8e6dc;
+      |}
+      |.mechanoid-timeout-card .name {
+      |  font-weight: 600;
+      |  font-size: 0.85rem;
+      |  letter-spacing: 0.03em;
+      |}
+      |.mechanoid-timeout-card .eta {
+      |  margin-top: 0.25rem;
+      |  font-variant-numeric: tabular-nums;
+      |  font-size: 1.15rem;
+      |  color: #e8a090;
+      |}
+      |.mechanoid-timeout-card.is-idle {
+      |  opacity: 0.55;
+      |}
+      |.mechanoid-timeout-card.is-idle .eta {
+      |  color: #9a9b9f;
+      |}
       |""".stripMargin
 
   val layers: ZLayer[Any, Nothing, SiteBuilder] =
