@@ -97,7 +97,7 @@ final case class TransitionSpec[+SourceS, +E, +TargetS](
     * @example
     *   {{{
     * val spec = (A via E1 to B).onEntry { (event, state) =>
-    *   ZIO.logInfo(s"Transitioned to $state")
+    *   ZIO.logInfo(s"Transitioned to \$state")
     * }
     *   }}}
     *

@@ -34,10 +34,10 @@ import mechanoid.core.MechanoidError
   *     val expiresAt = now.plusMillis(duration.toMillis)
   *     sql"""
   *       INSERT INTO leases (key, holder, expires_at, acquired_at)
-  *       VALUES ($key, $holder, $expiresAt, $now)
+  *       VALUES (\$key, \$holder, \$expiresAt, \$now)
   *       ON CONFLICT (key) DO UPDATE
-  *       SET holder = $holder, expires_at = $expiresAt, acquired_at = $now
-  *       WHERE leases.expires_at < $now OR leases.holder = $holder
+  *       SET holder = \$holder, expires_at = \$expiresAt, acquired_at = \$now
+  *       WHERE leases.expires_at < \$now OR leases.holder = \$holder
   *       RETURNING *
   *     """.query[Lease].option.transact(xa)
   * }}}

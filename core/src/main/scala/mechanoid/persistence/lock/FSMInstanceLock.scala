@@ -60,7 +60,7 @@ import mechanoid.core.MechanoidError
   *
   * -- Acquire lock (atomic upsert if expired or same node)
   * INSERT INTO fsm_instance_locks (instance_id, node_id, acquired_at, expires_at)
-  * VALUES ($1, $2, NOW(), NOW() + $3::interval)
+  * VALUES (\$1, \$2, NOW(), NOW() + \$3::interval)
   * ON CONFLICT (instance_id) DO UPDATE
   *   SET node_id = EXCLUDED.node_id,
   *       acquired_at = EXCLUDED.acquired_at,

@@ -4,8 +4,8 @@ import zio.Chunk
 
 /** Pull non-unique index keys (and optional domain clocks) out of an FSM state.
   *
-  * The function constructor is the API. [[derived]] is the convenience for `@index` constructor parameters.
-  * Nested-payload graphs write `apply` by hand; the macro does not walk nested products.
+  * The function constructor is the API. [[IndexExtractor.derived]] is the convenience for `@index` constructor
+  * parameters. Nested-payload graphs write `apply` by hand; the macro does not walk nested products.
   */
 trait IndexExtractor[-S]:
   def indexes(state: S): Chunk[IndexKey]
