@@ -116,8 +116,8 @@ object FSMRuntime:
     * This is the simplest way to use an FSM - no persistence, no distributed features. State is held in memory and lost
     * when the scope closes. Events are stored in a bounded buffer (default 1000) to prevent unbounded memory growth.
     *
-    * For custom event buffer size or unbounded storage, use [[InMemoryEventStore.layer]] with the layer-based
-    * [[FSMRuntime.apply]] instead.
+    * For custom event buffer size or unbounded storage, use [[mechanoid.stores.InMemoryEventStore]] with the
+    * layer-based [[FSMRuntime.apply]] instead.
     *
     * {{{
     * val machine = Machine(assembly[TrafficLight, TrafficEvent](

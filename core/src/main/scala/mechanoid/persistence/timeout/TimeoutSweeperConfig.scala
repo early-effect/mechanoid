@@ -4,7 +4,7 @@ import zio.Duration
 
 /** Configuration for the [[TimeoutSweeper]].
   *
-  * Uses immutable builder pattern consistent with [[mechanoid.dsl.FSMDefinition]].
+  * Uses an immutable builder, same shape as the rest of the library.
   *
   * ==Jitter Algorithm==
   *

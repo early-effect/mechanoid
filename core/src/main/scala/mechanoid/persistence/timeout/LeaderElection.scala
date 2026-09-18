@@ -32,7 +32,7 @@ import mechanoid.core.MechanoidError
   *   for
   *     leader <- LeaderElection.make(config, nodeId, leaseStore)
   *     _ <- leader.leadershipChanges.foreach { isLeader =>
-  *       ZIO.logInfo(s"Leadership changed: $isLeader")
+  *       ZIO.logInfo(s"Leadership changed: \$isLeader")
   *     }.fork
   *     // ... use leader.isLeader in sweeper
   *   yield ()

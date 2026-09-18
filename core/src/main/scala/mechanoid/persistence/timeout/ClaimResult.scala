@@ -17,7 +17,7 @@ import java.time.Instant
   *
   *   case ClaimResult.AlreadyClaimed(byNode, until) =>
   *     // Another node is processing - skip
-  *     ZIO.logDebug(s"Timeout claimed by $byNode until $until")
+  *     ZIO.logDebug(s"Timeout claimed by \$byNode until \$until")
   *
   *   case ClaimResult.NotFound =>
   *     // Timeout was cancelled or completed between query and claim

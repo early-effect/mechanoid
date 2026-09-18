@@ -17,7 +17,7 @@ import mechanoid.persistence.{
 import java.time.Instant
 import scala.scalajs.js
 
-/** IndexedDB-backed [[InstanceIndex]]. Unique key is `"$namespace:$aliasKey"`. */
+/** IndexedDB-backed [[InstanceIndex]]. Unique key is `"\$namespace:\$aliasKey"`. */
 final class IndexedDbInstanceIndex private (
     db: IDBDatabase
 ) extends InstanceIndex[String]:
