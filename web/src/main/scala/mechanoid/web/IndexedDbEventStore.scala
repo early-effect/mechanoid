@@ -8,7 +8,6 @@ import mechanoid.core.*
 import mechanoid.persistence.*
 import java.time.Instant
 import scala.scalajs.js
-import scala.scalajs.js.JSConverters.*
 
 /** IndexedDB-backed [[EventStore]] with optimistic concurrency on sequence numbers. */
 final class IndexedDbEventStore[S: JsonCodec, E: JsonCodec] private (

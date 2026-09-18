@@ -146,5 +146,5 @@ object PostgresInstanceLockSpec extends ZIOSpecDefault:
         busy.length == 2,
       )
     },
-  ).provideShared(lockLayer) @@ TestAspect.sequential
+  ).provideShared(lockLayer) @@ TestAspect.sequential @@ TestAspect.withLiveClock
 end PostgresInstanceLockSpec

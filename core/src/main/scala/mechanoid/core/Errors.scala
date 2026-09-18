@@ -178,3 +178,6 @@ final case class AliasNotFoundError(
     key: String,
 ) extends Exception(s"No instance bound to alias $namespace/$key")
     with MechanoidError
+
+/** Index query is illegal (both seek directions set, or similar). */
+final case class InvalidIndexQuery(message: String) extends Exception(message) with MechanoidError

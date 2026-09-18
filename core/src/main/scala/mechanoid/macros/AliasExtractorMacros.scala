@@ -18,17 +18,7 @@ object AliasExtractorMacros:
     val aliasSym = TypeRepr.of[alias].typeSymbol
 
     def namespaceOf(param: Symbol): Option[String] =
-      param.getAnnotation(aliasSym).map { annot =>
-        val fromArgs = annot match
-          case Apply(_, args) =>
-            args.collectFirst {
-              case Literal(StringConstant(s))              => s
-              case NamedArg(_, Literal(StringConstant(s))) => s
-            }
-          case _ => None
-        val ns = fromArgs.getOrElse("")
-        if ns.isEmpty then param.name else ns
-      }
+      if param.hasAnnotation(aliasSym) then Some(param.name) else None
 
     def encodeField(owner: Expr[Any], param: Symbol): Option[Expr[Chunk[Alias]]] =
       namespaceOf(param).map { ns =>

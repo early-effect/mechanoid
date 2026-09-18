@@ -78,13 +78,10 @@ produced event is sent back to the FSM. Errors are logged and do not fail the or
           assembly[OrderState, OrderEvent](
             (Processing via event[CheckPayment] to AwaitingResult)
               .producing { (ev, _) =>
-                ev match
-                  case CheckPayment(orderId) =>
-                    checkStatus(orderId).map {
-                      case PaymentStatus(true, txnId, _) => PaymentSucceeded(txnId)
-                      case PaymentStatus(false, _, msg)  => PaymentFailed(msg)
-                    }
-                  case _ => ZIO.succeed(PaymentFailed("unexpected event"))
+                checkStatus(ev.orderId).map {
+                  case PaymentStatus(true, txnId, _) => PaymentSucceeded(txnId)
+                  case PaymentStatus(false, _, msg)  => PaymentFailed(msg)
+                }
               },
             AwaitingResult via event[PaymentSucceeded] to Succeeded,
             AwaitingResult via event[PaymentFailed] to Failed,
@@ -117,13 +114,10 @@ produced event is sent back to the FSM. Errors are logged and do not fail the or
           assembly[OrderState, OrderEvent](
             (Processing via event[CheckPayment] to AwaitingResult)
               .producing { (ev, _) =>
-                ev match
-                  case CheckPayment(orderId) =>
-                    checkStatus(orderId).map {
-                      case PaymentStatus(true, txnId, _) => PaymentSucceeded(txnId)
-                      case PaymentStatus(false, _, msg)  => PaymentFailed(msg)
-                    }
-                  case _ => ZIO.succeed(PaymentFailed("unexpected event"))
+                checkStatus(ev.orderId).map {
+                  case PaymentStatus(true, txnId, _) => PaymentSucceeded(txnId)
+                  case PaymentStatus(false, _, msg)  => PaymentFailed(msg)
+                }
               },
             AwaitingResult via event[PaymentSucceeded] to Succeeded,
             AwaitingResult via event[PaymentFailed] to Failed,

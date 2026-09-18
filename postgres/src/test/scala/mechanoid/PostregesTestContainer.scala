@@ -1,6 +1,6 @@
 package mechanoid
 import org.postgresql.ds.PGSimpleDataSource
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
 import saferis.{ConnectionProvider, SaferisError, Transactor}
 import mechanoid.persistence.postgres.PostgresSchema
 import zio.*
@@ -16,12 +16,9 @@ object ContainerConfig:
 final case class PostgresTestContainer(
     config: ContainerConfig
 ):
-  val postgres: PostgreSQLContainer[?] =
-    val container: PostgreSQLContainer[?] =
-      new PostgreSQLContainer(config.imageName)
-        // Disable password checks
-        .withEnv("POSTGRES_HOST_AUTH_METHOD", "trust")
-    container
+  val postgres: PostgreSQLContainer =
+    new PostgreSQLContainer(config.imageName)
+      .withEnv("POSTGRES_HOST_AUTH_METHOD", "trust")
 
   def start: PostgresTestContainer =
     postgres.start()

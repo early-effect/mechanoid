@@ -15,12 +15,12 @@ semanticdbEnabled := true
 // Global settings. Iterable/mechanoid overrides group via PUBLISH_ORG from ZipxGitHubPackages.
 organization         := sys.env.getOrElse("PUBLISH_ORG", "rocks.earlyeffect")
 organizationName     := sys.env.getOrElse("PUBLISH_ORG_NAME", "Early Effect")
-organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
-licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-homepage             := Some(url("https://github.com/early-effect/mechanoid"))
+organizationHomepage := Some(uri("https://www.earlyeffect.rocks"))
+licenses             := List("Apache-2.0" -> uri("http://www.apache.org/licenses/LICENSE-2.0.txt"))
+homepage             := Some(uri("https://github.com/early-effect/mechanoid"))
 scmInfo              := Some(
   ScmInfo(
-    url("https://github.com/early-effect/mechanoid"),
+    uri("https://github.com/early-effect/mechanoid"),
     "scm:git@github.com:early-effect/mechanoid.git",
   )
 )
@@ -29,7 +29,7 @@ developers := List(
     id = "russwyte",
     name = "Russ White",
     email = "356303+russwyte@users.noreply.github.com",
-    url = url("https://github.com/russwyte"),
+    url = uri("https://github.com/russwyte"),
   )
 )
 versionScheme := Some("early-semver")
@@ -214,7 +214,8 @@ lazy val core = (projectMatrix in file("core"))
         MyVersions.moduleID(MyVersions.zioLogging)       % "provided",
         MyVersions.moduleID(MyVersions.zioLoggingSlf4j)  % "provided",
         MyVersions.moduleID(MyVersions.zioLoggingBridge) % "provided",
-      )
+      ),
+      Test / discoveredMainClasses := Seq.empty,
     ),
   )
   .jsPlatform(
@@ -234,6 +235,7 @@ lazy val postgres = project
     zioProvided,
     MyVersions.postgresLib,
     MyVersions.postgresTests,
+    Test / discoveredMainClasses := Seq.empty,
     dependencyOverrides ++= Seq(
       MyVersions.moduleID(MyVersions.commonsCompress),
     ),
@@ -297,7 +299,7 @@ lazy val specularJsLink =
 
 // --- mechanoid-web : IndexedDB persistence for browsers (JS only) ---
 lazy val web = (projectMatrix in file("web"))
-  .dependsOn(core)
+  .dependsOn(core % "compile->compile;test->test")
   .settings(
     name        := "mechanoid-web",
     description := "IndexedDB persistence and multi-tab sync for Mechanoid on Scala.js",
@@ -396,8 +398,11 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
             Seq(
               base / "Interactive.scala",
               base / "ExampleRegistry.scala",
+              base / "DocZIO.scala",
+              base / "Indexing.scala",
               base / "platform" / "OrderDemoUi.scala",
               base / "platform" / "PublishDemoUi.scala",
+              base / "platform" / "TicketIndexDemoUi.scala",
             )
           },
           scalaJSUseMainModuleInitializer := true,

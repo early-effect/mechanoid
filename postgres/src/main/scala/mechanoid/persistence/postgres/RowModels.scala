@@ -67,3 +67,17 @@ final case class AliasRow(
     @label("instance_id") instanceId: String,
     @label("created_at") createdAt: Instant,
 ) derives Table
+
+/** Row model for fsm_indexes table (non-unique covering projection). */
+@tableName("fsm_indexes")
+final case class FsmIndexRow(
+    @key namespace: String,
+    @key @label("index_key") indexKey: String,
+    @key @label("instance_id") instanceId: String,
+    @label("state_name") stateName: String,
+    @label("started_at") startedAt: Instant,
+    @label("touched_at") touchedAt: Instant,
+    @label("created_at") createdAt: Instant,
+    @label("edited_at") editedAt: Instant,
+    rank: Long = 0L,
+) derives Table

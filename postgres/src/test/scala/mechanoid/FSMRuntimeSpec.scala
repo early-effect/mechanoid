@@ -4,6 +4,7 @@ import zio.*
 import zio.test.*
 import zio.json.*
 import saferis.{SaferisError, Transactor}
+import mechanoid.core.{Finite, alias}
 import mechanoid.machine.*
 import mechanoid.persistence.*
 import mechanoid.persistence.postgres.{PostgresEventStore, PostgresInstanceIndex}
@@ -30,6 +31,9 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
 
   enum OrderEvent derives JsonCodec:
     case Pay, Ship, Deliver
+
+  enum LookupCampaign derives Finite:
+    case Live(@alias campaign: String)
 
   import OrderState.*
   import OrderEvent.*
@@ -852,7 +856,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
   def postgresAliasLookupSuite = suite("PostgreSQL alias lookup")(
     test("lookup reconstructs after restart") {
       val id    = uniqueId("init")
-      val alias = Alias("campaign", uniqueId("c"))
+      val alias = Alias.of[LookupCampaign].campaign(uniqueId("c"))
       for
         index <- ZIO.service[InstanceIndex[String]]
         _     <- ZIO.scoped {

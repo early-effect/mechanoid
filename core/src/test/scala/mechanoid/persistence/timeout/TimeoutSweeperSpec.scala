@@ -143,7 +143,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           // The sweeper resolves events via Machine, so we can use a single runtime
           _ <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, runtime)
               // First sweep runs immediately, second after interval
               _ <- TestClock.adjust(Duration.fromMillis(50))
               _ <- ZIO.yieldNow

@@ -136,5 +136,6 @@ object InMemoryInstanceIndexSpec extends ZIOSpecDefault:
         yield assertTrue(n == 2L, left1.isEmpty, left2.contains("init-2"))
       },
     ),
-  ) @@ TestAspect.timeout(10.seconds)
+    InstanceIndexLaws(InMemoryInstanceIndex.make[String], distractorN = 500),
+  ) @@ TestAspect.timeout(60.seconds)
 end InMemoryInstanceIndexSpec
