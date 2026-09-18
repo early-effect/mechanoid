@@ -168,5 +168,5 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         result <- store.get("does-not-exist")
       yield assertTrue(result.isEmpty)
     },
-  ).provideShared(storeLayer) @@ TestAspect.sequential
+  ).provideShared(storeLayer) @@ TestAspect.sequential @@ TestAspect.withLiveClock
 end PostgresTimeoutStoreSpec

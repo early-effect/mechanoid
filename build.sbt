@@ -214,7 +214,8 @@ lazy val core = (projectMatrix in file("core"))
         MyVersions.moduleID(MyVersions.zioLogging)       % "provided",
         MyVersions.moduleID(MyVersions.zioLoggingSlf4j)  % "provided",
         MyVersions.moduleID(MyVersions.zioLoggingBridge) % "provided",
-      )
+      ),
+      Test / discoveredMainClasses := Seq.empty,
     ),
   )
   .jsPlatform(
@@ -234,6 +235,7 @@ lazy val postgres = project
     zioProvided,
     MyVersions.postgresLib,
     MyVersions.postgresTests,
+    Test / discoveredMainClasses := Seq.empty,
     dependencyOverrides ++= Seq(
       MyVersions.moduleID(MyVersions.commonsCompress),
     ),

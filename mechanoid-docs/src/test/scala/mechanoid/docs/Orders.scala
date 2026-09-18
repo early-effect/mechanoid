@@ -28,16 +28,10 @@ object Orders extends MechanoidDocSpecSuite:
     assembly[OrderState, OrderEvent](
       (Created via event[InitiatePayment] to PaymentProcessing)
         .onEntry { (e, _) =>
-          e match
-            case InitiatePayment(id, amount) =>
-              ZIO.logInfo(s"order $id: charging $$$amount")
-            case _ => ZIO.unit
+          ZIO.logInfo(s"order ${e.orderId}: charging $$${e.amount}")
         }
         .producing { (e, _) =>
-          e match
-            case InitiatePayment(id, _) =>
-              ZIO.succeed(PaymentSucceeded(id, "txn-doc"))
-            case _ => ZIO.succeed(PaymentFailed(0, "unexpected"))
+          ZIO.succeed(PaymentSucceeded(e.orderId, "txn-doc"))
         } @@ Aspect.timeout(5.minutes, PaymentTimeout),
       PaymentProcessing via event[PaymentSucceeded] to Paid,
       PaymentProcessing via event[PaymentFailed] to Cancelled,

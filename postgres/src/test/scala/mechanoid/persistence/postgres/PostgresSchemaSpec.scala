@@ -10,6 +10,10 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
   // Use a plain connection provider without auto-initialization for these tests
   val plainXaLayer = DataSourceProvider.default >>> Transactor.default
 
+  private def resetSchema(xa: Transactor) =
+    xa.run(sql"DROP SCHEMA IF EXISTS public CASCADE".dml) *>
+      xa.run(sql"CREATE SCHEMA public".dml)
+
   // Helper to create all required tables except the one being tested
   private def createOtherTables(xa: Transactor) =
     for
@@ -61,41 +65,42 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
            )""".dml)
     yield ()
 
-  def spec = suite("PostgresSchema")(
-    test("initialize creates tables on empty database") {
-      for result <- PostgresSchema.initialize
-      yield assertTrue(result == PostgresSchema.InitResult.Created)
-    }.provide(plainXaLayer),
-    test("initialize verifies existing tables on second call") {
-      for
-        result1 <- PostgresSchema.initialize
-        result2 <- PostgresSchema.initialize
-      yield assertTrue(
-        result1 == PostgresSchema.InitResult.Created,
-        result2 == PostgresSchema.InitResult.Verified,
-      )
-    }.provide(plainXaLayer),
-    test("createIfNotExists returns true when tables created") {
-      for created <- PostgresSchema.createIfNotExists
-      yield assertTrue(created)
-    }.provide(plainXaLayer),
-    test("createIfNotExists returns false when tables exist") {
-      for
-        _       <- PostgresSchema.createIfNotExists
-        created <- PostgresSchema.createIfNotExists
-      yield assertTrue(!created)
-    }.provide(plainXaLayer),
-    test("verify passes when schema is correct") {
-      for
-        _      <- PostgresSchema.createIfNotExists
-        result <- PostgresSchema.verify.either
-      yield assertTrue(result.isRight)
-    }.provide(plainXaLayer),
-    test("verify detects missing table") {
-      for
-        xa <- ZIO.service[Transactor]
-        // Create only fsm_events, not all tables
-        _ <- xa.run(sql"""CREATE TABLE fsm_events (
+  def spec = (
+    suite("PostgresSchema")(
+      test("initialize creates tables on empty database") {
+        for result <- PostgresSchema.initialize
+        yield assertTrue(result == PostgresSchema.InitResult.Created)
+      },
+      test("initialize verifies existing tables on second call") {
+        for
+          result1 <- PostgresSchema.initialize
+          result2 <- PostgresSchema.initialize
+        yield assertTrue(
+          result1 == PostgresSchema.InitResult.Created,
+          result2 == PostgresSchema.InitResult.Verified,
+        )
+      },
+      test("createIfNotExists returns true when tables created") {
+        for created <- PostgresSchema.createIfNotExists
+        yield assertTrue(created)
+      },
+      test("createIfNotExists returns false when tables exist") {
+        for
+          _       <- PostgresSchema.createIfNotExists
+          created <- PostgresSchema.createIfNotExists
+        yield assertTrue(!created)
+      },
+      test("verify passes when schema is correct") {
+        for
+          _      <- PostgresSchema.createIfNotExists
+          result <- PostgresSchema.verify.either
+        yield assertTrue(result.isRight)
+      },
+      test("verify detects missing table") {
+        for
+          xa <- ZIO.service[Transactor]
+          // Create only fsm_events, not all tables
+          _ <- xa.run(sql"""CREATE TABLE fsm_events (
                id BIGSERIAL PRIMARY KEY,
                instance_id TEXT NOT NULL,
                sequence_nr BIGINT NOT NULL,
@@ -103,52 +108,52 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                UNIQUE (instance_id, sequence_nr)
              )""".dml)
-        result <- PostgresSchema.verify.either
-      yield result match
-        case Left(SaferisError.SchemaValidation(issues)) =>
-          assertTrue(
-            issues.exists {
-              case SchemaIssue.TableNotFound(name) => name == "fsm_snapshots" || name == "leases"
-              case _                               => false
-            }
-          )
-        case Left(_)  => assertTrue(false)
-        case Right(_) => assertTrue(false)
-    }.provide(plainXaLayer),
-    test("verify detects missing column") {
-      for
-        xa <- ZIO.service[Transactor]
-        // Create fsm_events with missing event_data column
-        _ <- xa.run(sql"""CREATE TABLE fsm_events (
+          result <- PostgresSchema.verify.either
+        yield result match
+          case Left(SaferisError.SchemaValidation(issues)) =>
+            assertTrue(
+              issues.exists {
+                case SchemaIssue.TableNotFound(name) => name == "fsm_snapshots" || name == "leases"
+                case _                               => false
+              }
+            )
+          case Left(_)  => assertTrue(false)
+          case Right(_) => assertTrue(false)
+      },
+      test("verify detects missing column") {
+        for
+          xa <- ZIO.service[Transactor]
+          // Create fsm_events with missing event_data column
+          _ <- xa.run(sql"""CREATE TABLE fsm_events (
                id BIGSERIAL PRIMARY KEY,
                instance_id TEXT NOT NULL,
                sequence_nr BIGINT NOT NULL,
                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
              )""".dml)
-        // Create other required tables with correct schema
-        _      <- createOtherTables(xa)
-        result <- PostgresSchema.verify.either
-      yield result match
-        case Left(SaferisError.SchemaValidation(issues)) =>
-          assertTrue(
-            issues.exists {
-              case SchemaIssue.MissingColumn("fsm_events", "event_data", _) => true
-              case _                                                        => false
-            }
-          )
-        case Left(_)  => assertTrue(false)
-        case Right(_) => assertTrue(false)
-    }.provide(plainXaLayer),
-    test("all managed tables are verified") {
-      for
-        _      <- PostgresSchema.initialize
-        result <- PostgresSchema.verify.either
-      yield assertTrue(result.isRight)
-    }.provide(plainXaLayer),
-    test("initialize creates fsm_aliases when other tables already exist") {
-      for
-        xa <- ZIO.service[Transactor]
-        _  <- xa.run(sql"""CREATE TABLE fsm_events (
+          // Create other required tables with correct schema
+          _      <- createOtherTables(xa)
+          result <- PostgresSchema.verify.either
+        yield result match
+          case Left(SaferisError.SchemaValidation(issues)) =>
+            assertTrue(
+              issues.exists {
+                case SchemaIssue.MissingColumn("fsm_events", "event_data", _) => true
+                case _                                                        => false
+              }
+            )
+          case Left(_)  => assertTrue(false)
+          case Right(_) => assertTrue(false)
+      },
+      test("all managed tables are verified") {
+        for
+          _      <- PostgresSchema.initialize
+          result <- PostgresSchema.verify.either
+        yield assertTrue(result.isRight)
+      },
+      test("initialize creates fsm_aliases when other tables already exist") {
+        for
+          xa <- ZIO.service[Transactor]
+          _  <- xa.run(sql"""CREATE TABLE fsm_events (
                id BIGSERIAL PRIMARY KEY,
                instance_id TEXT NOT NULL,
                sequence_nr BIGINT NOT NULL,
@@ -156,27 +161,30 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                UNIQUE (instance_id, sequence_nr)
              )""".dml)
-        _      <- createOtherTables(xa)
-        _      <- xa.run(sql"DROP TABLE fsm_aliases".dml)
-        result <- PostgresSchema.initialize
-        verify <- PostgresSchema.verify.either
-      yield assertTrue(result == PostgresSchema.InitResult.Created, verify.isRight)
-    }.provide(plainXaLayer),
-    test("init.sql produces schema compatible with PostgresSchema.verify") {
-      for
-        xa      <- ZIO.service[Transactor]
-        initSql <- ZIO.attempt {
-          val stream = getClass.getResourceAsStream("/init.sql")
-          try scala.io.Source.fromInputStream(stream).mkString
-          finally stream.close()
-        }.orDie
-        // Execute each statement from init.sql
-        _ <- ZIO.foreach(initSql.split(";").map(_.trim).filter(_.nonEmpty)) { stmt =>
-          xa.run(SqlFragment(stmt, Seq.empty).dml)
-        }
-        // Verify the schema created by init.sql passes Saferis verification
-        result <- PostgresSchema.verify.either
-      yield assertTrue(result.isRight)
-    }.provide(plainXaLayer),
-  ) @@ TestAspect.sequential
+          _      <- createOtherTables(xa)
+          _      <- xa.run(sql"DROP TABLE fsm_aliases".dml)
+          result <- PostgresSchema.initialize
+          verify <- PostgresSchema.verify.either
+        yield assertTrue(result == PostgresSchema.InitResult.Created, verify.isRight)
+      },
+      test("init.sql produces schema compatible with PostgresSchema.verify") {
+        for
+          xa      <- ZIO.service[Transactor]
+          initSql <- ZIO.attempt {
+            val stream = getClass.getResourceAsStream("/init.sql")
+            try scala.io.Source.fromInputStream(stream).mkString
+            finally stream.close()
+          }.orDie
+          // Execute each statement from init.sql
+          _ <- ZIO.foreach(initSql.split(";").map(_.trim).filter(_.nonEmpty)) { stmt =>
+            xa.run(SqlFragment(stmt, Seq.empty).dml)
+          }
+          // Verify the schema created by init.sql passes Saferis verification
+          result <- PostgresSchema.verify.either
+        yield assertTrue(result.isRight)
+      },
+    ) @@ TestAspect.sequential @@ TestAspect.before {
+      ZIO.serviceWithZIO[Transactor](resetSchema)
+    }
+  ).provideShared(plainXaLayer) @@ TestAspect.withLiveClock
 end PostgresSchemaSpec

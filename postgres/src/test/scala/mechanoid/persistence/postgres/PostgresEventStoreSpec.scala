@@ -250,5 +250,5 @@ object PostgresEventStoreSpec extends ZIOSpecDefault:
         }
       },
     ) @@ TestAspect.samples(25),
-  ).provideShared(storeLayer) @@ TestAspect.sequential
+  ).provideShared(storeLayer) @@ TestAspect.sequential @@ TestAspect.withLiveClock
 end PostgresEventStoreSpec
