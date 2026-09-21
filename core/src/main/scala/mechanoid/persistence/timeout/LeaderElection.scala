@@ -62,7 +62,7 @@ object LeaderElection:
     *   2. If acquired, renews periodically
     *   3. If lost or failed, waits and retries
     *
-    * The service is scoped - the background fiber is interrupted when the scope closes.
+    * The service is scoped. Closing the scope stops renewal and releases the lease.
     *
     * @param config
     *   Leader election configuration
@@ -81,23 +81,27 @@ object LeaderElection:
     for
       isLeaderRef <- Ref.make(false)
       hub         <- Hub.bounded[Boolean](16)
-      _           <- runLeadershipLoop(config, nodeId, store, isLeaderRef, hub).forkScoped
-    yield new LeaderElection:
-      def isLeader: UIO[Boolean] = isLeaderRef.get
+      fiber       <- runLeadershipLoop(config, nodeId, store, isLeaderRef, hub).forkScoped
+      election = new LeaderElection:
+        def isLeader: UIO[Boolean] = isLeaderRef.get
 
-      def leadershipChanges: ZStream[Any, Nothing, Boolean] =
-        ZStream.fromHub(hub)
+        def leadershipChanges: ZStream[Any, Nothing, Boolean] =
+          ZStream.fromHub(hub)
 
-      def resign: UIO[Unit] =
-        isLeaderRef.get.flatMap { wasLeader =>
-          ZIO
-            .when(wasLeader)(
-              store.release(config.leaseKey, nodeId).ignore *>
-                isLeaderRef.set(false) *>
-                hub.publish(false).unit
-            )
-            .unit
-        }
+        def resign: UIO[Unit] =
+          // Stop renewing before releasing, or the loop can write the lease back.
+          fiber.interrupt *>
+            isLeaderRef.get.flatMap { wasLeader =>
+              ZIO
+                .when(wasLeader)(
+                  store.release(config.leaseKey, nodeId).ignore *>
+                    isLeaderRef.set(false) *>
+                    hub.publish(false).unit
+                )
+                .unit
+            }
+      _ <- ZIO.addFinalizer(election.resign)
+    yield election
 
   private def runLeadershipLoop(
       config: LeaderElectionConfig,

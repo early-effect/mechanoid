@@ -146,8 +146,9 @@ object TimeoutSweeper:
 
   /** Create and start a timeout sweeper that reconstructs per claimed instance id.
     *
-    * The sweeper starts immediately and runs until the scope closes or `stop` is called. After claiming a row it runs
-    * `open(timeout.instanceId)` inside `ZIO.scoped`, then `send`s on that runtime.
+    * The sweeper starts immediately and runs until the scope closes or `stop` is called. Either one releases a held
+    * leader lease. After claiming a row it runs `open(timeout.instanceId)` inside `ZIO.scoped`, then `send`s on that
+    * runtime.
     *
     * `open` should be `id => FSMRuntime.existing(id, machine, initial)` for load-on-demand servers. Use durable
     * timeouts on that reconstruct; fiber timeouts leak across request/sweeper scopes.
@@ -226,13 +227,16 @@ object TimeoutSweeper:
         metricsRef,
         leaderElection,
       ).forkScoped
-    yield new TimeoutSweeper:
-      def isRunning: UIO[Boolean]      = runningRef.get
-      def metrics: UIO[SweeperMetrics] = metricsRef.get
-      def stop: UIO[Unit]              =
-        runningRef.set(false) *>
-          loop.interrupt.ignore *>
-          leaderElection.fold(ZIO.unit)(_.resign)
+      sweeper = new TimeoutSweeper:
+        def isRunning: UIO[Boolean]      = runningRef.get
+        def metrics: UIO[SweeperMetrics] = metricsRef.get
+        def stop: UIO[Unit]              =
+          runningRef.set(false) *>
+            loop.interrupt *>
+            leaderElection.fold(ZIO.unit)(_.resign)
+      // Scope close is shutdown. Resign so the next node does not wait out the lease.
+      _ <- ZIO.addFinalizer(sweeper.stop)
+    yield sweeper
     end for
   end start
 

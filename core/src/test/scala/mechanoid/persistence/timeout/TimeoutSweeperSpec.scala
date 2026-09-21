@@ -129,6 +129,18 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
   // IMPORTANT: Use testMachine.stateEnum to ensure same Finite instance as the sweeper
   private val processingStateHash: Int = testMachine.stateEnum.caseHash(Processing)
 
+  private def leaderSweepConfig(nodeId: String, leaseKey: String): TimeoutSweeperConfig =
+    TimeoutSweeperConfig()
+      .withLeaderElection(
+        LeaderElectionConfig()
+          .withRenewalInterval(Duration.fromMillis(20))
+          .withLeaseDuration(Duration.fromMillis(80))
+          .withLeaseKey(leaseKey)
+      )
+      .withSweepInterval(Duration.fromMillis(20))
+      .withJitterFactor(0.0)
+      .withNodeId(nodeId)
+
   private def stubRow(instanceId: String, now: Instant): ScheduledTimeout[String] =
     ScheduledTimeout(instanceId, "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10), now.minusSeconds(20))
 
@@ -1138,6 +1150,91 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           metrics.sweepCount >= 1, // But sweep loop ran
         )
       },
+      test("a sweeper fires only after the dead holder's lease expires") {
+        val key = "dead-holder"
+        for
+          store      <- InMemoryTimeoutStore.make[String]
+          leaseStore <- ZIO.succeed(new InMemoryLeaseStore())
+          eventsRef  <- Ref.make(List.empty[(String, TestEvent)])
+          runtime = makeMockRuntime(eventsRef, "fsm-1")
+          now <- Clock.instant
+          _   <- leaseStore.tryAcquire(key, "dead", Duration.fromMillis(80), now)
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.minusSeconds(10))
+          config = TimeoutSweeperConfig()
+            .withLeaderElection(
+              LeaderElectionConfig()
+                .withRenewalInterval(Duration.fromMillis(20))
+                .withLeaseDuration(Duration.fromMillis(80))
+                .withLeaseKey(key)
+            )
+            .withSweepInterval(Duration.fromMillis(20))
+            .withJitterFactor(0.0)
+            .withNodeId("survivor")
+          observed <- ZIO.scoped {
+            for
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime), Some(leaseStore))
+              _       <- ZIO.yieldNow
+              _       <- TestClock.adjust(Duration.fromMillis(40))
+              _       <- ZIO.yieldNow
+              early   <- eventsRef.get
+              mid     <- sweeper.metrics
+              _       <- TestClock.adjust(Duration.fromMillis(80))
+              _       <- ZIO.yieldNow
+              late    <- eventsRef.get
+              done    <- sweeper.metrics
+              holder  <- leaseStore.get(key)
+            yield (early, mid, late, done, holder)
+          }
+        yield assertTrue(
+          observed._1.isEmpty,
+          observed._2.timeoutsFired == 0,
+          observed._3.length == 1,
+          observed._4.timeoutsFired == 1,
+          observed._5.exists(_.isHeldBy("survivor")),
+        )
+        end for
+      },
+      test("closing the leader scope lets the next sweeper fire") {
+        val key = "leader-handoff"
+        for
+          store      <- InMemoryTimeoutStore.make[String]
+          leaseStore <- ZIO.succeed(new InMemoryLeaseStore())
+          eventsRef  <- Ref.make(List.empty[(String, TestEvent)])
+          runtime = makeMockRuntime(eventsRef, "fsm-1")
+          now <- Clock.instant
+          _   <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, defaultSeqNr, now.plusSeconds(5))
+          open = (nodeId: String) =>
+            for
+              scope   <- Scope.make
+              sweeper <- TimeoutSweeper
+                .make(leaderSweepConfig(nodeId, key), store, alwaysOpen(runtime), Some(leaseStore))
+                .provideSome[InstanceMailbox[String]](ZLayer.succeed[Scope](scope))
+            yield (scope, sweeper)
+          scopeA   <- open("node-a")
+          _        <- ZIO.yieldNow *> TestClock.adjust(Duration.fromMillis(30)) *> ZIO.yieldNow
+          heldByA  <- leaseStore.get(key)
+          _        <- ZIO.when(heldByA.forall(!_.isHeldBy("node-a")))(ZIO.dieMessage("node-a should be leader"))
+          scopeB   <- open("node-b")
+          _        <- TestClock.adjust(Duration.fromMillis(10)) *> ZIO.yieldNow
+          unfired  <- eventsRef.get
+          _        <- scopeA._1.close(Exit.unit)
+          released <- leaseStore.get(key)
+          _        <- TestClock.adjust(Duration.fromSeconds(6)) *> ZIO.yieldNow
+          fired    <- eventsRef.get
+          firedA   <- scopeA._2.metrics
+          firedB   <- scopeB._2.metrics
+          holder   <- leaseStore.get(key)
+          _        <- scopeB._1.close(Exit.unit)
+        yield assertTrue(
+          unfired.isEmpty,
+          released.isEmpty,
+          fired.length == 1,
+          firedA.timeoutsFired == 0,
+          firedB.timeoutsFired == 1,
+          holder.exists(_.isHeldBy("node-b")),
+        )
+        end for
+      },
     ),
     suite("jitter schedule")(
       test("applies jitter when jitterFactor > 0") {
@@ -1271,10 +1368,10 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
               _       <- TestClock.adjust(Duration.fromMillis(50))
               _       <- ZIO.yieldNow
               metrics <- sweeper.metrics
-            // Sweeper will be stopped when scope closes, triggering resign
             yield metrics.sweepCount
           }
-        yield assertTrue(sweepCount >= 1) // Sweeper ran, and scope close triggered stop/resign
+          lease <- leaseStore.get("mechanoid-timeout-leader")
+        yield assertTrue(sweepCount >= 1, lease.isEmpty)
       },
       test("stop without leader election just sets running to false") {
         for

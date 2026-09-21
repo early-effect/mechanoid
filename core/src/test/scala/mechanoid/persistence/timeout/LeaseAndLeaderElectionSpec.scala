@@ -228,6 +228,43 @@ object LeaseAndLeaderElectionSpec extends ZIOSpecDefault:
           yield assertTrue(isLeader1, !isLeader2)
         }
       },
+      test("closing the leader scope releases the lease and the waiter takes it") {
+        val store  = new InMemoryLeaseStore()
+        val config = LeaderElectionConfig()
+          .withRenewalInterval(Duration.fromMillis(20))
+          .withLeaseDuration(Duration.fromMillis(80))
+          .withLeaseKey("handoff")
+        for
+          scope1 <- Scope.make
+          leader <- LeaderElection
+            .make(config, "node-1", store)
+            .provide(ZLayer.succeed[Scope](scope1))
+          _           <- TestClock.adjust(Duration.fromMillis(1)) *> ZIO.yieldNow
+          _           <- leader.isLeader.repeatUntil(identity)
+          heldBefore  <- store.get("handoff")
+          now         <- Clock.instant
+          waiterLeads <- ZIO.scoped {
+            for
+              waiter   <- LeaderElection.make(config, "node-2", store)
+              _        <- TestClock.adjust(Duration.fromMillis(1)) *> ZIO.yieldNow
+              _        <- scope1.close(Exit.unit)
+              released <- store.get("handoff")
+              still    <- leader.isLeader
+              _        <- TestClock.adjust(Duration.fromMillis(80)) *> ZIO.yieldNow
+              nowLeads <- waiter.isLeader
+              held     <- store.get("handoff")
+            yield assertTrue(
+              heldBefore.exists(_.isHeldBy("node-1")),
+              heldBefore.exists(_.expiresAt.isAfter(now)),
+              released.isEmpty,
+              !still,
+              nowLeads,
+              held.exists(_.isHeldBy("node-2")),
+            )
+          }
+        yield waiterLeads
+        end for
+      },
       test("resign releases leadership") {
         val store  = new InMemoryLeaseStore()
         val config = LeaderElectionConfig()
