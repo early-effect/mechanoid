@@ -2,15 +2,16 @@ package mechanoid.persistence.timeout
 
 import zio.*
 import zio.test.*
-import mechanoid.core.Finite
-import mechanoid.machine.{Aspect, Machine, assembly, via}
+import mechanoid.core.{Finite, SequenceConflictError}
+import mechanoid.machine.{Aspect, Machine, assembly, stay, via}
+import mechanoid.persistence.{EventStore, FSMSnapshot}
 import mechanoid.runtime.{FSMRuntime, InstanceMailbox}
 import mechanoid.runtime.locking.LockingStrategy
 import mechanoid.runtime.timeout.TimeoutStrategy
 import mechanoid.stores.{InMemoryEventStore, InMemoryTimeoutStore}
 
-/** Three independent sweeper nodes on shared in-memory stores. Dual-fire is allowed. A machine left in Waiting is the
-  * failure.
+/** Three independent sweeper nodes on shared in-memory stores. A machine left in Waiting is the failure. A Stay timeout
+  * is appended once per armed generation.
   */
 object InMemoryTimeoutClusterSpec extends ZIOSpecDefault:
 
@@ -30,7 +31,10 @@ object InMemoryTimeoutClusterSpec extends ZIOSpecDefault:
     )
   )
 
-  private def layers(events: InMemoryEventStore[String, ClusterState, ClusterEvent], timeouts: TimeoutStore[String]) =
+  private def layers(
+      events: EventStore[String, ClusterState, ClusterEvent],
+      timeouts: TimeoutStore[String],
+  ) =
     val timeoutEnv = ZLayer.succeed(timeouts)
     ZLayer.succeed(events) ++
       timeoutEnv ++
@@ -131,5 +135,84 @@ object InMemoryTimeoutClusterSpec extends ZIOSpecDefault:
         state <- FSMRuntime.readState("fail-over", machine, Idle).provide(ZLayer.succeed(events))
       yield assertTrue(state.contains(Done))
     },
+    test("two sweepers append a Stay timeout once per armed generation") {
+      for
+        underlying <- InMemoryEventStore.makeUnbounded[String, ClusterState, ClusterEvent]
+        lock       <- Semaphore.make(1)
+        events = new SequencingStore(underlying, lock)
+        timeouts <- InMemoryTimeoutStore.make[String]
+        env = layers(events, timeouts)
+        _ <- ZIO
+          .scoped(FSMRuntime("stay", stayMachine, ClusterState.Idle).flatMap(_.send(ClusterEvent.Arm)))
+          .provide(
+            env
+          )
+        now <- Clock.instant
+        _   <- timeouts.get("stay", "Tick").flatMap {
+          case Some(row) =>
+            timeouts.cancel("stay", "Tick") *>
+              timeouts.schedule("stay", "Tick", row.stateHash, row.sequenceNr, now.minusSeconds(1))
+          case None => ZIO.dieMessage("stay should have armed Tick")
+        }
+        _ <- ZIO.scoped {
+          for
+            _ <- startStay("a", events, timeouts)
+            _ <- startStay("b", events, timeouts)
+            _ <- TestClock.adjust(200.millis)
+            _ <- ZIO.yieldNow
+            _ <- TestClock.adjust(200.millis)
+            _ <- ZIO.yieldNow
+          yield ()
+        }
+        logged <- events.loadEvents("stay").runCollect
+        row    <- timeouts.get("stay", "Tick")
+        later  <- Clock.instant
+      yield assertTrue(
+        logged.count(_.event == ClusterEvent.Tick) == 1,
+        row.exists(_.deadline.isAfter(later)),
+      )
+    },
   )
+
+  private val stayMachine = Machine(
+    assembly[ClusterState, ClusterEvent](
+      (Idle via Arm to Waiting) @@ Aspect.timeout(1.hour, Tick),
+      Waiting via Tick to stay,
+    )
+  )
+
+  private def startStay(
+      nodeId: String,
+      events: EventStore[String, ClusterState, ClusterEvent],
+      timeouts: TimeoutStore[String],
+  ): ZIO[Scope, mechanoid.core.MechanoidError, TimeoutSweeper] =
+    TimeoutSweeper
+      .make(
+        TimeoutSweeperConfig()
+          .withNodeId(nodeId)
+          .withSweepInterval(20.millis)
+          .withJitterFactor(0.0)
+          .withClaimDuration(5.seconds),
+        timeouts,
+        id => FSMRuntime.existing(id, stayMachine, Idle).provideSome[Scope](layers(events, timeouts)),
+      )
+      .provideSome[Scope](InstanceMailbox.layer[String])
+
+  /** In-memory append ignores `expectedSeqNr`. This wrapper fails the loser so two sweepers cannot both commit. */
+  private final class SequencingStore(
+      underlying: InMemoryEventStore[String, ClusterState, ClusterEvent],
+      lock: Semaphore,
+  ) extends EventStore[String, ClusterState, ClusterEvent]:
+    override def append(instanceId: String, event: ClusterEvent, expectedSeqNr: Long) =
+      lock.withPermit {
+        underlying.highestSequenceNr(instanceId).flatMap { actual =>
+          if actual == expectedSeqNr then underlying.append(instanceId, event, expectedSeqNr)
+          else ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, actual))
+        }
+      }
+    override def loadEvents(instanceId: String)                            = underlying.loadEvents(instanceId)
+    override def loadSnapshot(instanceId: String)                          = underlying.loadSnapshot(instanceId)
+    override def saveSnapshot(snapshot: FSMSnapshot[String, ClusterState]) = underlying.saveSnapshot(snapshot)
+    override def highestSequenceNr(instanceId: String)                     = underlying.highestSequenceNr(instanceId)
+  end SequencingStore
 end InMemoryTimeoutClusterSpec

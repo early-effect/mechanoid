@@ -258,6 +258,35 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
         away.flatMap(_.claimedBy).isEmpty,
       )
     },
+    test("stopping a sweeper that holds the claim does not count a fire") {
+      for
+        events   <- InMemoryEventStore.makeUnbounded[String, Leaf, Signal]
+        timeouts <- InMemoryTimeoutStore.make[String]
+        _        <- arm(events, timeouts, "held", conflictMachine)
+        gate     <- Promise.make[Nothing, Unit]
+        claimed  <- Promise.make[Nothing, Unit]
+        store = ClaimSignal(timeouts, claimed)
+        sent <- Ref.make(List.empty[Signal])
+        runtime = blockingRuntime(sent, "held", gate)
+        doomedFired <- ZIO.scoped {
+          for
+            sweeper <- TimeoutSweeper.make(config("doomed"), store, _ => ZIO.succeed(runtime))
+            _       <- claimed.await
+            _       <- sweeper.stop
+            fired   <- sweeper.metrics.map(_.timeoutsFired)
+          yield fired
+        }
+        open = (id: String) =>
+          FSMRuntime.existing(id, conflictMachine, Idle).provideSome[Scope](durableLayers(events, timeouts))
+        _      <- sweepOnce(TimeoutSweeper.make(config("survivor"), timeouts, open))
+        state  <- FSMRuntime.readState("held", conflictMachine, Idle).provide(ZLayer.succeed(events))
+        logged <- events.loadEvents("held").runCollect
+      yield assertTrue(
+        doomedFired == 0,
+        logged.count(_.event == Tick) == 1,
+        state.contains(Done),
+      )
+    } @@ TestAspect.timeout(20.seconds),
     test("interrupting a blocked send releases the claim") {
       for
         timeouts <- InMemoryTimeoutStore.make[String]

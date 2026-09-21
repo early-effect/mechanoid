@@ -45,5 +45,25 @@ object InstanceMailboxSpec extends ZIOSpecDefault:
         _    <- f2.join
       yield assertTrue(peak == 2)
     },
+    test("repeating an id does not add another gate") {
+      for
+        box <- InstanceMailbox.makeCounted[String](maxIdle = 8)
+        _   <- ZIO.foreachDiscard(1 to 20)(_ => box.run("same")(ZIO.unit))
+        n   <- box.cachedCount
+      yield assertTrue(n == 1)
+    },
+    test("idle gates over capacity are dropped and a held id stays") {
+      for
+        box     <- InstanceMailbox.makeCounted[String](maxIdle = 1)
+        started <- Promise.make[Nothing, Unit]
+        holder  <- box.run("hot")(started.succeed(()) *> ZIO.sleep(1.hour)).fork
+        _       <- started.await
+        _       <- ZIO.foreachDiscard(1 to 5)(i => box.run(s"n$i")(ZIO.unit))
+        during  <- box.cachedCount
+        _       <- TestClock.adjust(1.hour)
+        _       <- holder.join
+        after   <- box.cachedCount
+      yield assertTrue(during == 1, after == 1)
+    },
   )
 end InstanceMailboxSpec

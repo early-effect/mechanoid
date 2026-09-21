@@ -106,10 +106,11 @@ object PostgresTimeoutClusterSpec extends ZIOSpecDefault:
           events.loadEvents(id).runCollect.map(ev => id -> ev.count(_.event == Tick))
         }
         leftover <- ZIO.foreach(ids)(id => timeouts.get(id, "Tick"))
-        _ = metrics
+        (m1, m2, m3) = metrics
       yield assertTrue(
         states.forall(_._2.contains(Done)),
-        ticks.forall(_._2 >= 1),
+        ticks.forall(_._2 == 1),
+        m1.timeoutsFired + m2.timeoutsFired + m3.timeoutsFired == n,
         leftover.forall(_.isEmpty),
       )
       end for
