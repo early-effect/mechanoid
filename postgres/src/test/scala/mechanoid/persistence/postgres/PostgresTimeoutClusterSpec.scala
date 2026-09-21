@@ -81,7 +81,7 @@ object PostgresTimeoutClusterSpec extends ZIOSpecDefault:
           val id = uniqueId(s"cluster-$i")
           ZIO.scoped(FSMRuntime(id, machine, Idle).flatMap(_.send(Arm)).as(id)).provide(layers)
         }
-        metrics <- ZIO.scoped {
+        fired <- ZIO.scoped {
           for
             s1 <- startNode("node-a", events, timeouts)
             s2 <- startNode("node-b", events, timeouts)
@@ -94,10 +94,12 @@ object PostgresTimeoutClusterSpec extends ZIOSpecDefault:
                   .provide(ZLayer.succeed(events))
               }
               .timeoutFail(new RuntimeException("cluster did not deliver every timeout"))(15.seconds)
-            m1 <- s1.metrics
-            m2 <- s2.metrics
-            m3 <- s3.metrics
-          yield (m1, m2, m3)
+            // send appends before timeoutsFired is incremented, so the log can show Done first.
+            fired <- (s1.metrics <*> s2.metrics <*> s3.metrics)
+              .map { case (a, b, c) => a.timeoutsFired + b.timeoutsFired + c.timeoutsFired }
+              .repeatUntil(_ >= n)
+              .timeoutFail(new RuntimeException(s"sweepers recorded fewer than $n fires"))(15.seconds)
+          yield fired
         }
         states <- ZIO.foreach(ids) { id =>
           FSMRuntime.readState(id, machine, Idle).map(id -> _).provide(ZLayer.succeed(events))
@@ -106,11 +108,10 @@ object PostgresTimeoutClusterSpec extends ZIOSpecDefault:
           events.loadEvents(id).runCollect.map(ev => id -> ev.count(_.event == Tick))
         }
         leftover <- ZIO.foreach(ids)(id => timeouts.get(id, "Tick"))
-        (m1, m2, m3) = metrics
       yield assertTrue(
         states.forall(_._2.contains(Done)),
         ticks.forall(_._2 == 1),
-        m1.timeoutsFired + m2.timeoutsFired + m3.timeoutsFired == n,
+        fired == n,
         leftover.forall(_.isEmpty),
       )
       end for
