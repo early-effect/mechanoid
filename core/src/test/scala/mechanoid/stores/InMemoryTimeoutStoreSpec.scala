@@ -195,7 +195,7 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
           now      <- Clock.instant
           _        <- store.schedule("fsm-1", "t", 123, 1L, now.minusSeconds(10))
           _        <- store.claim("fsm-1", "t", "node-1", 30.seconds, now)
-          released <- store.release("fsm-1", "t")
+          released <- store.release("fsm-1", "t", "node-1")
           timeout  <- store.get("fsm-1")
         yield assertTrue(
           released,
@@ -207,7 +207,7 @@ object InMemoryTimeoutStoreSpec extends ZIOSpecDefault:
       test("returns false for non-existent instance") {
         for
           store    <- InMemoryTimeoutStore.make[String]
-          released <- store.release("non-existent", "t")
+          released <- store.release("non-existent", "t", "node-1")
         yield assertTrue(!released)
       },
     ),

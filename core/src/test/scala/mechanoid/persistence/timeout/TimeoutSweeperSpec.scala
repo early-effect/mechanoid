@@ -145,7 +145,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     override def cancel(instanceId: String, name: String)                     = ZIO.succeed(true)
     override def get(instanceId: String)                                      = ZIO.succeed(Chunk.empty)
     override def get(instanceId: String, name: String)                        = ZIO.succeed(None)
-    override def release(instanceId: String, name: String)                    = ZIO.succeed(true)
+    override def release(instanceId: String, name: String, nodeId: String)    = ZIO.succeed(true)
     override def complete(instanceId: String, name: String, sequenceNr: Long) =
       ZIO.succeed(true)
     override def queryExpired(limit: Int, now: Instant) = ZIO.succeed(Nil)

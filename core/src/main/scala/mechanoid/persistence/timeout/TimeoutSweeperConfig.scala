@@ -4,19 +4,17 @@ import zio.Duration
 
 /** How the sweeper treats a failed `send` after a successful claim.
   *
-  * Dual-fire is not the failure mode we care about. If two nodes reconstruct the same expired row, one appends and the
-  * other hits [[mechanoid.core.InvalidTransitionError]] or [[mechanoid.core.SequenceConflictError]]: that is a no-op,
-  * and the row can be completed. The failure we must not have is a machine sitting in a timed leaf whose timeout is
-  * never delivered.
+  * A sequence conflict means some other append won that sequence. It does not mean this timeout was persisted. Both
+  * policies release the claim on every send failure, including [[mechanoid.core.InvalidTransitionError]] and
+  * [[mechanoid.core.SequenceConflictError]], so a later sweep re-hydrates and sends only if the name is still on the
+  * leaf. The row is completed when `send` succeeds, the leaf hash no longer matches, the name is no longer armed, or
+  * the instance was never persisted.
   */
 enum TimeoutDelivery:
-  /** Default. Complete on conflict / invalid transition / missing instance. Release (retry) on store, lock, or
-    * reconstruct failures so a later sweep (this node or another) still delivers.
-    */
+  /** Default. Failed sends release for a later sweep. */
   case AtLeastOnce
 
-  /** Complete only after `send` succeeds (or the instance is gone). Every other send failure releases.
-    */
+  /** Same retry rule, named for callers that want the policy to stay strict if the default ever changes. */
   case UntilDelivered
 end TimeoutDelivery
 

@@ -412,10 +412,12 @@ object FSMRuntime:
     * `highestSequenceNr` is 0. Does not create.
     *
     * Load-on-demand reconstruct uses optimistic `send` (sequence check at append). Same-node exclusivity is
-    * [[InstanceMailbox]]; cross-node exclusivity is the env [[LockingStrategy]] held by [[session]] / the sweeper
-    * around reconstruct+send. Nested distributed locks would drop the outer lease on inner release.
+    * [[InstanceMailbox]]. [[session]] holds the env [[LockingStrategy]] around reconstruct+send. The sweeper releases
+    * its claim when `send` fails so a later sweep retries. Nested distributed locks would drop the outer lease on inner
+    * release, so reconstruct itself stays optimistic.
     *
-    * New instances still go through [[apply]].
+    * New instances still go through [[apply]]. A timed initial leaf is snapshotted before its durable timeout is armed,
+    * so `existing` can deliver that timeout after the creating scope closes.
     */
   def existing[Id: Tag, S, E](
       id: Id,
@@ -676,11 +678,21 @@ object FSMRuntime:
 
       // Rebuild state by applying events
       rebuiltState <- rebuildState(machine, startState, events.toList)
+      _            <- ZIO.when(
+        snapshot.isEmpty && events.isEmpty && machine.timeoutsFor(rebuiltState.current).nonEmpty
+      ) {
+        Clock.instant.flatMap { now =>
+          store.saveSnapshot(FSMSnapshot(id, rebuiltState.current, 0L, now))
+        }
+      }
 
       // Initialize runtime state
-      stateRef   <- Ref.make(rebuiltState)
-      seqNrRef   <- Ref.make(events.lastOption.map(_.sequenceNr).getOrElse(startSeqNr))
-      runningRef <- Ref.make(true)
+      stateRef          <- Ref.make(rebuiltState)
+      seqNrRef          <- Ref.make(events.lastOption.map(_.sequenceNr).getOrElse(startSeqNr))
+      runningRef        <- Ref.make(true)
+      producingInflight <- Ref.make(0)
+      producingIdle     <- Ref.make(Chunk.empty[Promise[Nothing, Unit]])
+      closing           <- Ref.make(false)
 
       // Create self-reference for timeout handling
       runtimeRef <- Ref.make[Option[FSMRuntimeImpl[Id, S, E]]](None)
@@ -705,6 +717,9 @@ object FSMRuntime:
         seqNrRef,
         runningRef,
         sendSelf,
+        producingInflight,
+        producingIdle,
+        closing,
       )
 
       _ <- runtimeRef.set(Some(runtime))
@@ -767,6 +782,9 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
     seqNrRef: Ref[Long],
     runningRef: Ref[Boolean],
     sendSelf: E => ZIO[Any, MechanoidError, TransitionOutcome[S]],
+    producingInflight: Ref[Int],
+    producingIdle: Ref[Chunk[Promise[Nothing, Unit]]],
+    closing: Ref[Boolean],
 ) extends FSMRuntime[Id, S, E]:
 
   override def send(event: E): ZIO[Any, MechanoidError, TransitionOutcome[S]] =
@@ -878,15 +896,17 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
         val effect = producingEffect
           .run(event, targetState)
           .flatMap { producedEvent =>
-            // Send the produced event back to the FSM
             send(producedEvent).ignore
           }
           .catchAll { e =>
-            // Log error but don't fail - producing effects are fire-and-forget
-            // Users should use timeouts as fallback for failure handling
             ZIO.logError(s"Producing effect failed: $e")
           }
-        effect.forkDaemon.unit
+        closing.get.flatMap {
+          case true  => effect
+          case false =>
+            producingInflight.update(_ + 1) *>
+              effect.ensuring(exitProducing).forkDaemon.unit
+        }
       case None => ZIO.unit
 
   private def handleTransitionResult(
@@ -993,9 +1013,33 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
 
   override def lastSequenceNr: UIO[Long] = seqNrRef.get
 
-  override def stop: UIO[Unit] = runningRef.set(false)
+  override def stop: UIO[Unit] =
+    closing.set(true) *> awaitProducing *> runningRef.set(false)
 
-  override def stop(reason: String): UIO[Unit] = runningRef.set(false)
+  override def stop(reason: String): UIO[Unit] = stop
+
+  private def exitProducing: UIO[Unit] =
+    producingInflight
+      .modify { n =>
+        val next = n - 1
+        (next == 0, next)
+      }
+      .flatMap { idle =>
+        ZIO.when(idle)(producingIdle.getAndSet(Chunk.empty).flatMap(ZIO.foreachDiscard(_)(_.succeed(())))).unit
+      }
+
+  private def awaitProducing: UIO[Unit] =
+    producingInflight.get.flatMap {
+      case 0 => ZIO.unit
+      case _ =>
+        Promise.make[Nothing, Unit].flatMap { promise =>
+          producingIdle.update(_ :+ promise) *>
+            producingInflight.get.flatMap {
+              case 0 => promise.succeed(()).unit
+              case _ => promise.await
+            }
+        }
+    }
 
   override def isRunning: UIO[Boolean] = runningRef.get
 

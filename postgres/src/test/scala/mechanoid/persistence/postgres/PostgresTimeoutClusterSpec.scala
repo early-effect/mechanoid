@@ -12,8 +12,7 @@ import mechanoid.runtime.timeout.TimeoutStrategy
 
 /** Three independent sweeper nodes, one Postgres. Every armed timeout must be delivered.
   *
-  * Dual-fire is allowed: the second node may `send` after the first already moved the leaf (no-op / InvalidTransition).
-  * A machine left in Waiting is the failure.
+  * A second send that loses the sequence releases the claim. A machine left in Waiting is the failure.
   */
 object PostgresTimeoutClusterSpec extends ZIOSpecDefault:
 

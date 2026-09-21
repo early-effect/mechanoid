@@ -105,6 +105,8 @@ trait TimeoutStore[Id]:
     *
     * '''CRITICAL''': This MUST be atomic. Use optimistic locking or database-level atomicity (e.g.,
     * `UPDATE ... WHERE claimed_by IS NULL RETURNING *`).
+    *
+    * A row whose deadline is still after `now` is [[ClaimResult.NotDue]] and must not be locked.
     */
   def claim(
       instanceId: Id,
@@ -120,8 +122,11 @@ trait TimeoutStore[Id]:
     */
   def complete(instanceId: Id, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean]
 
-  /** Release a claim without completing. */
-  def release(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean]
+  /** Release a claim held by `nodeId`.
+    *
+    * Returns false when the row is missing or owned by someone else, so a late release cannot unlock the next claim.
+    */
+  def release(instanceId: Id, name: String, nodeId: String): ZIO[Any, MechanoidError, Boolean]
 
   /** All timeouts currently armed for an instance. */
   def get(instanceId: Id): ZIO[Any, MechanoidError, Chunk[ScheduledTimeout[Id]]]

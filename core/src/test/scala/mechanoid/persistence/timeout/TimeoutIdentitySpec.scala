@@ -122,7 +122,7 @@ object TimeoutIdentitySpec extends ZIOSpecDefault:
         sent == List(("home", TimeoutFired)),
         away.isDefined,
         away.get.claimedBy.isEmpty,
-        metrics.errors >= 1,
+        metrics.errors == 0,
         metrics.timeoutsFired == 1,
       )
     },
@@ -168,7 +168,7 @@ object TimeoutIdentitySpec extends ZIOSpecDefault:
         left    <- store.get("ghost")
       yield assertTrue(left.isEmpty, metrics.timeoutsSkipped >= 1, metrics.errors == 0)
     },
-    test("AtLeastOnce completes when the timeout event is already a no-op") {
+    test("AtLeastOnce releases an InvalidTransitionError while the leaf still declares the name") {
       for
         store  <- InMemoryTimeoutStore.make[String]
         events <- Ref.make(List.empty[(String, TestEvent)])
@@ -180,10 +180,10 @@ object TimeoutIdentitySpec extends ZIOSpecDefault:
           fail = Some(InvalidTransitionError(Processing, TimeoutFired)),
         )
         metrics <- sweepOnce(TimeoutSweeper.make(config(), store, _ => ZIO.succeed(runtime)))
-        left    <- store.get("x")
-      yield assertTrue(left.isEmpty, metrics.timeoutsSkipped >= 1, metrics.errors == 0)
+        left    <- store.get("x", "TimeoutFired")
+      yield assertTrue(left.isDefined, left.get.claimedBy.isEmpty, metrics.errors >= 1)
     },
-    test("AtLeastOnce completes a SequenceConflictError (the other node already appended)") {
+    test("AtLeastOnce releases a SequenceConflictError so a later sweep can deliver") {
       for
         store  <- InMemoryTimeoutStore.make[String]
         events <- Ref.make(List.empty[(String, TestEvent)])
@@ -191,8 +191,8 @@ object TimeoutIdentitySpec extends ZIOSpecDefault:
         _      <- store.schedule("x", "TimeoutFired", waitingHash, 0L, now.minusSeconds(10))
         runtime = mockRuntime(events, "x", fail = Some(SequenceConflictError("x", 1, 2)))
         _    <- sweepOnce(TimeoutSweeper.make(config(), store, _ => ZIO.succeed(runtime)))
-        left <- store.get("x")
-      yield assertTrue(left.isEmpty)
+        left <- store.get("x", "TimeoutFired")
+      yield assertTrue(left.isDefined, left.get.claimedBy.isEmpty)
     },
     test("store failure releases so a later sweep can still deliver") {
       for

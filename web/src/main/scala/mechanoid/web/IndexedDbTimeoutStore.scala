@@ -65,6 +65,8 @@ final class IndexedDbTimeoutStore private (
     get(instanceId, name).flatMap {
       case None =>
         ZIO.succeed(ClaimResult.NotFound)
+      case Some(t) if !t.isExpired(now) =>
+        ZIO.succeed(ClaimResult.NotDue)
       case Some(t) if t.isClaimed(now) =>
         ZIO.succeed(ClaimResult.AlreadyClaimed(t.claimedBy.get, t.claimedUntil.get))
       case Some(t) =>
@@ -83,11 +85,11 @@ final class IndexedDbTimeoutStore private (
         ZIO.succeed(false)
     }
 
-  override def release(instanceId: String, name: String): ZIO[Any, MechanoidError, Boolean] =
+  override def release(instanceId: String, name: String, nodeId: String): ZIO[Any, MechanoidError, Boolean] =
     get(instanceId, name).flatMap {
-      case Some(t) =>
+      case Some(t) if t.claimedBy.contains(nodeId) =>
         put(t.copy(claimedBy = None, claimedUntil = None)).as(true)
-      case None =>
+      case _ =>
         ZIO.succeed(false)
     }
 

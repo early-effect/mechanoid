@@ -97,10 +97,11 @@ out) cancels both.
     section("TimeoutSweeper")(
       md"""
 Servers are ephemeral. Any node may claim an expired row; the claim is what fires once.
-A second node that reconstructs after the first already moved the leaf hits
-`InvalidTransitionError` / `SequenceConflictError` and that is a no-op
-(`TimeoutDelivery.AtLeastOnce`, the default). The failure we do not want is a machine
-left in a timed leaf whose timeout never arrives.
+A failed `send`, including `SequenceConflictError` and `InvalidTransitionError`, releases
+that claim so a later sweep can deliver. The row is completed when `send` succeeds, the
+leaf hash no longer matches, the name is no longer armed, or the instance was never
+persisted. The failure we do not want is a machine left in a timed leaf whose timeout
+never arrives.
 
 Load-on-demand (REST / many instances): reconstruct the **claimed** id, send, drop.
 
@@ -113,7 +114,7 @@ TimeoutSweeper.make(
 ```
 
 Heartbeat (one long-lived instance) uses `TimeoutSweeper.pinned(config, store, runtime)`.
-A foreign id is released so another node can still deliver it.
+It claims only that runtime's instance id.
 
 Flow:
 
@@ -122,8 +123,8 @@ Flow:
 3. Open a scoped runtime for that id (`existing`, or the pinned runtime)
 4. Fire when `stateHash` still matches **and** that name is still configured on the current leaf
 5. Look up the event from `timeoutConfigForState` by name and `send`
-6. Complete that name only (`sequenceNr` must match so a Stay re-arm is not deleted).
-   Store / reconstruct failures **release** so a later sweep retries.
+6. Complete that name only (`sequenceNr` is the claimed row, so a Stay re-arm is not deleted).
+   A failed `send`, store error, or reconstruct error **releases** so a later sweep retries.
 
 Use `TimeoutSweeperConfig` for interval, jitter, batch size, claim duration, `nodeId`,
 and `withDelivery`. Optional **leader election** via `LeaseStore` keeps a single active

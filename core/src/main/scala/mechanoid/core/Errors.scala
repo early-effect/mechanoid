@@ -193,8 +193,8 @@ final case class InstanceNotFoundError(instanceId: String)
 
 /** Error indicating a pinned runtime was asked to handle a different instance id.
   *
-  * [[mechanoid.persistence.timeout.TimeoutSweeper.pinned]] refuses foreign ids so a claimed row cannot fire against the
-  * wrong machine. The claim is released; another node's opener can still handle it.
+  * [[mechanoid.persistence.timeout.TimeoutSweeper.pinned]] does not claim foreign ids. This is the backstop if `open`
+  * is still invoked for one.
   *
   * @param expected
   *   Instance id of the pinned runtime

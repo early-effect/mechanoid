@@ -74,6 +74,9 @@ class InMemoryTimeoutStore[Id] extends TimeoutStore[Id]:
           case None =>
             ClaimResult.NotFound
 
+          case Some(t) if !t.isExpired(now) =>
+            ClaimResult.NotDue
+
           case Some(t) if t.isClaimed(now) =>
             ClaimResult.AlreadyClaimed(t.claimedBy.get, t.claimedUntil.get)
 
@@ -99,14 +102,14 @@ class InMemoryTimeoutStore[Id] extends TimeoutStore[Id]:
       }
     }
 
-  def release(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean] =
+  def release(instanceId: Id, name: String, nodeId: String): ZIO[Any, MechanoidError, Boolean] =
     ZIO.succeed {
       synchronized {
         timeouts.get((instanceId, name)) match
-          case Some(t) =>
+          case Some(t) if t.claimedBy.contains(nodeId) =>
             timeouts((instanceId, name)) = t.copy(claimedBy = None, claimedUntil = None)
             true
-          case None =>
+          case _ =>
             false
       }
     }

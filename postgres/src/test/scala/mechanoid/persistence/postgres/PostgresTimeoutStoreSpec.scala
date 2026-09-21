@@ -155,7 +155,7 @@ object PostgresTimeoutStoreSpec extends ZIOSpecDefault:
         past = now.minusSeconds(10)
         _         <- store.schedule("release-test", "t", StateHash1, SeqNr1, past)
         _         <- store.claim("release-test", "t", "node-1", Duration.fromSeconds(30), now)
-        released  <- store.release("release-test", "t")
+        released  <- store.release("release-test", "t", "node-1")
         retrieved <- store.get("release-test")
       yield assertTrue(
         released,
