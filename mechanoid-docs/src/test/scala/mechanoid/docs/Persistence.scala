@@ -128,7 +128,9 @@ an initiative holds.
 
 `FSMRuntime.lookup(alias, machine, initial)` resolves then reconstructs. Unknown aliases
 fail with `AliasNotFoundError` (no machine is created). For a GET of current state without
-a live runtime: `index.resolve(alias)` then `EventStore.currentState(id)`.
+a live runtime: `index.resolve(alias)` then `FSMRuntime.readState(id, machine, initial)`.
+`EventStore.currentState` is snapshot-only by default and will miss events after the last
+snapshot.
 
 Mark constructor fields with `@alias` (the namespace is the field name) and pass
 `AliasExtractor.derived[S]`. Call sites use `Alias.of[S].campaign(id)` /

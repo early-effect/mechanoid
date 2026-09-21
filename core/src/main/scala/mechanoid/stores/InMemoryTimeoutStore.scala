@@ -78,6 +78,9 @@ final class InMemoryTimeoutStore[Id] private (
         case None =>
           (ClaimResult.NotFound, timeouts)
 
+        case Some(t) if !t.isExpired(now) =>
+          (ClaimResult.NotDue, timeouts)
+
         case Some(t) if t.isClaimed(now) =>
           (ClaimResult.AlreadyClaimed(t.claimedBy.get, t.claimedUntil.get), timeouts)
 
@@ -98,13 +101,13 @@ final class InMemoryTimeoutStore[Id] private (
           (false, timeouts)
     }
 
-  override def release(instanceId: Id, name: String): ZIO[Any, MechanoidError, Boolean] =
+  override def release(instanceId: Id, name: String, nodeId: String): ZIO[Any, MechanoidError, Boolean] =
     timeoutsRef.modify { timeouts =>
       timeouts.get((instanceId, name)) match
-        case Some(t) =>
+        case Some(t) if t.claimedBy.contains(nodeId) =>
           val released = t.copy(claimedBy = None, claimedUntil = None)
           (true, timeouts + ((instanceId, name) -> released))
-        case None =>
+        case _ =>
           (false, timeouts)
     }
 

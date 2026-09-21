@@ -84,6 +84,11 @@ Illegal events surface as `InvalidTransitionError` (use `.either`):
 
 This site uses `TestAspect.withLiveClock` because EventStore timestamps and producing sleeps need
 a real clock; synthetic timeout events keep examples snappy.
+
+Load-on-demand sweepers are tested with two instance ids in one `TimeoutStore` and
+`open = id => FSMRuntime.existing(...)`. Heartbeat tests use `TimeoutSweeper.pinned`.
+A three-node Postgres cluster (`PostgresTimeoutClusterSpec`) proves every armed timeout
+is delivered even when the first sweeper dies.
 """,
       exampleZIO {
         enum Light derives Finite:

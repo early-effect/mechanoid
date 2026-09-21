@@ -51,6 +51,12 @@ enum ClaimResult:
     */
   case AlreadyClaimed(byNode: String, until: Instant)
 
+  /** The row exists and its deadline is still in the future.
+    *
+    * Claiming it would let a sweeper that listed an older generation fire a re-arm early.
+    */
+  case NotDue
+
   /** The timeout was not found in the store.
     *
     * This typically means:

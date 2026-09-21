@@ -246,6 +246,61 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           case _ => assertTrue(false)
       }
     ),
+    suite("existing, session, readState")(
+      test("existing fails when the instance was never persisted") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        FSMRuntime
+          .existing("missing", simpleMachine, A)
+          .either
+          .provideSome[Scope](
+            InMemoryEventStore.layer[String, TestState, TestEvent],
+            FiberTimeoutStrategy.layer[String],
+          )
+          .map {
+            case Left(e: InstanceNotFoundError) => assertTrue(e.instanceId == "missing")
+            case _                              => assertTrue(false)
+          }
+      },
+      test("readState rebuilds from events without a snapshot") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, TestState, TestEvent]()
+            layers = ZLayer.succeed(store) ++
+              FiberTimeoutStrategy.layer[String] ++
+              OptimisticLockingStrategy.layer[String]
+            _ <- ZIO
+              .scoped(FSMRuntime("rs-1", simpleMachine, A).flatMap(_.send(E1)))
+              .provide(layers)
+            got  <- FSMRuntime.readState("rs-1", simpleMachine, A).provide(ZLayer.succeed(store))
+            none <- FSMRuntime.readState("rs-none", simpleMachine, A).provide(ZLayer.succeed(store))
+          yield assertTrue(got.contains(B), none.isEmpty)
+        }
+      },
+      test("session reconstructs, sends, and drops") {
+        import mechanoid.runtime.timeout.FiberTimeoutStrategy
+        import mechanoid.runtime.locking.OptimisticLockingStrategy
+        ZIO.scoped {
+          for
+            store <- InMemoryEventStore.make[String, TestState, TestEvent]()
+            layers = ZLayer.succeed(store) ++
+              FiberTimeoutStrategy.layer[String] ++
+              OptimisticLockingStrategy.layer[String] ++
+              InstanceMailbox.layer[String]
+            _ <- ZIO
+              .scoped(FSMRuntime("sess-1", simpleMachine, A).flatMap(_.send(E1)))
+              .provide(layers)
+            out <- FSMRuntime
+              .session("sess-1", simpleMachine, A) { fsm =>
+                fsm.send(E2) *> fsm.currentState
+              }
+              .provide(layers)
+            after <- FSMRuntime.readState("sess-1", simpleMachine, A).provide(ZLayer.succeed(store))
+          yield assertTrue(out == C, after.contains(C))
+        }
+      },
+    ),
     suite("FSMRuntime.apply with environment")(
       test("creates runtime from environment services") {
         import mechanoid.runtime.timeout.FiberTimeoutStrategy

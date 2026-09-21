@@ -51,7 +51,7 @@ object Main extends ZIOAppDefault:
 
   val app: ZIO[
     Transactor & EventStore[String, ServiceState, ServiceEvent] & TimeoutStore[String] & TimeoutStrategy[String] &
-      LockingStrategy[String] & Scope,
+      LockingStrategy[String] & InstanceMailbox[String] & Scope,
     Any,
     Unit,
   ] =
@@ -98,7 +98,7 @@ object Main extends ZIOAppDefault:
       _ <- ZIO.logInfo(s"  backoffOnEmpty: ${sweeperConfig.backoffOnEmpty}")
       _ <- ZIO.logInfo(s"  nodeId: ${sweeperConfig.nodeId}")
 
-      _ <- TimeoutSweeper.make(
+      _ <- TimeoutSweeper.pinned(
         config = sweeperConfig,
         timeoutStore = timeoutStore,
         runtime = runtime,
@@ -133,6 +133,7 @@ object Main extends ZIOAppDefault:
         Layers.timeoutStore,
         Layers.timeoutStrategy,
         Layers.lockingStrategy,
+        InstanceMailbox.layer[String],
       )
       .tapErrorCause(cause => ZIO.logErrorCause("Service failed", cause))
 end Main

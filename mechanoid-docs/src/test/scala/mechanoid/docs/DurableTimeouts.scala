@@ -96,18 +96,46 @@ out) cancels both.
     ),
     section("TimeoutSweeper")(
       md"""
-A background sweeper:
+Servers are ephemeral. Any node may claim an expired row; the claim is what fires once.
+A failed `send`, including `SequenceConflictError` and `InvalidTransitionError`, releases
+that claim so a later sweep can deliver. The row is completed when `send` succeeds, the
+leaf hash no longer matches, the name is no longer armed, or the instance was never
+persisted. The failure we do not want is a machine left in a timed leaf whose timeout
+never arrives.
 
-1. Queries expired, unclaimed timeouts (several rows per instance is allowed)
-2. Claims each timeout by `(instanceId, name)`
-3. Fires when `stateHash` still matches **and** that name is still configured on the current leaf
-4. Looks up the event from `timeoutConfigForState` by name and `runtime.send`s it
-5. Marks complete for that name only (`sequenceNr` must match so a Stay re-arm is not deleted)
+Load-on-demand (REST / many instances): reconstruct the **claimed** id, send, drop.
 
-Use `TimeoutSweeperConfig` for interval, jitter, batch size, claim duration, and `nodeId`.
-Optional **leader election** via `LeaseStore` keeps a single active sweeper to reduce DB load.
+```scala
+TimeoutSweeper.make(
+  config,
+  timeoutStore,
+  id => FSMRuntime.existing(id, machine, initial),
+)
+```
 
-See `examples/heartbeat` for a full sweeper alongside `FSMRuntime`, and [Testing](testing.html)
+Heartbeat (one long-lived instance) uses `TimeoutSweeper.pinned(config, store, runtime)`.
+It claims only that runtime's instance id.
+
+Flow:
+
+1. Query expired, unclaimed timeouts (several rows per instance is allowed)
+2. Claim each timeout by `(instanceId, name)`
+3. Open a scoped runtime for that id (`existing`, or the pinned runtime)
+4. Fire when `stateHash` still matches **and** that name is still configured on the current leaf
+5. Look up the event from `timeoutConfigForState` by name and `send`
+6. Complete that name only (`sequenceNr` is the claimed row, so a Stay re-arm is not deleted).
+   A failed `send`, store error, or reconstruct error **releases** so a later sweep retries.
+
+Use `TimeoutSweeperConfig` for interval, jitter, batch size, claim duration, `nodeId`,
+and `withDelivery`. Optional **leader election** via `LeaseStore` keeps a single active
+sweeper to reduce DB load. Multi-sweeper + atomic claims is the REST default.
+
+Same-node HTTP and the sweeper share `InstanceMailbox` so reconstruct+send for one id
+cannot interleave in-process. Cross-node exclusivity is still `LockingStrategy`.
+
+Use durable timeouts on reconstruct. Fiber timeouts leak across request/sweeper scopes.
+
+See `examples/heartbeat` for a pinned sweeper, and [Testing](testing.html)
 for the DocSpec vs TestClock choice.
 
 Next: [Distributed Coordination](distributed-coordination.html).

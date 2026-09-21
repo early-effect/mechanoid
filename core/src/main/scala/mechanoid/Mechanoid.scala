@@ -50,6 +50,7 @@ export machine.StateMatcher
 
 // Re-export runtime
 export runtime.FSMRuntime
+export runtime.InstanceMailbox
 export runtime.FSMRuntimeAspect
 export runtime.`@@` // Extension method for aspect composition
 
@@ -72,6 +73,8 @@ export core.SequenceConflictError
 export core.EventReplayError
 export core.UniqueAliasError
 export core.AliasNotFoundError
+export core.InstanceNotFoundError
+export core.InstanceMismatchError
 export core.InvalidIndexQuery
 export persistence.Alias
 export persistence.AliasCodec
@@ -134,6 +137,7 @@ export core.LockingError
 export persistence.timeout.TimeoutStore
 export persistence.timeout.TimeoutSweeper
 export persistence.timeout.TimeoutSweeperConfig
+export persistence.timeout.TimeoutDelivery
 export persistence.timeout.ScheduledTimeout
 export persistence.timeout.LeaderElectionConfig
 export persistence.timeout.LeaseStore

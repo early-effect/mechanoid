@@ -179,5 +179,31 @@ final case class AliasNotFoundError(
 ) extends Exception(s"No instance bound to alias $namespace/$key")
     with MechanoidError
 
+/** Error indicating no persisted FSM exists for this instance id.
+  *
+  * Raised by [[mechanoid.runtime.FSMRuntime.existing]] / [[mechanoid.runtime.FSMRuntime.session]] when there is no
+  * snapshot and `highestSequenceNr` is 0. Load-on-demand servers must not create instances from orphan timeout rows.
+  *
+  * @param instanceId
+  *   The FSM instance identifier (as String for type erasure)
+  */
+final case class InstanceNotFoundError(instanceId: String)
+    extends Exception(s"No persisted FSM instance $instanceId")
+    with MechanoidError
+
+/** Error indicating a pinned runtime was asked to handle a different instance id.
+  *
+  * [[mechanoid.persistence.timeout.TimeoutSweeper.pinned]] does not claim foreign ids. This is the backstop if `open`
+  * is still invoked for one.
+  *
+  * @param expected
+  *   Instance id of the pinned runtime
+  * @param actual
+  *   Instance id on the claimed timeout row
+  */
+final case class InstanceMismatchError(expected: String, actual: String)
+    extends Exception(s"Pinned runtime $expected cannot handle instance $actual")
+    with MechanoidError
+
 /** Index query is illegal (both seek directions set, or similar). */
 final case class InvalidIndexQuery(message: String) extends Exception(message) with MechanoidError

@@ -221,7 +221,7 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
         for
           _        <- store.schedule("fsm-1", "t", StateHash1, SeqNr1, now.minusSeconds(10))
           _        <- store.claim("fsm-1", "t", "node-A", Duration.fromSeconds(30), now)
-          released <- store.release("fsm-1", "t")
+          released <- store.release("fsm-1", "t", "node-A")
           stored   <- store.get("fsm-1")
         yield assertTrue(
           released,
@@ -237,7 +237,7 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
         for
           _      <- store.schedule("fsm-1", "t", StateHash1, SeqNr1, now.minusSeconds(10))
           _      <- store.claim("fsm-1", "t", "node-A", Duration.fromSeconds(30), now)
-          _      <- store.release("fsm-1", "t")
+          _      <- store.release("fsm-1", "t", "node-A")
           result <- store.claim("fsm-1", "t", "node-B", Duration.fromSeconds(30), now)
         yield result match
           case ClaimResult.Claimed(t) =>

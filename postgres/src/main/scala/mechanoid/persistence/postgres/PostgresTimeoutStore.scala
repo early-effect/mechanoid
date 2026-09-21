@@ -90,6 +90,8 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
         Update[TimeoutRow]
           .set(_.claimedBy, Some(nodeId))
           .set(_.claimedUntil, Some(claimedUntil))
+          .where(_.deadline)
+          .lte(now)
           .where(_.instanceId)
           .eq(instanceId)
           .where(_.timeoutKey)
@@ -103,6 +105,8 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
           ZIO.succeed(ClaimResult.Claimed(rowToTimeout(row)))
         case None =>
           get(instanceId, name).map {
+            case Some(timeout) if !timeout.isExpired(now) =>
+              ClaimResult.NotDue
             case Some(timeout) if timeout.isClaimed(now) =>
               ClaimResult.AlreadyClaimed(timeout.claimedBy.getOrElse("unknown"), timeout.claimedUntil.getOrElse(now))
             case Some(_) =>
@@ -133,7 +137,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .map(_ > 0)
       .mapError(PersistenceError.fromError)
 
-  override def release(instanceId: String, name: String): ZIO[Any, MechanoidError, Boolean] =
+  override def release(instanceId: String, name: String, nodeId: String): ZIO[Any, MechanoidError, Boolean] =
     transactor
       .run {
         Update[TimeoutRow]
@@ -143,6 +147,8 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
           .eq(instanceId)
           .where(_.timeoutKey)
           .eq(name)
+          .where(_.claimedBy)
+          .eq(Some(nodeId))
           .build
           .dml
       }
