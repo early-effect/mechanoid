@@ -1,8 +1,15 @@
 package mechanoid.persistence.timeout
 
 import zio.*
-import mechanoid.core.{MechanoidError, PersistenceError}
-import mechanoid.runtime.FSMRuntime
+import mechanoid.core.{
+  InstanceMismatchError,
+  InstanceNotFoundError,
+  InvalidTransitionError,
+  MechanoidError,
+  PersistenceError,
+  SequenceConflictError,
+}
+import mechanoid.runtime.{FSMRuntime, InstanceMailbox}
 
 /** Metrics emitted by the sweeper for monitoring.
   *
@@ -58,7 +65,7 @@ object SweeperMetrics:
   *   [Claimed]      [AlreadyClaimed]   [NotFound]
   *        │                │                │
   *        ▼                │                │
-  *   [Fire Timeout]        │                │
+  *   [Open claimed id]     │                │
   *        │                │                │
   *   ┌────┴────┐           │                │
   *   ▼         ▼           ▼                ▼
@@ -68,22 +75,35 @@ object SweeperMetrics:
   * [Complete] [Release]
   * }}}
   *
+  * Servers are ephemeral. Any node may claim; the claim is what fires once. After claim the sweeper reconstructs a
+  * runtime for that row's `instanceId`, sends, and drops it.
+  *
   * ==Usage==
   *
+  * Heartbeat (one long-lived instance):
   * {{{
   * ZIO.scoped {
   *   for
   *     fsm     <- FSMRuntime(id, machine, initialState)
-  *     sweeper <- TimeoutSweeper.make(
+  *     sweeper <- TimeoutSweeper.pinned(
   *       config = TimeoutSweeperConfig()
   *         .withSweepInterval(5.seconds)
   *         .withJitterFactor(0.2),
   *       timeoutStore = myTimeoutStore,
   *       runtime = fsm
   *     )
-  *     _ <- ZIO.never // Keep running until scope closes
+  *     _ <- ZIO.never
   *   yield ()
   * }
+  * }}}
+  *
+  * Load-on-demand (REST / many instances):
+  * {{{
+  * TimeoutSweeper.make(
+  *   config,
+  *   timeoutStore,
+  *   id => FSMRuntime.existing(id, machine, initialState),
+  * )
   * }}}
   */
 trait TimeoutSweeper:
@@ -98,8 +118,8 @@ trait TimeoutSweeper:
 
 /** TimeoutSweeper implementation as a case class with services/config as fields.
   *
-  * Uses FSMRuntime directly to fire timeout events. Before firing, validates that the FSM is still in the expected
-  * state by comparing `stateHash` and `sequenceNr` from the timeout record with the current FSM state.
+  * After an atomic claim, opens a runtime for that row's `instanceId`, validates `stateHash` / named config on that
+  * machine, then `send`s. Servers are ephemeral: any node that wins the claim may fire, and only that claim fires.
   *
   * @tparam Id
   *   FSM instance identifier type
@@ -111,57 +131,80 @@ trait TimeoutSweeper:
   *   Sweeper configuration
   * @param timeoutStore
   *   Storage for scheduled timeouts
-  * @param runtime
-  *   FSMRuntime to send timeout events to
+  * @param open
+  *   Reconstruct (or return a pinned runtime) for a claimed instance id
   * @param leaseStore
   *   Optional lease store for leader election
   */
 final case class TimeoutSweeperImpl[Id, S, E](
     config: TimeoutSweeperConfig,
     timeoutStore: TimeoutStore[Id],
-    runtime: FSMRuntime[Id, S, E],
+    open: Id => ZIO[Scope, MechanoidError, FSMRuntime[Id, S, E]],
+    mailbox: InstanceMailbox[Id],
     leaseStore: Option[LeaseStore] = None,
 ):
   /** Look up the timeout event by armed name on the current leaf. */
-  def resolveTimeoutEvent(state: S, name: String): Option[E] =
+  def resolveTimeoutEvent(runtime: FSMRuntime[Id, S, E], state: S, name: String): Option[E] =
     runtime.timeoutConfigForState(state).find(_.name == name).map(_.event)
 end TimeoutSweeperImpl
 
 object TimeoutSweeper:
 
-  /** Create and start a timeout sweeper with FSMRuntime integration.
+  /** Create and start a timeout sweeper that reconstructs per claimed instance id.
     *
-    * The sweeper starts immediately and runs until the scope closes or `stop` is called. It resolves event hashes back
-    * to typed events and fires them via `runtime.send(event)`.
+    * The sweeper starts immediately and runs until the scope closes or `stop` is called. After claiming a row it runs
+    * `open(timeout.instanceId)` inside `ZIO.scoped`, then `send`s on that runtime.
+    *
+    * `open` should be `id => FSMRuntime.existing(id, machine, initial)` for load-on-demand servers. Use durable
+    * timeouts on that reconstruct; fiber timeouts leak across request/sweeper scopes.
     *
     * @param config
     *   Sweeper configuration (intervals, batch size, jitter, etc.)
     * @param timeoutStore
     *   Storage for scheduled timeouts
-    * @param runtime
-    *   FSMRuntime to send timeout events to
+    * @param open
+    *   Open a runtime for the claimed instance (dropped when the inner scope closes)
     * @param leaseStore
     *   Optional lease store for leader election (required if config.leaderElection is set)
-    * @return
-    *   A scoped TimeoutSweeper service
     */
-  def make[Id, S, E](
+  def make[Id: Tag, S, E](
+      config: TimeoutSweeperConfig,
+      timeoutStore: TimeoutStore[Id],
+      open: Id => ZIO[Scope, MechanoidError, FSMRuntime[Id, S, E]],
+      leaseStore: Option[LeaseStore] = None,
+  ): ZIO[Scope & InstanceMailbox[Id], MechanoidError, TimeoutSweeper] =
+    ZIO.serviceWithZIO[InstanceMailbox[Id]] { box =>
+      start(TimeoutSweeperImpl(config, timeoutStore, open, box, leaseStore))
+    }
+
+  /** Heartbeat helper: one long-lived runtime. Foreign instance ids are not fired here; the claim is released so
+    * another node (or an `open` sweeper) can handle them.
+    */
+  def pinned[Id: Tag, S, E](
       config: TimeoutSweeperConfig,
       timeoutStore: TimeoutStore[Id],
       runtime: FSMRuntime[Id, S, E],
       leaseStore: Option[LeaseStore] = None,
+  ): ZIO[Scope & InstanceMailbox[Id], MechanoidError, TimeoutSweeper] =
+    val pinnedOpen: Id => ZIO[Scope, MechanoidError, FSMRuntime[Id, S, E]] =
+      id =>
+        if id == runtime.instanceId then ZIO.succeed(runtime)
+        else ZIO.fail(InstanceMismatchError(runtime.instanceId.toString, id.toString))
+    make(config, timeoutStore, pinnedOpen, leaseStore)
+  end pinned
+
+  private def start[Id, S, E](
+      impl: TimeoutSweeperImpl[Id, S, E]
   ): ZIO[Scope, MechanoidError, TimeoutSweeper] =
-    val impl = TimeoutSweeperImpl(config, timeoutStore, runtime, leaseStore)
     for
       runningRef <- Ref.make(true)
       metricsRef <- Ref.make(SweeperMetrics.empty)
 
-      // Set up leader election if configured
-      leaderElection <- config.leaderElection match
+      leaderElection <- impl.config.leaderElection match
         case Some(leConfig) =>
-          leaseStore match
+          impl.leaseStore match
             case Some(ls) =>
-              LeaderElection.make(leConfig, config.nodeId, ls).map(Some(_))
+              LeaderElection.make(leConfig, impl.config.nodeId, ls).map(Some(_))
             case None =>
               ZIO.fail(
                 PersistenceError(
@@ -173,7 +216,6 @@ object TimeoutSweeper:
         case None =>
           ZIO.succeed(None)
 
-      // Start the sweep loop
       _ <- runSweepLoop(
         impl,
         runningRef,
@@ -187,7 +229,7 @@ object TimeoutSweeper:
         runningRef.set(false) *>
           leaderElection.fold(ZIO.unit)(_.resign)
     end for
-  end make
+  end start
 
   private def runSweepLoop[Id, S, E](
       impl: TimeoutSweeperImpl[Id, S, E],
@@ -196,10 +238,8 @@ object TimeoutSweeper:
       leaderElection: Option[LeaderElection],
   ): ZIO[Any, Nothing, Unit] =
 
-    // Sweep effect returns shouldContinue status
     val sweep: ZIO[Any, Nothing, Boolean] =
       for
-        // Check if we should sweep (always in multi-mode, only if leader in single-mode)
         shouldSweep <- leaderElection.fold(ZIO.succeed(true))(_.isLeader)
         count       <-
           if shouldSweep then
@@ -210,16 +250,12 @@ object TimeoutSweeper:
               }
           else ZIO.succeed(0)
         _ <- metricsRef.update(m => m.copy(sweepCount = m.sweepCount + 1))
-        // Add extra backoff delay when no timeouts found (embedded in effect)
         _ <- impl.config.backoffOnEmpty match
           case Some(backoff) if count == 0 => ZIO.sleep(backoff)
           case _                           => ZIO.unit
         shouldContinue <- runningRef.get
       yield shouldContinue
 
-    // Schedule with timing, jitter, and stop condition
-    // jittered(min, max) scales delay by random factor in [min, max]
-    // e.g., jitterFactor=0.1 → jittered(0.9, 1.1) → ±10% random variation
     val baseSchedule     = Schedule.spaced(impl.config.sweepInterval)
     val jitteredSchedule =
       if impl.config.jitterFactor > 0 then
@@ -264,43 +300,7 @@ object TimeoutSweeper:
       )
       fired <- claimResult match
         case ClaimResult.Claimed(_) =>
-          for
-            currentState <- impl.runtime.currentState
-            currentStateHash = impl.runtime.machine.stateEnum.caseHash(currentState)
-            stateMatches     = currentStateHash == timeout.stateHash
-            eventOpt         = impl.resolveTimeoutEvent(currentState, timeout.name)
-
-            result <-
-              if stateMatches then
-                eventOpt match
-                  case Some(event) =>
-                    impl.runtime
-                      .send(event)
-                      .flatMap { _ =>
-                        impl.timeoutStore.complete(timeout.instanceId, timeout.name, timeout.sequenceNr) *>
-                          metricsRef.update(m => m.copy(timeoutsFired = m.timeoutsFired + 1))
-                      }
-                      .catchAll { error =>
-                        impl.timeoutStore.release(timeout.instanceId, timeout.name) *>
-                          ZIO.logWarning(
-                            s"Failed to fire timeout ${timeout.name} for ${timeout.instanceId}: $error"
-                          )
-                      }
-                      .as(true)
-                  case None =>
-                    ZIO.logWarning(
-                      s"No timeout named ${timeout.name} on current leaf for ${timeout.instanceId}"
-                    ) *>
-                      impl.timeoutStore.complete(timeout.instanceId, timeout.name, timeout.sequenceNr) *>
-                      metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
-              else
-                ZIO.logDebug(
-                  s"Skipping stale timeout ${timeout.name} for ${timeout.instanceId}: " +
-                    s"expected stateHash=${timeout.stateHash}, actual=$currentStateHash"
-                ) *>
-                  impl.timeoutStore.complete(timeout.instanceId, timeout.name, timeout.sequenceNr) *>
-                  metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
-          yield result
+          fireClaimed(impl, timeout, metricsRef)
 
         case ClaimResult.AlreadyClaimed(_, _) =>
           metricsRef
@@ -312,4 +312,89 @@ object TimeoutSweeper:
             .update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1))
             .as(false)
     yield fired
+
+  private def fireClaimed[Id, S, E](
+      impl: TimeoutSweeperImpl[Id, S, E],
+      timeout: ScheduledTimeout[Id],
+      metricsRef: Ref[SweeperMetrics],
+  ): ZIO[Any, MechanoidError, Boolean] =
+    val id   = timeout.instanceId
+    val name = timeout.name
+    impl.mailbox.run(id) {
+      ZIO
+        .scoped {
+          impl.open(id).flatMap { runtime =>
+            for
+              currentState <- runtime.currentState
+              currentStateHash = runtime.machine.stateEnum.caseHash(currentState)
+              eventOpt         = impl.resolveTimeoutEvent(runtime, currentState, name)
+              result <-
+                if currentStateHash == timeout.stateHash then
+                  eventOpt match
+                    case Some(event) =>
+                      runtime
+                        .send(event)
+                        .foldZIO(
+                          error => handleSendFailure(impl, timeout, metricsRef, error),
+                          _ =>
+                            impl.timeoutStore.complete(id, name, timeout.sequenceNr) *>
+                              metricsRef.update(m => m.copy(timeoutsFired = m.timeoutsFired + 1)).as(true),
+                        )
+                    case None =>
+                      ZIO.logWarning(
+                        s"No timeout named $name on current leaf for $id"
+                      ) *>
+                        impl.timeoutStore.complete(id, name, timeout.sequenceNr) *>
+                        metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
+                else
+                  ZIO.logDebug(
+                    s"Skipping stale timeout $name for $id: " +
+                      s"expected stateHash=${timeout.stateHash}, actual=$currentStateHash"
+                  ) *>
+                    impl.timeoutStore.complete(id, name, timeout.sequenceNr) *>
+                    metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
+            yield result
+          }
+        }
+        .catchAll {
+          case _: InstanceNotFoundError =>
+            ZIO.logWarning(s"Completing orphan timeout $name for missing instance $id") *>
+              impl.timeoutStore.complete(id, name, timeout.sequenceNr) *>
+              metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
+          case error =>
+            releaseForRetry(impl, timeout, metricsRef, error)
+        }
+    }
+  end fireClaimed
+
+  private def handleSendFailure[Id, S, E](
+      impl: TimeoutSweeperImpl[Id, S, E],
+      timeout: ScheduledTimeout[Id],
+      metricsRef: Ref[SweeperMetrics],
+      error: MechanoidError,
+  ): ZIO[Any, MechanoidError, Boolean] =
+    val alreadyMoved = error match
+      case _: InvalidTransitionError[?, ?] => true
+      case _: SequenceConflictError        => true
+      case _                               => false
+    impl.config.delivery match
+      case TimeoutDelivery.AtLeastOnce if alreadyMoved =>
+        ZIO.logDebug(
+          s"Timeout ${timeout.name} for ${timeout.instanceId} already applied ($error); completing"
+        ) *>
+          impl.timeoutStore.complete(timeout.instanceId, timeout.name, timeout.sequenceNr) *>
+          metricsRef.update(m => m.copy(timeoutsSkipped = m.timeoutsSkipped + 1)).as(false)
+      case _ =>
+        releaseForRetry(impl, timeout, metricsRef, error)
+  end handleSendFailure
+
+  private def releaseForRetry[Id, S, E](
+      impl: TimeoutSweeperImpl[Id, S, E],
+      timeout: ScheduledTimeout[Id],
+      metricsRef: Ref[SweeperMetrics],
+      error: MechanoidError,
+  ): ZIO[Any, MechanoidError, Boolean] =
+    impl.timeoutStore.release(timeout.instanceId, timeout.name) *>
+      metricsRef.update(m => m.copy(errors = m.errors + 1)) *>
+      ZIO.logWarning(s"Failed to fire timeout ${timeout.name} for ${timeout.instanceId}: $error").as(false)
 end TimeoutSweeper

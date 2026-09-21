@@ -2,6 +2,24 @@ package mechanoid.persistence.timeout
 
 import zio.Duration
 
+/** How the sweeper treats a failed `send` after a successful claim.
+  *
+  * Dual-fire is not the failure mode we care about. If two nodes reconstruct the same expired row, one appends and the
+  * other hits [[mechanoid.core.InvalidTransitionError]] or [[mechanoid.core.SequenceConflictError]]: that is a no-op,
+  * and the row can be completed. The failure we must not have is a machine sitting in a timed leaf whose timeout is
+  * never delivered.
+  */
+enum TimeoutDelivery:
+  /** Default. Complete on conflict / invalid transition / missing instance. Release (retry) on store, lock, or
+    * reconstruct failures so a later sweep (this node or another) still delivers.
+    */
+  case AtLeastOnce
+
+  /** Complete only after `send` succeeds (or the instance is gone). Every other send failure releases.
+    */
+  case UntilDelivered
+end TimeoutDelivery
+
 /** Configuration for the [[TimeoutSweeper]].
   *
   * Uses an immutable builder, same shape as the rest of the library.
@@ -61,6 +79,7 @@ final case class TimeoutSweeperConfig private (
     backoffOnEmpty: Option[Duration],
     leaderElection: Option[LeaderElectionConfig],
     nodeId: String,
+    delivery: TimeoutDelivery,
 ):
   require(
     jitterFactor >= 0.0 && jitterFactor <= 1.0,
@@ -98,6 +117,9 @@ final case class TimeoutSweeperConfig private (
 
   def withNodeId(id: String): TimeoutSweeperConfig =
     copy(nodeId = id)
+
+  def withDelivery(d: TimeoutDelivery): TimeoutSweeperConfig =
+    copy(delivery = d)
 end TimeoutSweeperConfig
 
 object TimeoutSweeperConfig:
@@ -122,6 +144,7 @@ object TimeoutSweeperConfig:
       leaderElection = None,
       // Portable across JVM and Scala.js (avoid java.util.UUID.randomUUID / SecureRandom).
       nodeId = scala.util.Random.alphanumeric.take(16).mkString,
+      delivery = TimeoutDelivery.AtLeastOnce,
     )
 end TimeoutSweeperConfig
 

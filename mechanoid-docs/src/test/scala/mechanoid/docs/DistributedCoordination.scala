@@ -91,7 +91,9 @@ validation → approval style flows stay exclusive. Contention still surfaces as
 `SequenceConflictError` under optimistic locking; distributed locking reduces that race by
 serializing writers per instance id.
 
-Combine durable timeouts + distributed locking for production multi-node setups:
+Combine durable timeouts + distributed locking for production multi-node setups.
+Nodes stay stateless: any node may handle any instance. Reconstruct under
+`InstanceMailbox` then the env lock, send, drop.
 
 ```scala
 .provide(
@@ -100,8 +102,24 @@ Combine durable timeouts + distributed locking for production multi-node setups:
   lockServiceLayer,
   TimeoutStrategy.durable[OrderId],
   LockingStrategy.distributed[OrderId],
+  InstanceMailbox.layer[OrderId],
+)
+
+// HTTP applyEvent
+FSMRuntime.session(orderId, machine, Pending) { fsm =>
+  fsm.send(Pay)
+}
+
+// Sweeper on each node (or leader-elected)
+TimeoutSweeper.make(
+  TimeoutSweeperConfig().withNodeId(nodeId),
+  timeoutStore,
+  id => FSMRuntime.existing(id, machine, Pending),
 )
 ```
+
+GET current state without arming timeouts: `FSMRuntime.readState(id, machine, initial)`.
+Do not use `EventStore.currentState` (snapshot-only default).
 
 Next: [Visualization](visualization.html).
 """

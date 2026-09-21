@@ -3,8 +3,9 @@ package mechanoid.persistence.timeout
 import zio.*
 import zio.test.*
 import mechanoid.core.{Finite, MechanoidError, PersistenceError, FSMState, TransitionResult, TransitionOutcome}
-import mechanoid.machine.{Assembly, Aspect, Machine, TimeoutDeadline, TimeoutSpec, assembly, via}
-import mechanoid.runtime.FSMRuntime
+import mechanoid.machine.{Aspect, Machine, TimeoutDeadline, TimeoutSpec, assembly, via}
+import mechanoid.runtime.{FSMRuntime, InstanceMailbox}
+import mechanoid.stores.InMemoryTimeoutStore
 import java.time.Instant
 
 object TimeoutSweeperSpec extends ZIOSpecDefault:
@@ -45,6 +46,12 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
   // Default sequence number for tests (mock runtime returns 0L)
   private val defaultSeqNr: Long = 0L
+
+  /** Same mock for every claimed id. Used by loop/metrics tests; identity tests use pinned `make` or a real opener. */
+  def alwaysOpen(
+      runtime: FSMRuntime[String, TestState, TestEvent]
+  ): String => ZIO[Scope, MechanoidError, FSMRuntime[String, TestState, TestEvent]] =
+    _ => ZIO.succeed(runtime)
 
   /** Create a mock FSMRuntime that tracks events sent and can optionally fail. */
   def makeMockRuntime(
@@ -155,7 +162,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("basic operation")(
       test("fires expired timeouts") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
 
           config = TimeoutSweeperConfig()
@@ -174,7 +181,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           // The sweeper resolves events via Machine, so we can use a single runtime
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               // First sweep runs immediately, second after interval
               _ <- TestClock.adjust(Duration.fromMillis(50))
               _ <- ZIO.yieldNow
@@ -193,7 +200,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("respects batch size") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -211,7 +218,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           // Run for just enough time to complete one sweep (first sweep is immediate)
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               // Let the first sweep run immediately
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(50))
@@ -224,7 +231,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("skips non-expired timeouts") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -239,7 +246,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(100))
               _ <- ZIO.yieldNow
@@ -256,7 +263,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("removes timeout after firing") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -270,7 +277,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(100))
               _ <- ZIO.yieldNow
@@ -286,7 +293,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("concurrent sweepers")(
       test("only one sweeper fires each timeout") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -303,8 +310,8 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           // Run two sweepers concurrently
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config1, store, runtime)
-              _ <- TimeoutSweeper.make(config2, store, runtime)
+              _ <- TimeoutSweeper.make(config1, store, alwaysOpen(runtime))
+              _ <- TimeoutSweeper.make(config2, store, alwaysOpen(runtime))
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(100))
               _ <- ZIO.yieldNow
@@ -320,7 +327,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("error handling")(
       test("releases claim on callback error") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Create a failing runtime
           runtime = makeMockRuntime(eventsRef, shouldFail = true)
@@ -336,7 +343,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(100))
               _ <- ZIO.yieldNow
@@ -358,7 +365,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("metrics")(
       test("tracks fired timeouts") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -373,7 +380,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -389,7 +396,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("tracks claim conflicts with concurrent sweepers") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -408,8 +415,8 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           result <- ZIO.scoped {
             for
-              sweeper1 <- TimeoutSweeper.make(config1, store, runtime)
-              sweeper2 <- TimeoutSweeper.make(config2, store, runtime)
+              sweeper1 <- TimeoutSweeper.make(config1, store, alwaysOpen(runtime))
+              sweeper2 <- TimeoutSweeper.make(config2, store, alwaysOpen(runtime))
               // Give enough time for all 5 timeouts to be processed
               _  <- ZIO.yieldNow
               _  <- TestClock.adjust(Duration.fromMillis(100))
@@ -440,7 +447,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("backoff")(
       test("applies backoff when no timeouts found") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -454,7 +461,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           // No timeouts scheduled - should sweep once then backoff
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -470,7 +477,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("stop")(
       test("stops sweeping when stopped") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef)
 
@@ -481,7 +488,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           result <- ZIO.scoped {
             for
-              sweeper     <- TimeoutSweeper.make(config, store, runtime)
+              sweeper     <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _           <- ZIO.yieldNow
               _           <- TestClock.adjust(Duration.fromMillis(50))
               _           <- ZIO.yieldNow
@@ -527,7 +534,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         // FSM in Waiting (seq=0), timeout scheduled with (stateHash=Waiting, seq=0)
         // Sweeper fires → state=Waiting, seq=0 → FIRES ✓
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Runtime is in Waiting state with seqNr=0 (matches what we schedule)
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 0L)
@@ -543,7 +550,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(100))
               _ <- ZIO.yieldNow
@@ -562,7 +569,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         // Schedule timeout, let it expire, sweeper fires
         // No state changes occurred → should fire
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
 
@@ -576,7 +583,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(100))
               _ <- ZIO.yieldNow
@@ -600,7 +607,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         // FSM transitioned to Processing (seq=6)
         // Sweeper tries to fire → stateHash mismatch → SKIP
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Runtime is NOW in Processing state (transitioned away from Waiting)
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Processing, 6L)
@@ -616,7 +623,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -638,7 +645,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         // Goto away is what cancels the old row. The sweeper no longer uses sequenceNr as
         // the fire condition, so Stay (which increments seqNr) does not drop siblings.
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 7L)
 
@@ -652,7 +659,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -673,7 +680,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         // FSM is now in Processing (seq=10)
         // Both state and seqNr mismatch → SKIP
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Runtime is in Processing with seq=10
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Processing, 10L)
@@ -689,7 +696,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -709,7 +716,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("state validation - metrics verification")(
       test("increments timeoutsFired when state hash and name still match") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Runtime matches scheduled timeout
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 5L)
@@ -725,7 +732,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -741,7 +748,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("increments timeoutsSkipped when state mismatch") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Runtime in Processing, but timeout was for Waiting
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Processing, 5L)
@@ -757,7 +764,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -773,7 +780,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("fires when sequenceNr differs but the leaf still declares the name") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 10L)
 
@@ -787,7 +794,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -804,7 +811,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       test("tracks skipped vs fired ratio with mixed timeouts") {
         // Schedule 3 timeouts: 2 matching, 1 stale
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Runtime in Waiting with seq=5
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 5L)
@@ -824,7 +831,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -848,7 +855,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       test("handles timeout for initial state (sequenceNr = 0)") {
         // FSM starts in timed initial state with seqNr=0
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, 0L)
 
@@ -862,7 +869,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -882,7 +889,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         // seqNr near Long.MaxValue
         val highSeqNr = Long.MaxValue - 100
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Waiting, highSeqNr)
 
@@ -896,7 +903,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -916,7 +923,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       test("skips timeout for unknown state hash (no timeout event configured)") {
         // Schedule timeout with a state hash that has no named timeout on the current leaf
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           // Runtime in Processing (matching the scheduled stateHash)
           runtime = makeMockRuntimeWithState(eventsRef, "fsm-1", shouldFail = false, Processing, 0L)
@@ -932,7 +939,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -961,7 +968,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         // Expected behavior: new timeout should survive
         // Actual behavior (bug): new timeout is deleted
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
 
           // Track how many times schedule was called
@@ -1015,7 +1022,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           // Run sweeper to fire the timeout
           _ <- ZIO.scoped {
             for
-              _ <- TimeoutSweeper.make(config, store, runtime)
+              _ <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _ <- ZIO.yieldNow
               _ <- TestClock.adjust(Duration.fromMillis(100))
               _ <- ZIO.yieldNow
@@ -1040,26 +1047,27 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("default parameter coverage")(
       test("TimeoutSweeperImpl uses default leaseStore of None") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
           config  = TimeoutSweeperConfig().withNodeId("test-node")
           // Create impl without specifying leaseStore - uses default None
-          impl = TimeoutSweeperImpl(config, store, runtime)
+          mailbox <- InstanceMailbox.make[String]
+          impl = TimeoutSweeperImpl(config, store, alwaysOpen(runtime), mailbox)
         yield assertTrue(impl.leaseStore.isEmpty)
       }
     ),
     suite("leader election")(
       test("fails when leader election configured but no lease store provided") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
           config  = TimeoutSweeperConfig()
             .withLeaderElection(LeaderElectionConfig())
             .withNodeId("test-node")
           result <- ZIO.scoped {
-            TimeoutSweeper.make(config, store, runtime, leaseStore = None)
+            TimeoutSweeper.make(config, store, alwaysOpen(runtime), leaseStore = None)
           }.either
         yield result match
           case Left(_: PersistenceError) => assertTrue(true)
@@ -1067,7 +1075,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("uses leader election when configured with lease store") {
         for
-          store      <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store      <- InMemoryTimeoutStore.make[String]
           leaseStore <- ZIO.succeed(new InMemoryLeaseStore())
           eventsRef  <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
@@ -1082,7 +1090,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime, Some(leaseStore))
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime), Some(leaseStore))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -1095,7 +1103,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("skips sweeping when not leader") {
         for
-          store      <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store      <- InMemoryTimeoutStore.make[String]
           leaseStore <- ZIO.succeed(new InMemoryLeaseStore())
           eventsRef  <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
@@ -1115,7 +1123,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           _       <- store.schedule("fsm-1", "TimeoutFired", waitingStateHash, 0L, now.minusSeconds(10))
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime, Some(leaseStore))
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime), Some(leaseStore))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -1134,7 +1142,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
     suite("jitter schedule")(
       test("applies jitter when jitterFactor > 0") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
           config  = TimeoutSweeperConfig()
@@ -1143,7 +1151,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -1182,7 +1190,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, mockStore, runtime)
+              sweeper <- TimeoutSweeper.make(config, mockStore, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -1220,7 +1228,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, mockStore, runtime)
+              sweeper <- TimeoutSweeper.make(config, mockStore, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -1240,7 +1248,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       test("stop resigns leadership when leader election is configured") {
         // Test TimeoutSweeper.scala line 191: leaderElection.fold(ZIO.unit)(_.resign)
         for
-          store      <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store      <- InMemoryTimeoutStore.make[String]
           leaseStore <- ZIO.succeed(new InMemoryLeaseStore())
           eventsRef  <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
@@ -1255,7 +1263,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("resign-test-node")
           sweepCount <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime, Some(leaseStore))
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime), Some(leaseStore))
               // Wait for sweeper to run a few sweeps
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
@@ -1270,7 +1278,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
       },
       test("stop without leader election just sets running to false") {
         for
-          store     <- ZIO.succeed(new InMemoryTimeoutStore[String]())
+          store     <- InMemoryTimeoutStore.make[String]
           eventsRef <- Ref.make(List.empty[(String, TestEvent)])
           runtime = makeMockRuntime(eventsRef, "fsm-1")
           config  = TimeoutSweeperConfig()
@@ -1279,7 +1287,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
           result <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, store, runtime)
+              sweeper <- TimeoutSweeper.make(config, store, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -1305,7 +1313,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             .withNodeId("test-node")
           metrics <- ZIO.scoped {
             for
-              sweeper <- TimeoutSweeper.make(config, mockStore, runtime)
+              sweeper <- TimeoutSweeper.make(config, mockStore, alwaysOpen(runtime))
               _       <- ZIO.yieldNow
               _       <- TestClock.adjust(Duration.fromMillis(100))
               _       <- ZIO.yieldNow
@@ -1317,5 +1325,5 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         yield assertTrue(metrics.errors >= 1)
       }
     ),
-  ) @@ TestAspect.sequential @@ TestAspect.timeout(Duration.fromSeconds(60))
+  ).provideLayer(InstanceMailbox.layer[String]) @@ TestAspect.sequential @@ TestAspect.timeout(Duration.fromSeconds(60))
 end TimeoutSweeperSpec

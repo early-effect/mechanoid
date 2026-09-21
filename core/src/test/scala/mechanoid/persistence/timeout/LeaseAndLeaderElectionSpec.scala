@@ -369,6 +369,11 @@ object LeaseAndLeaderElectionSpec extends ZIOSpecDefault:
           .withNodeId("custom-node-id")
         assertTrue(config.nodeId == "custom-node-id")
       },
+      test("withDelivery sets timeout delivery policy") {
+        val config = TimeoutSweeperConfig()
+          .withDelivery(TimeoutDelivery.UntilDelivered)
+        assertTrue(config.delivery == TimeoutDelivery.UntilDelivered)
+      },
     ),
   ) @@ TestAspect.sequential @@ TestAspect.timeout(Duration.fromSeconds(30))
 end LeaseAndLeaderElectionSpec

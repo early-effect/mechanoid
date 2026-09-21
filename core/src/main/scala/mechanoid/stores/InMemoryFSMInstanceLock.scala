@@ -133,3 +133,6 @@ object InMemoryFSMInstanceLock:
   /** Create a new in-memory FSM instance lock. */
   def make[Id]: UIO[InMemoryFSMInstanceLock[Id]] =
     Ref.make(Map.empty[Id, LockToken[Id]]).map(new InMemoryFSMInstanceLock(_))
+
+  def layer[Id: Tag]: ULayer[FSMInstanceLock[Id]] =
+    ZLayer.fromZIO(make[Id])

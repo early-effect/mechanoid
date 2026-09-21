@@ -405,6 +405,235 @@ object FSMRuntime:
     }
 
   // ============================================
+  // Load-on-demand (REST / sweeper)
+  // ============================================
+
+  /** Reconstruct a persisted instance. Fails with [[InstanceNotFoundError]] when there is no snapshot and
+    * `highestSequenceNr` is 0. Does not create.
+    *
+    * Load-on-demand reconstruct uses optimistic `send` (sequence check at append). Same-node exclusivity is
+    * [[InstanceMailbox]]; cross-node exclusivity is the env [[LockingStrategy]] held by [[session]] / the sweeper
+    * around reconstruct+send. Nested distributed locks would drop the outer lease on inner release.
+    *
+    * New instances still go through [[apply]].
+    */
+  def existing[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    requirePersisted[Id, S, E](id) *> hydrate(id, machine, initialState, None, None)
+
+  def existing[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    requirePersisted[Id, S, E](id) *> hydrateIndexed(id, machine, initialState, Some(extractor), None)
+
+  def existing[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      indexes: IndexExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    existing(id, machine, initialState, AliasExtractor.none[S], indexes)
+
+  def existing[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+      indexes: IndexExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    requirePersisted[Id, S, E](id) *> hydrateIndexed(
+      id,
+      machine,
+      initialState,
+      Some(extractor).filter(_ ne AliasExtractor.none[S]),
+      Some(indexes).filter(_ ne IndexExtractor.none[S]),
+    )
+
+  /** Same-node mailbox, then env lock, reconstruct, `use`, drop the runtime, release.
+    *
+    * Any node may run this; servers are ephemeral. The claim / lock is what fires once.
+    *
+    * {{{
+    * FSMRuntime.session(orderId, machine, Pending) { fsm =>
+    *   fsm.send(Pay)
+    * }
+    * }}}
+    */
+  def session[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+  ): SessionPartiallyApplied[Id, S, E, EventStore[Id, S, E] & TimeoutStrategy[Id]] =
+    SessionPartiallyApplied(id, existing(id, machine, initialState))
+
+  def session[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): SessionPartiallyApplied[Id, S, E, EventStore[Id, S, E] & TimeoutStrategy[Id] & InstanceIndex[Id]] =
+    SessionPartiallyApplied(id, existing(id, machine, initialState, extractor))
+
+  def session[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: AliasExtractor[S],
+      indexes: IndexExtractor[S],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): SessionPartiallyApplied[Id, S, E, EventStore[Id, S, E] & TimeoutStrategy[Id] & InstanceIndex[Id]] =
+    SessionPartiallyApplied(id, existing(id, machine, initialState, extractor, indexes))
+
+  /** Rebuild current state from snapshot + events. `None` if the instance was never persisted.
+    *
+    * REST GET should use this, not [[EventStore.currentState]] (that default is snapshot-only).
+    */
+  def readState[Id, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+  )(using Tag[EventStore[Id, S, E]]): ZIO[EventStore[Id, S, E], MechanoidError, Option[S]] =
+    ZIO.serviceWithZIO[EventStore[Id, S, E]] { store =>
+      for
+        snapshot <- store.loadSnapshot(id)
+        seq      <- store.highestSequenceNr(id)
+        result   <-
+          if snapshot.isEmpty && seq == 0L then ZIO.succeed(None)
+          else
+            val startState = snapshot.map(_.state).getOrElse(initialState)
+            val startSeqNr = snapshot.map(_.sequenceNr).getOrElse(0L)
+            store.loadEventsFrom(id, startSeqNr).runCollect.flatMap { events =>
+              rebuildState(machine, startState, events.toList).map(s => Some(s.current))
+            }
+      yield result
+    }
+
+  private def requirePersisted[Id, S, E](id: Id)(using
+      Tag[EventStore[Id, S, E]]
+  ): ZIO[EventStore[Id, S, E], MechanoidError, Unit] =
+    ZIO.serviceWithZIO[EventStore[Id, S, E]] { store =>
+      for
+        snapshot <- store.loadSnapshot(id)
+        seq      <- store.highestSequenceNr(id)
+        _        <-
+          if snapshot.isDefined || seq > 0L then ZIO.unit
+          else ZIO.fail(InstanceNotFoundError(id.toString))
+      yield ()
+    }
+
+  /** Reconstruct with optimistic send. Caller must already hold mailbox+lock if contention matters. */
+  @nowarn("msg=unused implicit parameter")
+  private def hydrate[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: Option[AliasExtractor[S]],
+      indexExtractor: Option[IndexExtractor[S]],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+  ): ZIO[Scope & EventStore[Id, S, E] & TimeoutStrategy[Id], MechanoidError, FSMRuntime[Id, S, E]] =
+    for
+      store           <- ZIO.service[EventStore[Id, S, E]]
+      timeoutStrategy <- ZIO.service[TimeoutStrategy[Id]]
+      runtime         <- ZIO.acquireRelease(
+        createRuntime(
+          id,
+          machine,
+          initialState,
+          store,
+          timeoutStrategy,
+          OptimisticLockingStrategy.make[Id],
+          None,
+          extractor,
+          indexExtractor,
+        )
+      )(_.stop)
+    yield runtime
+
+  @nowarn("msg=unused implicit parameter")
+  private def hydrateIndexed[Id: Tag, S, E](
+      id: Id,
+      machine: Machine[S, E],
+      initialState: S,
+      extractor: Option[AliasExtractor[S]],
+      indexExtractor: Option[IndexExtractor[S]],
+  )(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    Scope & EventStore[Id, S, E] & TimeoutStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    FSMRuntime[Id, S, E],
+  ] =
+    for
+      store           <- ZIO.service[EventStore[Id, S, E]]
+      timeoutStrategy <- ZIO.service[TimeoutStrategy[Id]]
+      index           <- ZIO.service[InstanceIndex[Id]]
+      runtime         <- ZIO.acquireRelease(
+        createRuntime(
+          id,
+          machine,
+          initialState,
+          store,
+          timeoutStrategy,
+          OptimisticLockingStrategy.make[Id],
+          Some(index),
+          extractor,
+          indexExtractor,
+        )
+      )(_.stop)
+    yield runtime
+
+  // ============================================
   // Implementation
   // ============================================
 
@@ -864,3 +1093,28 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
         end for
       case _ => ZIO.unit
 end FSMRuntimeImpl
+
+/** Pins `Id` / `S` / `E` so the `use` lambda is checked against a known runtime type. */
+final class SessionPartiallyApplied[Id, S, E, Env] private[runtime] (
+    id: Id,
+    open: ZIO[Scope & Env, MechanoidError, FSMRuntime[Id, S, E]],
+):
+  def apply[R, A](
+      use: FSMRuntime[Id, S, E] => ZIO[R, MechanoidError, A]
+  )(using
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceMailbox[Id]],
+  ): ZIO[R & Env & LockingStrategy[Id] & InstanceMailbox[Id], MechanoidError, A] =
+    ZIO.serviceWithZIO[InstanceMailbox[Id]] { box =>
+      ZIO.serviceWithZIO[LockingStrategy[Id]] { locking =>
+        box.run(id) {
+          locking.withLock(
+            id,
+            ZIO.scoped {
+              open.flatMap(use)
+            },
+          )
+        }
+      }
+    }
+end SessionPartiallyApplied
