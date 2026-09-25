@@ -79,6 +79,13 @@ trait LockingStrategy[Id]:
       effect: ZIO[R, E, A],
   ): ZIO[R, E, A]
 
+  /** Drop this instance's lock row, if the strategy has one.
+    *
+    * Optimistic locking has no row. Distributed locking deletes the row for any holder, including an expired lease.
+    * `fsm.delete` calls this after the log is gone.
+    */
+  def releaseInstance(instanceId: Id): ZIO[Any, MechanoidError, Unit]
+
 end LockingStrategy
 
 object LockingStrategy:

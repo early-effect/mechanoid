@@ -130,6 +130,50 @@ object PostgresEventStoreSpec extends ZIOSpecDefault:
         loaded <- store.loadSnapshot("does-not-exist")
       yield assertTrue(loaded.isEmpty)
     },
+    test("deleteInstance removes the log and the snapshot and restarts the sequence") {
+      for
+        store <- ZIO.service[EventStore[String, TestState, TestEvent]]
+        now   <- Clock.instant
+        id    = uniqueId("delete-instance")
+        other = uniqueId("delete-instance-other")
+        _      <- store.append(id, TestEvent.Started("a"), 0)
+        _      <- store.saveSnapshot(FSMSnapshot(id, TestState.Processing, 1L, now))
+        _      <- store.append(other, TestEvent.Finished, 0)
+        _      <- store.saveSnapshot(FSMSnapshot(other, TestState.Completed, 1L, now))
+        _      <- store.deleteInstance(id)
+        events <- store.loadEvents(id).runCollect
+        snap   <- store.loadSnapshot(id)
+        state  <- store.currentState(id)
+        seq    <- store.highestSequenceNr(id)
+        again  <- store.append(id, TestEvent.Started("new"), 0)
+        kept   <- store.loadSnapshot(other)
+      yield assertTrue(
+        events.isEmpty,
+        snap.isEmpty,
+        state.isEmpty,
+        seq == 0L,
+        again == 1L,
+        kept.exists(_.state == TestState.Completed),
+      )
+    },
+    test("deleteInstance of a snapshot with no events leaves nothing") {
+      for
+        store <- ZIO.service[EventStore[String, TestState, TestEvent]]
+        now   <- Clock.instant
+        id = uniqueId("delete-snapshot-only")
+        _    <- store.saveSnapshot(FSMSnapshot(id, TestState.Initial, 0L, now))
+        _    <- store.deleteInstance(id)
+        snap <- store.loadSnapshot(id)
+      yield assertTrue(snap.isEmpty)
+    },
+    test("deleteInstance of an unknown id succeeds") {
+      for
+        store <- ZIO.service[EventStore[String, TestState, TestEvent]]
+        id = uniqueId("delete-missing")
+        _   <- store.deleteInstance(id)
+        seq <- store.highestSequenceNr(id)
+      yield assertTrue(seq == 0L)
+    },
     test("deleteEventsTo removes old events") {
       for
         store  <- ZIO.service[EventStore[String, TestState, TestEvent]]

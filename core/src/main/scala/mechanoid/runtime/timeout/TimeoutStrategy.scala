@@ -1,6 +1,7 @@
 package mechanoid.runtime.timeout
 
 import zio.*
+import mechanoid.core.MechanoidError
 
 /** Strategy for managing FSM state timeouts.
   *
@@ -41,6 +42,13 @@ trait TimeoutStrategy[Id]:
 
   /** Drop names not in `keep` for this instance. Used on reconstruct / enter so extra keys do not linger. */
   def retain(instanceId: Id, keep: Set[String]): UIO[Unit]
+
+  /** Cancel every timeout for this instance and fail if a durable row cannot be removed.
+    *
+    * [[cancel]] stays best-effort so a store failure does not fail a transition that already appended. `fsm.delete`
+    * uses [[purge]] so a leftover row cannot be fired by the sweeper.
+    */
+  def purge(instanceId: Id): ZIO[Any, MechanoidError, Unit]
 
 end TimeoutStrategy
 

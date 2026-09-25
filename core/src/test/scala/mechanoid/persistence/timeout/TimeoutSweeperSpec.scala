@@ -114,6 +114,8 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
 
       override def stop(reason: String): UIO[Unit] = ZIO.unit
 
+      override def delete: ZIO[Any, MechanoidError, Unit] = ZIO.unit
+
       override def isRunning: UIO[Boolean] = ZIO.succeed(true)
 
       override def timeoutConfigForState(state: TestState): Chunk[TimeoutSpec[TestState, TestEvent]] =
@@ -1014,6 +1016,7 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             override def saveSnapshot: ZIO[Any, MechanoidError, Unit] = ZIO.unit
             override def stop: UIO[Unit]                              = ZIO.unit
             override def stop(reason: String): UIO[Unit]              = ZIO.unit
+            override def delete: ZIO[Any, MechanoidError, Unit]       = ZIO.unit
             override def isRunning: UIO[Boolean]                      = ZIO.succeed(true)
             override def timeoutConfigForState(state: TestState): Chunk[TimeoutSpec[TestState, TestEvent]] =
               state match

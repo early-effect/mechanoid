@@ -116,6 +116,9 @@ final class InMemoryFSMInstanceLock[Id] private (
   override def get(instanceId: Id, now: Instant): ZIO[Any, MechanoidError, Option[LockToken[Id]]] =
     locksRef.get.map(_.get(instanceId).filter(_.isValid(now)))
 
+  override def forceRelease(instanceId: Id): ZIO[Any, MechanoidError, Unit] =
+    locksRef.update(_ - instanceId)
+
   /** Get the number of active locks (for testing). */
   def activeLockCount: UIO[Int] =
     for

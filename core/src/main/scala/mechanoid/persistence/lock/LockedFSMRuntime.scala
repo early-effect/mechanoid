@@ -100,6 +100,9 @@ final class LockedFSMRuntime[Id, S, E] private[lock] (
 
   override def stop(reason: String): UIO[Unit] = underlying.stop(reason)
 
+  override def delete: ZIO[Any, MechanoidError, Unit] =
+    underlying.delete *> lock.forceRelease(instanceId).unit
+
   override def isRunning: UIO[Boolean] = underlying.isRunning
 
   override def timeoutConfigForState(state: S): Chunk[mechanoid.machine.TimeoutSpec[S, E]] =

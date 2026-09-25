@@ -103,6 +103,9 @@ leaf hash no longer matches, the name is no longer armed, or the instance was ne
 persisted. The failure we do not want is a machine left in a timed leaf whose timeout
 never arrives.
 
+`fsm.delete` purges every timeout row for the id, so the sweeper cannot fire a machine that
+is gone. `cancel` on Goto is not that. See [Deleting an instance](deleting-an-instance.html).
+
 Load-on-demand (REST / many instances): reconstruct the **claimed** id, send, drop.
 
 ```scala

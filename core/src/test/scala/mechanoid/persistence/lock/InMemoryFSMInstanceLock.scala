@@ -109,6 +109,14 @@ class InMemoryFSMInstanceLock[Id] extends FSMInstanceLock[Id]:
       }
     }
 
+  override def forceRelease(instanceId: Id): ZIO[Any, MechanoidError, Unit] =
+    ZIO.succeed {
+      synchronized {
+        locks.remove(instanceId)
+        ()
+      }
+    }
+
   /** Get the number of active locks (for testing). */
   def activeLockCount: Int = synchronized {
     val now = Instant.now()

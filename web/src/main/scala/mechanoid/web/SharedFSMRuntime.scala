@@ -148,6 +148,8 @@ object SharedFSMRuntime:
 
     override def stop(reason: String): UIO[Unit] = runtime.flatMap(_.stop(reason))
 
+    override def delete: ZIO[Any, MechanoidError, Unit] = runtime.flatMap(_.delete)
+
     override def isRunning: UIO[Boolean] = runtime.flatMap(_.isRunning)
 
     override def timeoutConfigForState(state: S): Chunk[TimeoutSpec[S, E]] =

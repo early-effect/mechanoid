@@ -110,7 +110,7 @@ object RunningFsms extends MechanoidDocSpecSuite:
 | `EventStore[Id, S, E]` | Events and snapshots |
 | `TimeoutStrategy[Id]` | Fiber or durable timeouts |
 | `LockingStrategy[Id]` | Optimistic or distributed locking |
-| `InstanceIndex[Id]` | Unique `Alias.of[S]` plus many `IndexQuery.of[S]` (optional; required for `lookup`) |
+| `InstanceIndex[Id]` | Unique `Alias.of[S]` plus many `IndexQuery.of[S]` (optional for `lookup`; required for `FSMRuntime.delete`) |
 """,
       exampleZIO {
         enum OrderState derives Finite:
@@ -146,6 +146,8 @@ object RunningFsms extends MechanoidDocSpecSuite:
           .asDoc
       }.assert(state => assertTrue(state.toString == "Paid")),
       md"""
+`fsm.delete` removes that instance. See [Deleting an instance](deleting-an-instance.html).
+
 Next: [Persistence](persistence.html) for recover-on-construct, snapshots, and lookup by alias. [Indexing](indexing.html) for many-to-one `find`.
 """,
     ),

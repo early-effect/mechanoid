@@ -2,6 +2,7 @@ package mechanoid.runtime.timeout
 
 import java.time.Instant
 import zio.*
+import mechanoid.core.MechanoidError
 import mechanoid.persistence.timeout.TimeoutStore
 
 /** Durable timeout strategy that persists deadlines to a [[TimeoutStore]].
@@ -35,6 +36,9 @@ final class DurableTimeoutStrategy[Id] private (
 
   override def cancel(instanceId: Id, name: String): UIO[Unit] =
     timeoutStore.cancel(instanceId, name).ignore
+
+  override def purge(instanceId: Id): ZIO[Any, MechanoidError, Unit] =
+    timeoutStore.cancel(instanceId).unit
 
   override def retain(instanceId: Id, keep: Set[String]): UIO[Unit] =
     timeoutStore.get(instanceId).orElseSucceed(Chunk.empty).flatMap { rows =>

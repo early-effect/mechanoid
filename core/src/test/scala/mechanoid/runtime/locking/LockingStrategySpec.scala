@@ -265,6 +265,7 @@ object LockingStrategySpec extends ZIOSpecDefault:
             def release(token: LockToken[String])                                   = ZIO.succeed(true)
             def extend(token: LockToken[String], d: Duration, n: java.time.Instant) = ZIO.succeed(None)
             def get(id: String, n: java.time.Instant) = ZIO.succeed(None) // Lock released/expired
+            def forceRelease(id: String)              = ZIO.unit
           config   = LockConfig.withNodeId("test-node").withValidateBeforeOperation(true)
           strategy = DistributedLockingStrategy.make(mockLock, config)
           result <- strategy.withLock("instance-1", ZIO.succeed("should not reach")).either
@@ -286,6 +287,7 @@ object LockingStrategySpec extends ZIOSpecDefault:
             // Returns lock held by different node
             def get(id: String, n: java.time.Instant) =
               ZIO.succeed(Some(LockToken("instance-1", "other-node", now, now.plusSeconds(60))))
+            def forceRelease(id: String) = ZIO.unit
           config   = LockConfig.withNodeId("test-node").withValidateBeforeOperation(true)
           strategy = DistributedLockingStrategy.make(mockLock, config)
           result <- strategy.withLock("instance-1", ZIO.succeed("should not reach")).either
@@ -307,6 +309,7 @@ object LockingStrategySpec extends ZIOSpecDefault:
             // Fails with MechanoidError
             def get(id: String, n: java.time.Instant) =
               ZIO.fail(mechanoid.core.PersistenceError("Database connection failed"))
+            def forceRelease(id: String) = ZIO.unit
           config   = LockConfig.withNodeId("test-node").withValidateBeforeOperation(true)
           strategy = DistributedLockingStrategy.make(mockLock, config)
           result <- strategy.withLock("instance-1", ZIO.succeed("should not reach")).either
@@ -326,6 +329,7 @@ object LockingStrategySpec extends ZIOSpecDefault:
             def release(token: LockToken[String])                                   = ZIO.succeed(true)
             def extend(token: LockToken[String], d: Duration, n: java.time.Instant) = ZIO.succeed(None)
             def get(id: String, n: java.time.Instant)                               = ZIO.succeed(None)
+            def forceRelease(id: String)                                            = ZIO.unit
             // Override withLock to directly fail with LockError
             override def withLock[R, E, A](id: String, nodeId: String, d: Duration, t: Option[Duration])(
                 effect: ZIO[R, E, A]

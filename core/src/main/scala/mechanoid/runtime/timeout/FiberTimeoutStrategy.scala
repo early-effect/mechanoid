@@ -2,6 +2,7 @@ package mechanoid.runtime.timeout
 
 import java.time.Instant
 import zio.*
+import mechanoid.core.MechanoidError
 
 /** In-memory timeout strategy using ZIO fibers.
   *
@@ -48,6 +49,9 @@ final class FiberTimeoutStrategy[Id] private (
         case None =>
           (ZIO.unit, map)
     }.flatten
+
+  override def purge(instanceId: Id): ZIO[Any, MechanoidError, Unit] =
+    cancel(instanceId)
 
   override def retain(instanceId: Id, keep: Set[String]): UIO[Unit] =
     fibers.get.flatMap { map =>

@@ -137,6 +137,7 @@ object LockedFSMRuntimeSpec extends ZIOSpecDefault:
           // Return token held by OTHER node during validation
           def get(instanceId: String, now: java.time.Instant) =
             ZIO.succeed(Some(LockToken(instanceId, "other-node", now, now.plusSeconds(60))))
+          def forceRelease(instanceId: String) = ZIO.unit
 
         val config = LockConfig.withNodeId("test-node").withValidateBeforeOperation(true)
 
@@ -165,6 +166,7 @@ object LockedFSMRuntimeSpec extends ZIOSpecDefault:
             ZIO.succeed(Some(token.copy(expiresAt = now.plusSeconds(60))))
           // Return None - lock expired/released
           def get(instanceId: String, now: java.time.Instant) = ZIO.succeed(None)
+          def forceRelease(instanceId: String)                = ZIO.unit
 
         val config = LockConfig.withNodeId("test-node").withValidateBeforeOperation(true)
 
@@ -194,6 +196,7 @@ object LockedFSMRuntimeSpec extends ZIOSpecDefault:
           // Fail with a generic error during get
           def get(instanceId: String, now: java.time.Instant) =
             ZIO.fail(mechanoid.core.PersistenceError(new RuntimeException("Database connection lost")))
+          def forceRelease(instanceId: String) = ZIO.unit
 
         val config = LockConfig.withNodeId("test-node").withValidateBeforeOperation(true)
 
@@ -339,6 +342,7 @@ object LockedFSMRuntimeSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, now: java.time.Instant) =
               renewCount.update(_ + 1) *> lock.extend(token, additionalDuration, now)
             def get(instanceId: String, now: java.time.Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)                = lock.forceRelease(instanceId)
 
           lockedRuntime = LockedFSMRuntime.withConfig(runtime, trackingLock, LockConfig.withNodeId("test-node"))
 

@@ -78,7 +78,8 @@ object Indexing extends DocSpec:
 Aliases are unique: `Alias.of[S].campaign(id)` maps to one instance. `UniqueAliasError`
 still holds when index rows exist for the same instance. A person with N tickets is the
 opposite: many instances share one key. Query that with `IndexQuery.of[S].assignee(me)`,
-not `Alias.of`.
+not `Alias.of`. Deleting the instance drops the alias and these index rows together
+([Deleting an instance](deleting-an-instance.html)). Do not unbind by hand and leave the log.
 """,
       exampleZIO {
         enum S derives Finite:

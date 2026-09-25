@@ -2,6 +2,7 @@ package mechanoid.runtime.locking
 
 import zio.*
 import mechanoid.core.MechanoidError
+import scala.annotation.unused
 
 /** Optimistic locking strategy that relies on EventStore conflict detection.
   *
@@ -39,6 +40,8 @@ final class OptimisticLockingStrategy[Id] private () extends LockingStrategy[Id]
     // EventStore's sequence number validation provides conflict detection
     effect
 
+  override def releaseInstance(@unused instanceId: Id): ZIO[Any, MechanoidError, Unit] =
+    ZIO.unit
 end OptimisticLockingStrategy
 
 object OptimisticLockingStrategy:

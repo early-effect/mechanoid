@@ -361,6 +361,7 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
       override def saveSnapshot         = ZIO.unit
       override def stop                 = ZIO.unit
       override def stop(reason: String) = ZIO.unit
+      override def delete               = ZIO.unit
       override def isRunning            = ZIO.succeed(true)
       override def timeoutConfigForState(state: Leaf) = conflictMachine.timeoutsFor(state)
 
@@ -411,6 +412,8 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
       underlying.saveSnapshot(snapshot)
     override def highestSequenceNr(instanceId: String) =
       underlying.highestSequenceNr(instanceId)
+    override def deleteInstance(instanceId: String) =
+      underlying.deleteInstance(instanceId)
   end PingThenConflict
 
   /** After `queryExpired`, the row a sweeper claims has a future deadline. */

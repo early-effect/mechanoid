@@ -48,7 +48,10 @@ trait InstanceIndex[Id]:
   /** List aliases currently bound to this instance, optionally filtered by namespace. */
   def aliasesOf(instanceId: Id, namespace: Option[String] = None): ZIO[Any, MechanoidError, Chunk[Alias]]
 
-  /** Remove every alias bound to this instance. Returns how many rows were removed. */
+  /** Remove every alias and every index row bound to this instance. Returns how many rows were removed.
+    *
+    * `fsm.delete` uses this. Unbinding aliases alone leaves `find` results behind.
+    */
   def unbindInstance(instanceId: Id): ZIO[Any, MechanoidError, Long]
 
   /** Bind non-unique index keys to an instance. Duplicate keys in `keys` collapse. Empty input is a no-op. */

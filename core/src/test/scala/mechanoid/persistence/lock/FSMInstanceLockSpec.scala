@@ -307,6 +307,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, now: Instant) =
               renewCount.update(_ + 1) *> lock.extend(token, additionalDuration, now)
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)      = lock.forceRelease(instanceId)
 
           heartbeatConfig = LockHeartbeatConfig(
             renewalInterval = Duration.fromMillis(100),
@@ -358,6 +359,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, now: Instant) =
               renewCount.update(_ + 1) *> lock.extend(token, additionalDuration, now)
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)      = lock.forceRelease(instanceId)
 
           heartbeatConfig = LockHeartbeatConfig(
             renewalInterval = Duration.fromMillis(20),
@@ -406,6 +408,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
                   else lock.extend(token, additionalDuration, now)
                 }
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)      = lock.forceRelease(instanceId)
 
           heartbeatConfig = LockHeartbeatConfig(
             renewalInterval = Duration.fromMillis(100),
@@ -465,6 +468,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
                 else lock.extend(token, additionalDuration, now)
               }
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)      = lock.forceRelease(instanceId)
 
           heartbeatConfig = LockHeartbeatConfig(
             renewalInterval = Duration.fromMillis(50),
@@ -637,6 +641,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, now: Instant) =
               extendCalled.update(_ + 1).as(None)
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)      = lock.forceRelease(instanceId)
 
           heartbeatConfig = LockHeartbeatConfig(
             renewalInterval = Duration.fromMillis(10),
@@ -680,6 +685,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
               extendCalled.update(_ + 1) *>
                 ZIO.fail(PersistenceError("Database connection lost")) // Fail with MechanoidError
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)      = lock.forceRelease(instanceId)
 
           heartbeatConfig = LockHeartbeatConfig(
             renewalInterval = Duration.fromMillis(50),
@@ -731,6 +737,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, now: Instant) =
               lock.extend(token, additionalDuration, now)
             def get(instanceId: String, now: Instant) = lock.get(instanceId, now)
+            def forceRelease(instanceId: String)      = lock.forceRelease(instanceId)
 
           result <- failingLock
             .withLock("fsm-1", "node-A", Duration.fromMillis(100)) {
@@ -758,6 +765,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
               ZIO.succeed(Some(token))
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
+            def forceRelease(instanceId: String)    = ZIO.unit
 
           result <- mockLock
             .withLock("fsm-1", "node-A", Duration.fromMillis(100)) {
@@ -781,6 +789,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
               ZIO.succeed(Some(token))
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
+            def forceRelease(instanceId: String)    = ZIO.unit
 
           result <- mockLock
             .withLock("fsm-1", "node-A", Duration.fromMillis(100)) {
@@ -805,6 +814,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
               ZIO.succeed(Some(token))
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
+            def forceRelease(instanceId: String)    = ZIO.unit
 
           result <- mockLock
             .withLock("fsm-1", "node-A", Duration.fromMillis(100)) {
@@ -832,6 +842,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
               ZIO.succeed(Some(token))
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
+            def forceRelease(instanceId: String)    = ZIO.unit
 
           result <- mockLock
             .withLockAndHeartbeat("fsm-1", "node-A", Duration.fromMillis(100)) {
@@ -854,6 +865,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
               ZIO.succeed(Some(token))
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
+            def forceRelease(instanceId: String)    = ZIO.unit
 
           result <- mockLock
             .withLockAndHeartbeat("fsm-1", "node-A", Duration.fromMillis(100)) {
@@ -877,6 +889,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
               ZIO.succeed(Some(token))
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
+            def forceRelease(instanceId: String)    = ZIO.unit
 
           result <- mockLock
             .withLockAndHeartbeat("fsm-1", "node-A", Duration.fromMillis(100)) {
@@ -903,6 +916,7 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             def extend(token: LockToken[String], additionalDuration: Duration, n: Instant) =
               extendCount.update(_ + 1).as(None)
             def get(instanceId: String, n: Instant) = ZIO.succeed(None)
+            def forceRelease(instanceId: String)    = ZIO.unit
 
           heartbeat = LockHeartbeatConfig(
             renewalInterval = Duration.fromMillis(50),

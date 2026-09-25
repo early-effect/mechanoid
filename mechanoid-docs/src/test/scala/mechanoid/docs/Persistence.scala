@@ -119,6 +119,10 @@ same `EventStore`. Session one writes history; session two resumes at `Shipped`:
           yield recovered
         }.asDoc
       }.assert(state => assertTrue(state.toString == "Shipped")),
+      md"""
+Constructing again resumes the machine. [Deleting an instance](deleting-an-instance.html) is the
+other end. `deleteEventsTo` only shortens the log. The snapshot still restores the state.
+""",
     ),
     section("Lookup by alias")(
       md"""
@@ -203,6 +207,8 @@ PostgreSQL stores aliases in `fsm_aliases` (`PostgresInstanceIndex`); `PostgresS
 creates that table even when the other tables already exist. IndexedDB uses an `aliases` object
 store (database version 4) via `IndexedDbInstanceIndex` / `SharedFSMRuntime.lookup`.
 Many-to-one lookup (person to N machines, filter, sort, cursor) is [Indexing](indexing.html).
+Do not unbind an alias by hand and leave the log. [Deleting an instance](deleting-an-instance.html)
+drops the alias, the index rows, and the log together.
 """,
     ),
     section("EventStore and codecs")(

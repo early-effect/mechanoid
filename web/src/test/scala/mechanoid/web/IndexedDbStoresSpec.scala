@@ -75,6 +75,113 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           result <- store.append("o1", Ship, 0L).either
         yield assertTrue(result.isLeft)
       },
+      test("deleteInstance removes events and the snapshot") {
+        for
+          _        <- installFakeIdb
+          dbName   <- uniqueDb
+          store    <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
+          now      <- Clock.instant
+          _        <- store.append("o1", Pay, 0L)
+          _        <- store.saveSnapshot(FSMSnapshot("o1", Paid, 1L, now))
+          _        <- store.append("o2", Ship, 0L)
+          _        <- store.saveSnapshot(FSMSnapshot("o2", Shipped, 1L, now))
+          _        <- store.deleteInstance("o1")
+          events   <- store.loadEvents("o1").runCollect
+          snap     <- store.loadSnapshot("o1")
+          state    <- store.currentState("o1")
+          seq      <- store.highestSequenceNr("o1")
+          again    <- store.append("o1", Pay, 0L)
+          kept     <- store.loadEvents("o2").runCollect
+          keptSnap <- store.loadSnapshot("o2")
+        yield assertTrue(
+          events.isEmpty,
+          snap.isEmpty,
+          state.isEmpty,
+          seq == 0L,
+          again == 1L,
+          kept.map(_.event) == Chunk(Ship),
+          keptSnap.exists(_.state == Shipped),
+        )
+      },
+      test("deleteInstance of a snapshot with no events") {
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          store  <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
+          now    <- Clock.instant
+          _      <- store.saveSnapshot(FSMSnapshot("o1", Paid, 0L, now))
+          _      <- store.deleteInstance("o1")
+          snap   <- store.loadSnapshot("o1")
+        yield assertTrue(snap.isEmpty)
+      },
+      test("deleteInstance of an unknown id succeeds") {
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          store  <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
+          _      <- store.deleteInstance("missing")
+          seq    <- store.highestSequenceNr("missing")
+        yield assertTrue(seq == 0L)
+      },
+      test("delete clears alias, index, timeout, and lock along with the log") {
+        for
+          _        <- installFakeIdb
+          dbName   <- uniqueDb
+          events   <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
+          index    <- IndexedDbInstanceIndex.make(dbName)
+          timeouts <- IndexedDbTimeoutStore.make(dbName)
+          lock     <- IndexedDbInstanceLock.make(dbName)
+          now      <- Clock.instant
+          aliasA = Alias("campaign", "c-a")
+          aliasB = Alias("campaign", "c-b")
+          keyA   = IndexKey("assignee", "me")
+          keyB   = IndexKey("assignee", "you")
+          row    = IndexMeta("Paid", now, now, None)
+          _ <- events.append("a", Pay, 0L)
+          _ <- events.saveSnapshot(FSMSnapshot("a", Paid, 1L, now))
+          _ <- events.append("b", Ship, 0L)
+          _ <- events.saveSnapshot(FSMSnapshot("b", Shipped, 1L, now))
+          _ <- index.bind(aliasA, "a")
+          _ <- index.bind(aliasB, "b")
+          _ <- index.bindIndexes(Chunk(keyA), "a", row)
+          _ <- index.bindIndexes(Chunk(keyB), "b", row)
+          _ <- timeouts.schedule("a", "tick", 1, 1L, now.plusMillis(50))
+          _ <- timeouts.schedule("b", "tick", 1, 1L, now.plusMillis(50))
+          _ <- lock.tryAcquire("a", "other", 30.seconds, now)
+          _ <- lock.tryAcquire("b", "other", 30.seconds, now)
+          _ <- FSMRuntime
+            .delete[String, TestState, TestEvent]("a")
+            .provide(
+              ZLayer.succeed[EventStore[String, TestState, TestEvent]](events),
+              ZLayer.succeed[InstanceIndex[String]](index),
+              ZLayer.succeed[TimeoutStrategy[String]](DurableTimeoutStrategy.make(timeouts)),
+              ZLayer.succeed[FSMInstanceLock[String]](lock) >>> LockingStrategy.distributed[String],
+            )
+          goneEvents <- events.loadEvents("a").runCollect
+          goneSnap   <- events.loadSnapshot("a")
+          goneAlias  <- index.resolve(aliasA)
+          goneKeys   <- index.indexesOf("a")
+          goneTimer  <- timeouts.get("a")
+          goneLock   <- lock.get("a", now)
+          keptEvents <- events.loadEvents("b").runCollect
+          keptAlias  <- index.resolve(aliasB)
+          keptKeys   <- index.indexesOf("b")
+          keptTimer  <- timeouts.get("b")
+          keptLock   <- lock.get("b", now)
+        yield assertTrue(
+          goneEvents.isEmpty,
+          goneSnap.isEmpty,
+          goneAlias.isEmpty,
+          goneKeys.isEmpty,
+          goneTimer.isEmpty,
+          goneLock.isEmpty,
+          keptEvents.map(_.event) == Chunk(Ship),
+          keptAlias.contains("b"),
+          keptKeys.toSet == Set(keyB),
+          keptTimer.size == 1,
+          keptLock.isDefined,
+        )
+      },
       test("snapshot round-trip") {
         for
           _      <- installFakeIdb

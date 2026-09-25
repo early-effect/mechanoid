@@ -90,6 +90,23 @@ final class IndexedDbEventStore[S: JsonCodec, E: JsonCodec] private (
       .unit <* notify(snapshot.instanceId)
   end saveSnapshot
 
+  override def deleteInstance(instanceId: String): ZIO[Any, MechanoidError, Unit] =
+    for
+      rows <- loadEventRows(instanceId)
+      _    <- ZIO.async[Any, MechanoidError, Unit] { cb =>
+        val tx        = db.transaction(js.Array(Idb.EventsStore, Idb.SnapshotsStore), IDBTransactionMode.readwrite)
+        val events    = tx.objectStore(Idb.EventsStore)
+        val snapshots = tx.objectStore(Idb.SnapshotsStore)
+        rows.foreach(r => events.delete(r.key))
+        snapshots.delete(instanceId)
+        tx.oncomplete = (_: org.scalajs.dom.Event) => cb(ZIO.unit)
+        tx.onerror =
+          (_: org.scalajs.dom.Event) => cb(ZIO.fail(PersistenceError(s"IndexedDB deleteInstance failed: ${tx.error}")))
+        tx.onabort =
+          (_: org.scalajs.dom.Event) => cb(ZIO.fail(PersistenceError(s"IndexedDB deleteInstance aborted: ${tx.error}")))
+      }
+    yield ()
+
   override def deleteEventsTo(instanceId: String, toSequenceNr: Long): ZIO[Any, MechanoidError, Unit] =
     for
       rows <- loadEventRows(instanceId)

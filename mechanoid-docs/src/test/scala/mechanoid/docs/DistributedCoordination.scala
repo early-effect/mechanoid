@@ -27,6 +27,8 @@ flowchart LR
 ```
 
 Optimistic sequence numbers always detect write conflicts. Distributed locking prevents them.
+[Deleting an instance](deleting-an-instance.html) force-releases the lock row for any holder,
+including an expired lease. An in-flight `withLock` on another node can still append once.
 """
     ),
     section("LockingStrategy")(
