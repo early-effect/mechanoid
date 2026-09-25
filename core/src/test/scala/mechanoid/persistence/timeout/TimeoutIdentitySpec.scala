@@ -62,6 +62,7 @@ object TimeoutIdentitySpec extends ZIOSpecDefault:
       override def saveSnapshot                        = ZIO.unit
       override def stop                                = ZIO.unit
       override def stop(reason: String)                = ZIO.unit
+      override def delete                              = ZIO.unit
       override def isRunning                           = ZIO.succeed(true)
       override def timeoutConfigForState(s: TestState) =
         if s == Waiting then Chunk(TimeoutSpec(TimeoutFired, "TimeoutFired", TimeoutDeadline.After(10.seconds)))

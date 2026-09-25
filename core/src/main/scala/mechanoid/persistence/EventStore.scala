@@ -47,7 +47,10 @@ import scala.annotation.unused
   * }}}
   *
   * '''Optional cleanup''': After snapshotting, you may delete old events to reclaim storage using [[deleteEventsTo]].
-  * This is optional - keeping events allows full audit trails.
+  * This is optional. Keeping events allows a full audit trail. [[deleteEventsTo]] does not remove the instance: the
+  * snapshot remains and a new runtime for that id restores the machine. [[deleteInstance]] removes the log and the
+  * snapshot. Callers that want the id gone from aliases, indexes, timeouts, and the lock use `fsm.delete` or
+  * [[mechanoid.runtime.FSMRuntime.delete]].
   *
   * ==Schema Evolution==
   *
@@ -189,9 +192,10 @@ trait EventStore[Id, S, E]:
     */
   def saveSnapshot(snapshot: FSMSnapshot[Id, S]): ZIO[Any, MechanoidError, Unit]
 
-  /** Delete events up to a sequence number (optional cleanup).
+  /** Delete events up to a sequence number (optional log truncation).
     *
-    * Used after taking a snapshot to reclaim storage. Default implementation does nothing.
+    * Used after taking a snapshot to reclaim storage. The snapshot and the instance remain. Default implementation does
+    * nothing. To remove the instance, use [[deleteInstance]] from `fsm.delete`.
     *
     * @param instanceId
     *   The FSM instance identifier
@@ -200,6 +204,18 @@ trait EventStore[Id, S, E]:
     */
   def deleteEventsTo(@unused instanceId: Id, @unused toSequenceNr: Long): ZIO[Any, MechanoidError, Unit] =
     ZIO.unit
+
+  /** Remove this instance's event log and snapshot.
+    *
+    * After success, [[loadEvents]] is empty, [[loadSnapshot]] and [[currentState]] are empty, and [[highestSequenceNr]]
+    * is 0. The next [[append]] with `expectedSeqNr` 0 starts a new history. An id with neither events nor a snapshot
+    * still succeeds.
+    *
+    * Does not remove aliases, index rows, timeouts, or the lock. `fsm.delete` and
+    * [[mechanoid.runtime.FSMRuntime.delete]] do. No default: a no-op would report the instance gone while
+    * [[currentState]] still returns it.
+    */
+  def deleteInstance(instanceId: Id): ZIO[Any, MechanoidError, Unit]
 
   /** Get the highest sequence number for an FSM instance.
     *

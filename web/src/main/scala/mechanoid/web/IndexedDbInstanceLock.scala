@@ -100,6 +100,13 @@ final class IndexedDbInstanceLock private (
         else Some(LockRow.fromJs(raw.asInstanceOf[js.Dynamic]).toToken)
       }
 
+  override def forceRelease(instanceId: String): ZIO[Any, MechanoidError, Unit] =
+    Idb
+      .txn(db, Seq(Idb.LocksStore), IDBTransactionMode.readwrite) { tx =>
+        Idb.request(Idb.store(tx, Idb.LocksStore).delete(instanceId))
+      }
+      .unit
+
   private def put(token: LockToken[String]): ZIO[Any, MechanoidError, Unit] =
     Idb
       .txn(db, Seq(Idb.LocksStore), IDBTransactionMode.readwrite) { tx =>

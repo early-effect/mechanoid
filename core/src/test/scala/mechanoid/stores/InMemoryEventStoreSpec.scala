@@ -278,6 +278,47 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
           state <- store.currentState("non-existent")
         yield assertTrue(state.isEmpty)
       },
+      test("deleteInstance drops the log, the snapshot, and the sequence") {
+        for
+          store    <- InMemoryEventStore.make[String, TestState, TestEvent]()
+          _        <- store.append("fsm-1", Event1, 0L)
+          _        <- store.saveSnapshot(FSMSnapshot("fsm-1", StateA, 1L, java.time.Instant.now()))
+          _        <- store.append("fsm-2", Event2, 0L)
+          _        <- store.saveSnapshot(FSMSnapshot("fsm-2", StateB, 1L, java.time.Instant.now()))
+          _        <- store.deleteInstance("fsm-1")
+          events   <- store.loadEvents("fsm-1").runCollect
+          snap     <- store.loadSnapshot("fsm-1")
+          state    <- store.currentState("fsm-1")
+          seq      <- store.highestSequenceNr("fsm-1")
+          again    <- store.append("fsm-1", Event1, 0L)
+          kept     <- store.loadEvents("fsm-2").runCollect
+          keptSnap <- store.loadSnapshot("fsm-2")
+        yield assertTrue(
+          events.isEmpty,
+          snap.isEmpty,
+          state.isEmpty,
+          seq == 0L,
+          again == 1L,
+          kept.map(_.event) == Chunk(Event2),
+          keptSnap.exists(_.state == StateB),
+        )
+      },
+      test("deleteInstance of a snapshot with no events leaves nothing to recover") {
+        for
+          store <- InMemoryEventStore.make[String, TestState, TestEvent]()
+          _     <- store.saveSnapshot(FSMSnapshot("fsm-1", StateA, 0L, java.time.Instant.now()))
+          _     <- store.deleteInstance("fsm-1")
+          snap  <- store.loadSnapshot("fsm-1")
+          state <- store.currentState("fsm-1")
+        yield assertTrue(snap.isEmpty, state.isEmpty)
+      },
+      test("deleteInstance of an unknown id succeeds") {
+        for
+          store <- InMemoryEventStore.make[String, TestState, TestEvent]()
+          _     <- store.deleteInstance("missing")
+          seq   <- store.highestSequenceNr("missing")
+        yield assertTrue(seq == 0L)
+      },
     ),
   ) @@ TestAspect.timeout(10.seconds)
 

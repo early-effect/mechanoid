@@ -82,6 +82,11 @@ final class InMemoryEventStore[Id, S, E] private (
   override def highestSequenceNr(instanceId: Id): ZIO[Any, MechanoidError, Long] =
     seqNrRef.get.map(_.getOrElse(instanceId, 0L))
 
+  override def deleteInstance(instanceId: Id): ZIO[Any, MechanoidError, Unit] =
+    eventsRef.update(_ - instanceId) *>
+      snapshotsRef.update(_ - instanceId) *>
+      seqNrRef.update(_ - instanceId)
+
   override def deleteEventsTo(instanceId: Id, toSequenceNr: Long): ZIO[Any, MechanoidError, Unit] =
     for
       remaining <- eventsRef.modify { events =>

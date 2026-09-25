@@ -79,6 +79,9 @@ final class DistributedLockingStrategy[Id] private (
       }
     else ZIO.unit
 
+  override def releaseInstance(instanceId: Id): ZIO[Any, MechanoidError, Unit] =
+    lock.forceRelease(instanceId)
+
   /** Execute multiple operations atomically while holding a single lock with heartbeat renewal.
     *
     * Use this for orchestration logic that requires multiple operations without interleaving from other nodes. The

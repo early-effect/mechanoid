@@ -131,6 +131,18 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
       }
       .map(_.map(lockRow => LockToken(instanceId, lockRow.nodeId, lockRow.acquiredAt, lockRow.expiresAt)))
       .mapError(PersistenceError.fromError)
+
+  override def forceRelease(instanceId: String): ZIO[Any, MechanoidError, Unit] =
+    transactor
+      .run {
+        Delete[LockRow]
+          .where(_.instanceId)
+          .eq(instanceId)
+          .build
+          .dml
+      }
+      .unit
+      .mapError(PersistenceError.fromError)
 end PostgresInstanceLock
 
 object PostgresInstanceLock:

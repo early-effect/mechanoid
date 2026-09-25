@@ -214,5 +214,6 @@ object InMemoryTimeoutClusterSpec extends ZIOSpecDefault:
     override def loadSnapshot(instanceId: String)                          = underlying.loadSnapshot(instanceId)
     override def saveSnapshot(snapshot: FSMSnapshot[String, ClusterState]) = underlying.saveSnapshot(snapshot)
     override def highestSequenceNr(instanceId: String)                     = underlying.highestSequenceNr(instanceId)
+    override def deleteInstance(instanceId: String)                        = underlying.deleteInstance(instanceId)
   end SequencingStore
 end InMemoryTimeoutClusterSpec

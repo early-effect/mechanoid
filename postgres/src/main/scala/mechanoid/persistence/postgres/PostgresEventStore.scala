@@ -153,6 +153,15 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
       .mapError(PersistenceError.fromError)
   end saveSnapshot
 
+  override def deleteInstance(instanceId: String): ZIO[Any, MechanoidError, Unit] =
+    transactor
+      .transact {
+        Delete[EventRow[E]].where(_.instanceId).eq(instanceId).build.dml *>
+          Delete[SnapshotRow[S]].where(_.instanceId).eq(instanceId).build.dml
+      }
+      .unit
+      .mapError(PersistenceError.fromError)
+
   override def deleteEventsTo(instanceId: String, toSequenceNr: Long): ZIO[Any, MechanoidError, Unit] =
     transactor
       .run {

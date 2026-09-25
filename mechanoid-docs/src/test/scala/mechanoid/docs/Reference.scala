@@ -49,6 +49,7 @@ object Reference extends MechanoidDocSpecSuite:
 | Service | Common layers |
 |---------|----------------|
 | `EventStore` | `InMemoryEventStore.layer`, `mechanoid-postgres` |
+| `fsm.delete` / `FSMRuntime.delete[Id, S, E](id)` | `EventStore`, `TimeoutStrategy`, `LockingStrategy`, `InstanceIndex`. Removes the log, snapshot, aliases, index rows, timeouts, and the lock row |
 | `TimeoutStrategy` | `fiber[Id]`, `durable[Id]` (+ `TimeoutStore`) |
 | `LockingStrategy` | `optimistic[Id]`, `distributed[Id]` (+ `FSMInstanceLock`) |
 | `InstanceIndex` | `InMemoryInstanceIndex.layer`, `PostgresInstanceIndex`, `IndexedDbInstanceIndex` |

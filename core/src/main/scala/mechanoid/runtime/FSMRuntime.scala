@@ -91,6 +91,23 @@ trait FSMRuntime[Id, S, E]:
   /** Stop the FSM with a reason. */
   def stop(reason: String): UIO[Unit]
 
+  /** Stop this runtime and remove the instance.
+    *
+    * Stops first (waits for in-flight `.producing`, then marks the runtime stopped) so a later `send` cannot append.
+    * Then purges timeouts, unbinds aliases and index rows, deletes the event log and snapshot, and releases the lock
+    * row held by this runtime's locking strategy.
+    *
+    * Each step succeeds when the id is already gone, so a failed delete is safe to retry. The steps are not one
+    * transaction. Events and the snapshot commit together. Aliases and index rows commit together.
+    *
+    * Does not acquire [[InstanceMailbox]]. `session` already holds that permit. Does not wait for another node's
+    * `withLock`: that critical section can append once. Does not touch cluster leases.
+    *
+    * A runtime built without an [[InstanceIndex]] cannot drop aliases. [[FSMRuntime.delete]] does that when no runtime
+    * is open. Constructing a runtime in order to delete rebinds aliases and re-arms timeouts.
+    */
+  def delete: ZIO[Any, MechanoidError, Unit]
+
   /** Check if the FSM is currently running. */
   def isRunning: UIO[Boolean]
 
@@ -557,6 +574,49 @@ object FSMRuntime:
       yield result
     }
 
+  /** Remove an instance that is not open on this node.
+    *
+    * Same wipe as `fsm.delete`: timeouts, aliases and index rows, the log and snapshot, then the lock row. Does not
+    * construct a runtime, so aliases are not rebound and timeouts are not re-armed.
+    *
+    * Requires [[InstanceIndex]] even when this id has no aliases. Provide the index the app writes to.
+    *
+    * Does not stop a live runtime. Call `delete` on that runtime. Does not acquire [[InstanceMailbox]]. Beside a
+    * sweeper, run this inside `mailbox.run`. Does not wait for another node's `withLock` (that section can append
+    * once). Does not touch cluster leases. Safe to retry.
+    */
+  @nowarn("msg=unused implicit parameter")
+  def delete[Id: Tag, S, E](id: Id)(using
+      Tag[EventStore[Id, S, E]],
+      Tag[TimeoutStrategy[Id]],
+      Tag[LockingStrategy[Id]],
+      Tag[InstanceIndex[Id]],
+  ): ZIO[
+    EventStore[Id, S, E] & TimeoutStrategy[Id] & LockingStrategy[Id] & InstanceIndex[Id],
+    MechanoidError,
+    Unit,
+  ] =
+    for
+      store    <- ZIO.service[EventStore[Id, S, E]]
+      timeouts <- ZIO.service[TimeoutStrategy[Id]]
+      locking  <- ZIO.service[LockingStrategy[Id]]
+      index    <- ZIO.service[InstanceIndex[Id]]
+      _        <- wipe(id, store, timeouts, locking, Some(index))
+    yield ()
+
+  /** Timeouts, then aliases and index rows, then the log and snapshot, then the lock row. */
+  private[runtime] def wipe[Id, S, E](
+      id: Id,
+      store: EventStore[Id, S, E],
+      timeouts: TimeoutStrategy[Id],
+      locking: LockingStrategy[Id],
+      index: Option[InstanceIndex[Id]],
+  ): ZIO[Any, MechanoidError, Unit] =
+    timeouts.purge(id) *>
+      index.fold(ZIO.unit)(_.unbindInstance(id).unit) *>
+      store.deleteInstance(id) *>
+      locking.releaseInstance(id)
+
   private def requirePersisted[Id, S, E](id: Id)(using
       Tag[EventStore[Id, S, E]]
   ): ZIO[EventStore[Id, S, E], MechanoidError, Unit] =
@@ -1017,6 +1077,9 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
     closing.set(true) *> awaitProducing *> runningRef.set(false)
 
   override def stop(reason: String): UIO[Unit] = stop
+
+  override def delete: ZIO[Any, MechanoidError, Unit] =
+    stop *> FSMRuntime.wipe(instanceId, store, timeoutStrategy, lockingStrategy, index)
 
   private def exitProducing: UIO[Unit] =
     producingInflight

@@ -159,6 +159,13 @@ trait FSMInstanceLock[Id]:
     */
   def get(instanceId: Id, now: Instant): ZIO[Any, MechanoidError, Option[LockToken[Id]]]
 
+  /** Delete the lock row for this instance, whatever node holds it, including an expired row.
+    *
+    * [[release]] only removes a row held by the token's node. Delete uses this so a leftover lease cannot block the
+    * next owner of the id.
+    */
+  def forceRelease(instanceId: Id): ZIO[Any, MechanoidError, Unit]
+
   /** Execute an effect while holding the lock.
     *
     * This is the recommended way to use locking. The lock is automatically acquired before the effect and released
