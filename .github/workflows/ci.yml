@@ -19,6 +19,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    env:
+      COURSIER_TTL: "0s"
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
@@ -59,6 +61,8 @@ jobs:
     needs:
       - verify-gate
     if: needs.verify-gate.result == 'success' && needs.verify-gate.outputs.run == 'false'
+    env:
+      COURSIER_TTL: "0s"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,6 +88,8 @@ jobs:
       - test-jvm
       - verify-gate
     if: "!cancelled() && !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' && ((needs.verify-gate.result != 'success') || (needs.verify-gate.outputs.run == 'true'))"
+    env:
+      COURSIER_TTL: "0s"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,6 +105,8 @@ jobs:
           sbt-disk-cache: "false"
           cache-mode: restore
           cache-epoch: ""
+      - name: Pinned snapshots
+        run: echo "::warning title=zipx snapshots::pinned snapshots (rocks.earlyeffect:sbt-zipx:0.17.0-SNAPSHOT)"
       - name: test
         run: |
           if [ "$ZIPX_VERIFY_CLEAN_FULL" = "true" ]; then
@@ -114,6 +122,8 @@ jobs:
     needs:
       - verify-gate
     if: "!cancelled() && !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' && ((needs.verify-gate.result != 'success') || (needs.verify-gate.outputs.run == 'true'))"
+    env:
+      COURSIER_TTL: "0s"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -144,6 +154,8 @@ jobs:
     needs:
       - verify-gate
     if: "!cancelled() && !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' && ((needs.verify-gate.result != 'success') || (needs.verify-gate.outputs.run == 'true'))"
+    env:
+      COURSIER_TTL: "0s"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -174,6 +186,8 @@ jobs:
     needs:
       - verify-gate
     if: "!cancelled() && !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' && ((needs.verify-gate.result != 'success') || (needs.verify-gate.outputs.run == 'true'))"
+    env:
+      COURSIER_TTL: "0s"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -205,6 +219,7 @@ jobs:
       - verify-gate
     if: "!cancelled() && !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' && ((needs.verify-gate.result != 'success') || (needs.verify-gate.outputs.run == 'true'))"
     env:
+      COURSIER_TTL: "0s"
       JAVA_OPTS: -Dfile.encoding=UTF-8
       TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
@@ -254,6 +269,7 @@ jobs:
       - verify-gate
     if: "!cancelled() && !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' && ((needs.verify-gate.result != 'success') || (needs.verify-gate.outputs.run == 'true'))"
     env:
+      COURSIER_TTL: "0s"
       JAVA_OPTS: -Dfile.encoding=UTF-8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -291,6 +307,7 @@ jobs:
     runs-on: ubuntu-latest
     if: (startsWith(github.ref, 'refs/tags/v')) && (github.repository == 'early-effect/mechanoid')
     env:
+      COURSIER_TTL: "0s"
       PGP_KEY_HEX: ${{ secrets.PGP_KEY_HEX }}
       PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
       SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
@@ -329,6 +346,7 @@ jobs:
       contents: read
       packages: write
     env:
+      COURSIER_TTL: "0s"
       GITHUB_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
       PUBLISH_GITHUB_PACKAGES: "true"
       PUBLISH_ORG: com.iterable
