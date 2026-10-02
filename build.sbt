@@ -128,7 +128,8 @@ zipxCapabilities ++= {
       command = alias("about"),
       needsCapabilities = List(TestJvm, TestJs),
     ),
-    ZipxCentral.release.withCondition(upstream),
+    ZipxCentral.snapshots.andCondition(upstream),
+    ZipxCentral.pullRequestSnapshots("snapshots"),
     ZipxGitHubPackages.sharedRegistry(
       // 0.1.6 dropped the `repository` param, which used to become this fork gate implicitly.
       // Stated explicitly so the Packages publish still cannot run outside Iterable/mechanoid.
@@ -140,6 +141,7 @@ zipxCapabilities ++= {
     ZipxDocs.pages().andCondition(upstream),
   )
 }
+zipxReleaseWorkflow := Some(ZipxCentral.releases)
 
 val javaTimePolyfill = MyVersions.javaTime
 
