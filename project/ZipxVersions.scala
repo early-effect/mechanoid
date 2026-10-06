@@ -28,7 +28,7 @@ object MyVersions extends ZipxVersions:
   val scalaJavaTime     = Lib("io.github.cquiroz", "scala-java-time", "2.7.0")
   val scalaJavaTimeTzdb = scalaJavaTime.mod("scala-java-time-tzdb")
 
-  val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.19.1")
+  val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.20.0")
   val postgresql               = Lib("org.postgresql", "postgresql", "42.7.13").java
   val testcontainersPostgresql = Lib("org.testcontainers", "testcontainers-postgresql", "2.0.5").java
   val commonsCompress          = Lib("org.apache.commons", "commons-compress", "1.28.0").java
@@ -39,7 +39,7 @@ object MyVersions extends ZipxVersions:
   val specularZioTest = specular.mod("specular-zio-test")
   val specularTheme   = specular.mod("early-effect-docs-theme")
   val specularMermoid = specular.mod("specular-mermoid")
-  val ascentJs        = Lib("rocks.earlyeffect", "ascent-js", "0.9.0")
+  val ascentJs        = Lib("rocks.earlyeffect", "ascent-js", "0.10.0")
   val ascentCss       = ascentJs.mod("ascent-css")
 
   val scalajs = Plugin("org.scala-js", "sbt-scalajs", "1.22.0")
@@ -53,7 +53,7 @@ object MyVersions extends ZipxVersions:
     )
   val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.18.1")
   val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
-  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.8")
+  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.9")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
 
   def zioLib           = library(zio, zioStreams, zioJson)
