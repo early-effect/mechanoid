@@ -122,11 +122,13 @@ zipxCapabilities ++= {
       extraSteps = mechanoidJsCiSetup,
       env = mechanoidJavaOpts,
     ),
-    // Keep required-check name `test` stable; waits on both platforms.
-    Capability.once(
-      name = Capability.TestName,
-      command = alias("about"),
-      needsCapabilities = List(TestJvm, TestJs),
+    // The suites are test-jvm and test-js. Replacing the builtin `test` with a
+    // capability that matches no module emits no job, so every Verify check stays
+    // one parallel group instead of a second column that only runs `about`.
+    Capability.test.copy(
+      scope = CapabilityScope.Aggregate,
+      participates = _ => false,
+      localCache = LocalCacheMode.Restore,
     ),
     ZipxCentral.snapshots.andCondition(upstream),
     ZipxCentral.pullRequestSnapshots("snapshots"),
