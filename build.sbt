@@ -239,7 +239,7 @@ lazy val postgres = project
     MyVersions.postgresTests,
     Test / discoveredMainClasses := Seq.empty,
     dependencyOverrides ++= Seq(
-      MyVersions.moduleID(MyVersions.commonsCompress),
+      MyVersions.moduleID(MyVersions.commonsCompress)
     ),
   )
 
@@ -293,11 +293,19 @@ lazy val compileTimeChecks = project
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   )
 
-lazy val specularPreview =
-  taskKey[Unit]("Build specularSite then serve with sbt-reload (prefer alias: docsPreview)")
-
-lazy val specularJsLink =
-  taskKey[Unit]("Link docsJS client and write marker path for BuildSite.afterBuild")
+/** Fast-link the docs client and record where `BuildSite` finds it. */
+lazy val linkDocsClient = Def.uncached(Def.task {
+  (LocalProject("docsJS") / Compile / fastLinkJS).value
+  val outDir = (LocalProject("docsJS") / Compile / fastLinkJSOutput).value
+  val mainJs = outDir / "main.js"
+  if (!mainJs.exists)
+    sys.error(
+      s"Expected $mainJs after fastLinkJS; directory contains: " +
+        Option(outDir.list).toSeq.flatten.mkString(", ")
+    )
+  val marker = (LocalRootProject / baseDirectory).value / "target" / "specular-client-js.path"
+  IO.write(marker, mainJs.getAbsolutePath)
+})
 
 // --- mechanoid-web : IndexedDB persistence for browsers (JS only) ---
 lazy val web = (projectMatrix in file("web"))
@@ -349,41 +357,10 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
           specularDisplayVersion := stripCi,
           scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
           testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-          Test / mainClass       := Some("specular.site.DocsServe"),
-          Test / run / mainClass := (Test / mainClass).value,
-          Test / runReloadArgs   := {
-            val siteDir = specularSiteDirectory.value
-            Seq(specularPort.value.toString, siteDir.getAbsolutePath)
-          },
-          Test / run / javaOptions ++= {
-            val dir = specularSiteDirectory.value.getAbsolutePath
-            Seq(
-              "--sun-misc-unsafe-memory-access=allow",
-              "--enable-native-access=ALL-UNNAMED",
-              s"-Dspecular.site.dir=$dir",
-              s"-Dspecular.site.port=${specularPort.value}",
-            )
-          },
-          specularJsLink := Def
-            .uncached(Def.task {
-              (LocalProject("docsJS") / Compile / fastLinkJS).value
-              val outDir = (LocalProject("docsJS") / Compile / fastLinkJSOutput).value
-              val mainJs = outDir / "main.js"
-              if (!mainJs.exists)
-                sys.error(
-                  s"Expected $mainJs after fastLinkJS; directory contains: " +
-                    Option(outDir.list).toSeq.flatten.mkString(", ")
-                )
-              val marker = (LocalRootProject / baseDirectory).value / "target" / "specular-client-js.path"
-              IO.write(marker, mainJs.getAbsolutePath)
-            })
-            .value,
-          specularPreview := Def
-            .uncached(Def.task {
-              specularSite.value
-              (Test / runReload).value
-            })
-            .value,
+          // Plugin preview watches this client. One fast link feeds both the site build and the dev rebuild.
+          specularJsLink    := linkDocsClient.value,
+          specularJsLinkDev := linkDocsClient.value,
+          specularJsProject := Some(LocalProject("docsJS")),
         ),
   )
   .jsPlatform(
@@ -417,7 +394,8 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
         ),
   )
 
-addCommandAlias("docsPreview", "~docs/specularPreview")
+// Plugin task. It watches on its own. Do not prefix ~.
+addCommandAlias("docsPreview", "docs/specularPreview")
 
 addCommandAlias(
   "testJVM",

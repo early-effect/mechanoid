@@ -29,20 +29,22 @@ timeouts, and distributed coordination as ZIO layers when you need them. In the 
 
 ## Installation
 
+The Maven Central badges above and the [docs site chrome](https://www.earlyeffect.rocks/mechanoid/) show the current version. ZIO is a provided dependency.
+
 ```scala
 // Core (JVM)
-libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "0.3.2"
-libraryDependencies += "dev.zio" %% "zio" % "2.1.26"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "<version>"
+libraryDependencies += "dev.zio" %% "zio" % "<version>"
 
 // Core (Scala.js)
-libraryDependencies += "rocks.earlyeffect" %%% "mechanoid" % "0.3.2"
-libraryDependencies += "dev.zio" %%% "zio" % "2.1.26"
+libraryDependencies += "rocks.earlyeffect" %%% "mechanoid" % "<version>"
+libraryDependencies += "dev.zio" %%% "zio" % "<version>"
 
 // Browser IndexedDB + BroadcastChannel (Scala.js)
-libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "0.3.2"
+libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "<version>"
 
 // Optional PostgreSQL persistence (JVM)
-libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "0.3.2"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "<version>"
 ```
 
 ## Quick Start
@@ -91,7 +93,7 @@ git config core.hooksPath hooks
 npm ci                       # jsdom + fake-indexeddb for Scala.js tests
 sbt testJVM                  # JVM tests + docs site
 sbt testJS                   # coreJS + webJS (IndexedDB / multi-tab reconstruct)
-sbt docsPreview              # watch + serve interactive docs
+sbt docsPreview              # rebuild, serve, and watch interactive docs (do not prefix ~)
 ```
 
 ## License
