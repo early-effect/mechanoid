@@ -16,7 +16,7 @@ the site chrome (header / footer); the hub index install snippets stay in sync w
 
 ```scala
 libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "<version from site chrome>"
-libraryDependencies += "dev.zio" %% "zio" % "2.1.26"
+libraryDependencies += "dev.zio" %% "zio" % "<version>"
 
 // Optional PostgreSQL persistence
 libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "<version from site chrome>"

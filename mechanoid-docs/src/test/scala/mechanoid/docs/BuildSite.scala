@@ -87,12 +87,12 @@ uses Scala.js + IndexedDB (`mechanoid-web`) with multi-tab sync.
           CodeSnippet(
             "Core (JVM)",
             s"""libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "$version"
-libraryDependencies += "dev.zio" %% "zio" % "2.1.26" // provided by mechanoid""",
+libraryDependencies += "dev.zio" %% "zio" % "<version>" // provided by mechanoid""",
           ),
           CodeSnippet(
             "Core (Scala.js)",
             s"""libraryDependencies += "rocks.earlyeffect" %%% "mechanoid" % "$version"
-libraryDependencies += "dev.zio" %%% "zio" % "2.1.26\"""",
+libraryDependencies += "dev.zio" %%% "zio" % "<version>"\"""",
           ),
           CodeSnippet(
             "Browser IndexedDB (Scala.js)",
