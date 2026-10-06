@@ -1,6 +1,8 @@
 package mechanoid.persistence.postgres
 
 import saferis.*
+import saferis.postgres.given
+import SessionSyntax.*
 import zio.*
 import mechanoid.core.*
 import mechanoid.persistence.{
@@ -20,14 +22,14 @@ import java.time.Instant
   * [[bindAll]] / [[unbindAll]] run in one transaction. Unique clashes become [[UniqueAliasError]] and roll the
   * transaction back.
   */
-class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String]:
+class PostgresInstanceIndex(session: SqlSession) extends InstanceIndex[String]:
 
   override def bindAll(aliases: Chunk[Alias], instanceId: String): ZIO[Any, MechanoidError, Unit] =
     if aliases.isEmpty then ZIO.unit
     else
       for
         clash <- Ref.make(Option.empty[UniqueAliasError])
-        _     <- transactor
+        _     <- session
           .transact {
             Clock.instant.flatMap { now =>
               ZIO.foreachDiscard(aliases)(bindOne(_, instanceId, now, clash))
@@ -46,7 +48,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
       instanceId: String,
       now: Instant,
       clash: Ref[Option[UniqueAliasError]],
-  ): ZIO[ConnectionProvider & Scope, SaferisError, Unit] =
+  ): ZIO[SqlSession, SaferisError, Unit] =
     Query[AliasRow]
       .where(_.namespace)
       .eq(alias.namespace)
@@ -65,7 +67,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
             .build
             .dml
             .unit
-            .catchSome { case _: SaferisError.ConstraintViolation =>
+            .catchSome { case _: SaferisError.UniqueViolation =>
               Query[AliasRow]
                 .where(_.namespace)
                 .eq(alias.namespace)
@@ -90,10 +92,10 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
   ): ZIO[Any, SaferisError, Nothing] =
     val error = UniqueAliasError(alias.namespace, alias.key, heldBy, requested)
     clash.set(Some(error)) *>
-      ZIO.fail(SaferisError.QueryError(error, None))
+      ZIO.fail(SaferisError.Unexpected("unique alias"))
 
   override def resolve(alias: Alias): ZIO[Any, MechanoidError, Option[String]] =
-    transactor
+    session
       .run {
         Query[AliasRow]
           .where(_.namespace)
@@ -108,7 +110,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
   override def unbindAll(aliases: Chunk[Alias]): ZIO[Any, MechanoidError, Long] =
     if aliases.isEmpty then ZIO.succeed(0L)
     else
-      transactor
+      session
         .transact {
           ZIO.foldLeft(aliases)(0L) { (acc, alias) =>
             Delete[AliasRow]
@@ -127,7 +129,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
       instanceId: String,
       namespace: Option[String] = None,
   ): ZIO[Any, MechanoidError, Chunk[Alias]] =
-    transactor
+    session
       .run {
         namespace match
           case Some(ns) =>
@@ -147,7 +149,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
       .mapError(PersistenceError.fromError)
 
   override def unbindInstance(instanceId: String): ZIO[Any, MechanoidError, Long] =
-    transactor
+    session
       .transact {
         for
           a <- Delete[AliasRow].where(_.instanceId).eq(instanceId).build.dml
@@ -163,7 +165,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
   ): ZIO[Any, MechanoidError, Unit] =
     if keys.isEmpty then ZIO.unit
     else
-      transactor
+      session
         .transact {
           ZIO.foreachDiscard(keys.distinct)(bindIndexOne(_, instanceId, meta))
         }
@@ -173,7 +175,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
       key: IndexKey,
       instanceId: String,
       meta: IndexMeta,
-  ): ZIO[ConnectionProvider & Scope, SaferisError, Unit] =
+  ): ZIO[SqlSession, SaferisError, Unit] =
     Query[FsmIndexRow]
       .where(_.namespace)
       .eq(key.namespace)
@@ -217,7 +219,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
   override def unbindIndexes(keys: Chunk[IndexKey], instanceId: String): ZIO[Any, MechanoidError, Long] =
     if keys.isEmpty then ZIO.succeed(0L)
     else
-      transactor
+      session
         .transact {
           ZIO.foldLeft(keys.distinct)(0L) { (acc, key) =>
             Delete[FsmIndexRow]
@@ -235,7 +237,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
         .mapError(PersistenceError.fromError)
 
   override def touchIndex(instanceId: String, meta: IndexMeta): ZIO[Any, MechanoidError, Long] =
-    transactor
+    session
       .run {
         Update[FsmIndexRow]
           .set(_.stateName, meta.stateName)
@@ -283,7 +285,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
       instanceId: String,
       namespace: Option[String] = None,
   ): ZIO[Any, MechanoidError, Chunk[IndexKey]] =
-    transactor
+    session
       .run {
         namespace match
           case Some(ns) =>
@@ -316,7 +318,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
   private def loadCovering(
       query: IndexQuery[String]
   ): ZIO[Any, MechanoidError, Chunk[(String, IndexQueryEval.Covering)]] =
-    transactor
+    session
       .run {
         val base = Query[FsmIndexRow]
           .where(_.namespace)
@@ -354,7 +356,7 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
           .map(_.orElse(Some(Set.empty)))
 
   private def loadIds(key: IndexKey): ZIO[Any, MechanoidError, Set[String]] =
-    transactor
+    session
       .run {
         Query[FsmIndexRow]
           .where(_.namespace)
@@ -378,5 +380,5 @@ class PostgresInstanceIndex(transactor: Transactor) extends InstanceIndex[String
 end PostgresInstanceIndex
 
 object PostgresInstanceIndex:
-  val layer: ZLayer[Transactor, Nothing, InstanceIndex[String]] =
+  val layer: ZLayer[SqlSession, Nothing, InstanceIndex[String]] =
     ZLayer.fromFunction(new PostgresInstanceIndex(_))

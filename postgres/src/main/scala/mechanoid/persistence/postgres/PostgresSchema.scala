@@ -3,6 +3,7 @@ package mechanoid.persistence.postgres
 import saferis.*
 import saferis.Schema.*
 import saferis.postgres.given
+import SessionSyntax.*
 import zio.*
 
 /** PostgreSQL schema initializer for Mechanoid.
@@ -16,7 +17,7 @@ import zio.*
   * ==Usage==
   * {{{
   * // Initialize schema (creates if missing, verifies if exists)
-  * PostgresSchema.initialize.provide(transactorLayer)
+  * PostgresSchema.initialize.provide(PostgresJdbc.layer())
   * }}}
   */
 object PostgresSchema:
@@ -34,31 +35,31 @@ object PostgresSchema:
   private val eventsSchema = Schema[EventRow[String]]
     .withUniqueConstraint(_.instanceId)
     .and(_.sequenceNr)
-    .named("uq_fsm_events_instance_seq")
+    .named(ConstraintName("uq_fsm_events_instance_seq"))
     .withIndex(_.instanceId)
     .and(_.sequenceNr)
-    .named("idx_fsm_events_instance")
+    .named(IndexName("idx_fsm_events_instance"))
 
   private val snapshotsSchema = Schema[SnapshotRow[String]]
 
   private val timeoutsSchema = Schema[TimeoutRow]
     .withIndex(_.deadline)
-    .named("idx_timeouts_deadline")
+    .named(IndexName("idx_timeouts_deadline"))
 
   private val locksSchema = Schema[LockRow]
     .withIndex(_.expiresAt)
-    .named("idx_locks_expired")
+    .named(IndexName("idx_locks_expired"))
 
   private val leasesSchema = Schema[LeaseRow]
     .withIndex(_.expiresAt)
-    .named("idx_leases_expires")
+    .named(IndexName("idx_leases_expires"))
 
   private val aliasesSchema = Schema[AliasRow]
     .withIndex(_.instanceId)
-    .named("idx_fsm_aliases_instance")
+    .named(IndexName("idx_fsm_aliases_instance"))
     .withIndex(_.instanceId)
     .and(_.namespace)
-    .named("idx_fsm_aliases_instance_ns")
+    .named(IndexName("idx_fsm_aliases_instance_ns"))
 
   private val indexesSchema = Schema[FsmIndexRow]
     .withIndex(_.namespace)
@@ -66,35 +67,35 @@ object PostgresSchema:
     .and(_.stateName)
     .and(_.editedAt)
     .and(_.instanceId)
-    .named("idx_fsm_indexes_edited")
+    .named(IndexName("idx_fsm_indexes_edited"))
     .withIndex(_.namespace)
     .and(_.indexKey)
     .and(_.stateName)
     .and(_.touchedAt)
     .and(_.instanceId)
-    .named("idx_fsm_indexes_touched")
+    .named(IndexName("idx_fsm_indexes_touched"))
     .withIndex(_.namespace)
     .and(_.indexKey)
     .and(_.stateName)
     .and(_.createdAt)
     .and(_.instanceId)
-    .named("idx_fsm_indexes_created")
+    .named(IndexName("idx_fsm_indexes_created"))
     .withIndex(_.namespace)
     .and(_.indexKey)
     .and(_.stateName)
     .and(_.startedAt)
     .and(_.instanceId)
-    .named("idx_fsm_indexes_started")
+    .named(IndexName("idx_fsm_indexes_started"))
     .withIndex(_.instanceId)
-    .named("idx_fsm_indexes_instance")
+    .named(IndexName("idx_fsm_indexes_instance"))
     .withIndex(_.namespace)
     .and(_.indexKey)
     .and(_.rank)
     .and(_.instanceId)
-    .named("idx_fsm_indexes_rank")
+    .named(IndexName("idx_fsm_indexes_rank"))
 
   private final case class ManagedTable(
-      verify: ZIO[ConnectionProvider & Scope, SaferisError, Unit],
+      verify: ZIO[SqlSession, SaferisError, Unit],
       ddl: SqlFragment,
   )
 
@@ -113,8 +114,8 @@ object PostgresSchema:
     * @return
     *   `InitResult.Created` if any table was created, `InitResult.Verified` if every table already existed
     */
-  def initialize: ZIO[Transactor, SaferisError, InitResult] =
-    ZIO.serviceWithZIO[Transactor] { xa =>
+  def initialize: ZIO[SqlSession, SaferisError, InitResult] =
+    ZIO.serviceWithZIO[SqlSession] { xa =>
       ensureAll(xa).map(created => if created then InitResult.Created else InitResult.Verified)
     }
 
@@ -123,23 +124,23 @@ object PostgresSchema:
     * @return
     *   true if any table was created, false if they all already existed
     */
-  def createIfNotExists: ZIO[Transactor, SaferisError, Boolean] =
-    ZIO.serviceWithZIO[Transactor](ensureAll)
+  def createIfNotExists: ZIO[SqlSession, SaferisError, Boolean] =
+    ZIO.serviceWithZIO[SqlSession](ensureAll)
 
   /** Verify the existing schema matches expectations.
     *
     * Does not create tables - only validates existing structure.
     */
-  val verify: ZIO[Transactor, SaferisError, Unit] =
-    ZIO.serviceWithZIO[Transactor](verifyAllSchemas)
+  val verify: ZIO[SqlSession, SaferisError, Unit] =
+    ZIO.serviceWithZIO[SqlSession](verifyAllSchemas)
 
-  private def ensureAll(xa: Transactor): ZIO[Any, SaferisError, Boolean] =
+  private def ensureAll(xa: SqlSession): ZIO[Any, SaferisError, Boolean] =
     ZIO
       .foldLeft(managedTables)(false) { (anyCreated, table) =>
         ensureTable(xa, table).map(_ || anyCreated)
       }
 
-  private def ensureTable(xa: Transactor, table: ManagedTable): ZIO[Any, SaferisError, Boolean] =
+  private def ensureTable(xa: SqlSession, table: ManagedTable): ZIO[Any, SaferisError, Boolean] =
     def go(created: Boolean): ZIO[Any, SaferisError, Boolean] =
       xa.run(table.verify)
         .as(created)
@@ -167,7 +168,7 @@ object PostgresSchema:
       case SchemaIssue.MissingIndex("fsm_indexes", Some("idx_fsm_indexes_rank"), _, _) => true
       case _                                                                           => false
 
-  private def verifyAllSchemas(xa: Transactor): ZIO[Any, SaferisError, Unit] =
+  private def verifyAllSchemas(xa: SqlSession): ZIO[Any, SaferisError, Unit] =
     ZIO.foreachDiscard(managedTables)(t => xa.run(t.verify))
 
 end PostgresSchema

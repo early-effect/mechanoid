@@ -84,7 +84,7 @@ import scala.annotation.unused
   *     fsm <- FSMRuntime(orderId, definition, Pending)
   *     _   <- fsm.send(Pay)
   *   yield ()
-  * }.provide(storeLayer, transactorLayer)
+  * }.provide(storeLayer, PostgresJdbc.layer())
   * }}}
   *
   * ==Handling Conflicts==

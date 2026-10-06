@@ -2,6 +2,7 @@ package mechanoid.persistence.postgres
 
 import saferis.*
 import saferis.postgres.given
+import SessionSyntax.*
 import zio.*
 import mechanoid.core.{MechanoidError, PersistenceError}
 import mechanoid.persistence.lock.*
@@ -11,7 +12,7 @@ import java.time.Instant
   *
   * Uses atomic INSERT ... ON CONFLICT to implement lease-based locking with automatic expiration for crash recovery.
   */
-class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[String]:
+class PostgresInstanceLock(session: SqlSession) extends FSMInstanceLock[String]:
 
   override def tryAcquire(
       instanceId: String,
@@ -21,7 +22,7 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
   ): ZIO[Any, MechanoidError, LockResult[String]] =
     val expiresAt = now.plusMillis(duration.toMillis)
     val row       = LockRow(instanceId, nodeId, now, expiresAt)
-    transactor
+    session
       .run {
         Upsert[LockRow]
           .values(row)
@@ -41,7 +42,7 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
           )
         case None =>
           // Lock held by another node - get current holder info
-          transactor
+          session
             .run {
               Query[LockRow]
                 .where(_.instanceId)
@@ -83,7 +84,7 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
   end acquire
 
   override def release(token: LockToken[String]): ZIO[Any, MechanoidError, Boolean] =
-    transactor
+    session
       .run {
         Delete[LockRow]
           .where(_.instanceId)
@@ -102,7 +103,7 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
       now: Instant,
   ): ZIO[Any, MechanoidError, Option[LockToken[String]]] =
     val newExpiry = now.plusMillis(additionalDuration.toMillis)
-    transactor
+    session
       .run {
         Update[LockRow]
           .set(_.expiresAt, newExpiry)
@@ -120,7 +121,7 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
   end extend
 
   override def get(instanceId: String, now: Instant): ZIO[Any, MechanoidError, Option[LockToken[String]]] =
-    transactor
+    session
       .run {
         Query[LockRow]
           .where(_.instanceId)
@@ -133,7 +134,7 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
       .mapError(PersistenceError.fromError)
 
   override def forceRelease(instanceId: String): ZIO[Any, MechanoidError, Unit] =
-    transactor
+    session
       .run {
         Delete[LockRow]
           .where(_.instanceId)
@@ -146,5 +147,5 @@ class PostgresInstanceLock(transactor: Transactor) extends FSMInstanceLock[Strin
 end PostgresInstanceLock
 
 object PostgresInstanceLock:
-  val layer: ZLayer[Transactor, Nothing, FSMInstanceLock[String]] =
+  val layer: ZLayer[SqlSession, Nothing, FSMInstanceLock[String]] =
     ZLayer.fromFunction(new PostgresInstanceLock(_))

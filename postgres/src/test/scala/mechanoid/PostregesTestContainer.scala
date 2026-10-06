@@ -1,7 +1,9 @@
 package mechanoid
 import org.postgresql.ds.PGSimpleDataSource
 import org.testcontainers.postgresql.PostgreSQLContainer
-import saferis.{ConnectionProvider, SaferisError, Transactor}
+import saferis.SaferisError
+import saferis.SqlSession
+import saferis.postgres.jdbc.PostgresJdbc
 import mechanoid.persistence.postgres.PostgresSchema
 import zio.*
 
@@ -47,31 +49,18 @@ object PostgresTestContainer:
   end DataSourceProvider
 
   object DataSourceProvider:
-    def makeDataSource(container: PostgresTestContainer): DataSource =
-      val ds = PGSimpleDataSource()
-      ds.setURL(container.postgres.getJdbcUrl())
-      ds.setUser(container.postgres.getUsername())
-      ds.setPassword(container.postgres.getPassword())
-      ds
-
-    def makeConnectionProvider(container: PostgresTestContainer): ConnectionProvider =
-      ConnectionProvider.FromDataSource(makeDataSource(container))
-
     val datasource: URLayer[PostgresTestContainer, DataSource] =
       ZLayer.derive[DataSourceProvider].map(env => ZEnvironment(env.get.dataSource))
 
-    val provider: ZLayer[PostgresTestContainer, Nothing, ConnectionProvider] =
-      ZLayer.fromFunction(makeConnectionProvider)
+    val default: ZLayer[Any, Nothing, DataSource] =
+      PostgresTestContainer.default >>> datasource
 
-    val default: ZLayer[Any, Nothing, ConnectionProvider] =
-      PostgresTestContainer.default >>> provider
-
-    /** Transactor layer with schema initialization using PostgresSchema.initialize. */
-    val transactor: ZLayer[Any, SaferisError, Transactor] =
-      default >>> Transactor.default >>> ZLayer.fromZIO {
+    /** Session layer with schema initialization using PostgresSchema.initialize. */
+    val transactor: ZLayer[Any, SaferisError, SqlSession] =
+      default >>> PostgresJdbc.layer() >>> ZLayer.fromZIO {
         PostgresSchema.initialize.flatMap { result =>
           ZIO.logInfo(s"PostgresSchema initialized: $result")
-        } *> ZIO.service[Transactor]
+        } *> ZIO.service[SqlSession]
       }
   end DataSourceProvider
 end PostgresTestContainer

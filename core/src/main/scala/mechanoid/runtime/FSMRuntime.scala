@@ -190,7 +190,7 @@ object FSMRuntime:
     *   yield ()
     * }.provide(
     *   storeLayer,
-    *   transactorLayer,
+    *   PostgresJdbc.layer(),
     *   TimeoutStrategy.fiber[OrderId],    // or TimeoutStrategy.durable
     *   LockingStrategy.optimistic[OrderId] // or LockingStrategy.distributed
     * )

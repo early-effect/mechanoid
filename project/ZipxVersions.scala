@@ -29,6 +29,7 @@ object MyVersions extends ZipxVersions:
   val scalaJavaTimeTzdb = scalaJavaTime.mod("scala-java-time-tzdb")
 
   val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.20.0")
+  val saferisPostgresJdbc      = saferis.mod("saferis-postgres-jdbc")
   val postgresql               = Lib("org.postgresql", "postgresql", "42.7.13").java
   val testcontainersPostgresql = Lib("org.testcontainers", "testcontainers-postgresql", "2.0.5").java
   val commonsCompress          = Lib("org.apache.commons", "commons-compress", "1.28.0").java
@@ -61,7 +62,7 @@ object MyVersions extends ZipxVersions:
   def zioTestsMagnolia = library(zioTest.test, zioTestSbt.test, zioTestMagnolia.test)
   def zioLoggingLib    = library(zioLogging, zioLoggingSlf4j, zioLoggingBridge)
   def javaTime         = library(scalaJavaTime, scalaJavaTimeTzdb)
-  def postgresLib      = library(saferis, postgresql)
+  def postgresLib      = library(saferis, saferisPostgresJdbc, postgresql)
   def postgresTests    = library(testcontainersPostgresql.test, zioTest.test, zioTestSbt.test)
   def webLib           = library(scalajsDom)
   def docsJvm          = library(specularZioTest.test, specularTheme.test)
