@@ -1,6 +1,9 @@
 package mechanoid.persistence.postgres
 
 import saferis.*
+import saferis.postgres.given
+import saferis.postgres.jdbc.PostgresJdbc
+import SessionSyntax.*
 import zio.*
 import zio.test.*
 import mechanoid.PostgresTestContainer.DataSourceProvider
@@ -8,14 +11,14 @@ import mechanoid.PostgresTestContainer.DataSourceProvider
 object PostgresSchemaSpec extends ZIOSpecDefault:
 
   // Use a plain connection provider without auto-initialization for these tests
-  val plainXaLayer = DataSourceProvider.default >>> Transactor.default
+  val plainXaLayer = DataSourceProvider.default >>> PostgresJdbc.layer()
 
-  private def resetSchema(xa: Transactor) =
+  private def resetSchema(xa: SqlSession) =
     xa.run(sql"DROP SCHEMA IF EXISTS public CASCADE".dml) *>
       xa.run(sql"CREATE SCHEMA public".dml)
 
   // Helper to create all required tables except the one being tested
-  private def createOtherTables(xa: Transactor) =
+  private def createOtherTables(xa: SqlSession) =
     for
       _ <- xa.run(sql"""CREATE TABLE fsm_snapshots (
              instance_id TEXT PRIMARY KEY,
@@ -100,7 +103,7 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
       },
       test("verify detects missing table") {
         for
-          xa <- ZIO.service[Transactor]
+          xa <- ZIO.service[SqlSession]
           // Create only fsm_events, not all tables
           _ <- xa.run(sql"""CREATE TABLE fsm_events (
                id BIGSERIAL PRIMARY KEY,
@@ -124,7 +127,7 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
       },
       test("verify detects missing column") {
         for
-          xa <- ZIO.service[Transactor]
+          xa <- ZIO.service[SqlSession]
           // Create fsm_events with missing event_data column
           _ <- xa.run(sql"""CREATE TABLE fsm_events (
                id BIGSERIAL PRIMARY KEY,
@@ -154,7 +157,7 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
       },
       test("initialize creates fsm_aliases when other tables already exist") {
         for
-          xa <- ZIO.service[Transactor]
+          xa <- ZIO.service[SqlSession]
           _  <- xa.run(sql"""CREATE TABLE fsm_events (
                id BIGSERIAL PRIMARY KEY,
                instance_id TEXT NOT NULL,
@@ -171,7 +174,7 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
       },
       test("init.sql produces schema compatible with PostgresSchema.verify") {
         for
-          xa      <- ZIO.service[Transactor]
+          xa      <- ZIO.service[SqlSession]
           initSql <- ZIO.attempt {
             val stream = getClass.getResourceAsStream("/init.sql")
             try scala.io.Source.fromInputStream(stream).mkString
@@ -179,14 +182,14 @@ object PostgresSchemaSpec extends ZIOSpecDefault:
           }.orDie
           // Execute each statement from init.sql
           _ <- ZIO.foreach(initSql.split(";").map(_.trim).filter(_.nonEmpty)) { stmt =>
-            xa.run(SqlFragment(stmt, Seq.empty).dml)
+            xa.run(SqlFragment(Placeholder.raw(stmt)).dml)
           }
           // Verify the schema created by init.sql passes Saferis verification
           result <- PostgresSchema.verify.either
         yield assertTrue(result.isRight)
       },
     ) @@ TestAspect.sequential @@ TestAspect.before {
-      ZIO.serviceWithZIO[Transactor](resetSchema)
+      ZIO.serviceWithZIO[SqlSession](resetSchema)
     }
   ).provideShared(plainXaLayer) @@ TestAspect.withLiveClock
 end PostgresSchemaSpec

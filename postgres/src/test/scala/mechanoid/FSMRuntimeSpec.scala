@@ -3,7 +3,7 @@ package mechanoid
 import zio.*
 import zio.test.*
 import zio.json.*
-import saferis.{SaferisError, Transactor}
+import saferis.{SaferisError, SqlSession}
 import mechanoid.core.{Finite, alias}
 import mechanoid.machine.*
 import mechanoid.persistence.*
@@ -69,7 +69,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
   val lockingLayer: ULayer[LockingStrategy[String]] = LockingStrategy.optimistic[String]
 
   /** PostgreSQL store for integration tests (with schema initialization). */
-  val xaLayer: ZLayer[Any, SaferisError, Transactor] =
+  val xaLayer: ZLayer[Any, SaferisError, SqlSession] =
     PostgresTestContainer.DataSourceProvider.transactor
 
   val postgresStoreLayer: ZLayer[Any, SaferisError, EventStore[String, OrderState, OrderEvent]] =

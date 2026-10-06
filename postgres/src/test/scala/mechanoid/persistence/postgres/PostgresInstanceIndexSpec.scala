@@ -1,6 +1,8 @@
 package mechanoid.persistence.postgres
 
-import saferis.{sql, Transactor}
+import saferis.{sql, SqlSession}
+import saferis.postgres.given
+import SessionSyntax.*
 import zio.*
 import zio.test.*
 import mechanoid.PostgresTestContainer
@@ -23,8 +25,8 @@ object PostgresInstanceIndexSpec extends ZIOSpecDefault:
 
   private def unique(prefix: String): String = s"$prefix-${java.util.UUID.randomUUID()}"
 
-  private def wipe(xa: Transactor) =
-    xa.run(sql"TRUNCATE fsm_aliases, fsm_indexes".dml)
+  private def wipe(session: SqlSession) =
+    session.run(sql"TRUNCATE fsm_aliases, fsm_indexes".dml)
 
   def spec = (
     suite("PostgresInstanceIndex")(
@@ -134,7 +136,7 @@ object PostgresInstanceIndexSpec extends ZIOSpecDefault:
         distractorN = 40,
       ) @@ TestAspect.sequential @@ TestAspect.samples(15),
     ) @@ TestAspect.sequential @@ TestAspect.before {
-      ZIO.serviceWithZIO[Transactor](wipe)
+      ZIO.serviceWithZIO[SqlSession](wipe)
     } @@ TestAspect.withLiveClock
   ).provideShared(indexLayer)
 end PostgresInstanceIndexSpec

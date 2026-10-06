@@ -2,7 +2,8 @@ package mechanoid.examples.heartbeat
 
 import zio.*
 import org.postgresql.ds.PGSimpleDataSource
-import saferis.{ConnectionProvider, Transactor}
+import saferis.SqlSession
+import saferis.postgres.jdbc.PostgresJdbc
 import mechanoid.*
 import mechanoid.postgres.*
 
@@ -12,7 +13,7 @@ import mechanoid.postgres.*
 
 object Layers:
 
-  val transactor: ZLayer[Any, Throwable, Transactor] =
+  val session: ZLayer[Any, Throwable, SqlSession] =
     ZLayer.scoped {
       for
         url      <- System.env("DATABASE_URL").someOrFail(new RuntimeException("DATABASE_URL not set"))
@@ -24,17 +25,16 @@ object Layers:
           d.setUser(user)
           d.setPassword(password)
           d
-        cp = ConnectionProvider.FromDataSource(ds)
-        xa <- ZIO.service[Transactor].provideLayer(ZLayer.succeed(cp) >>> Transactor.default)
-      yield xa
+        session <- ZIO.service[SqlSession].provideLayer(ZLayer.succeed(ds) >>> PostgresJdbc.layer())
+      yield session
     }
 
   // Use makeLayer with explicit types for state and event
-  val eventStore: ZLayer[Transactor, Nothing, EventStore[String, ServiceState, ServiceEvent]] =
+  val eventStore: ZLayer[SqlSession, Nothing, EventStore[String, ServiceState, ServiceEvent]] =
     PostgresEventStore.makeLayer[ServiceState, ServiceEvent]
 
-  val timeoutStore: ZLayer[Transactor, Nothing, TimeoutStore[String]] =
-    ZLayer.fromFunction((xa: Transactor) => PostgresTimeoutStore(xa))
+  val timeoutStore: ZLayer[SqlSession, Nothing, TimeoutStore[String]] =
+    ZLayer.fromFunction((session: SqlSession) => PostgresTimeoutStore(session))
 
   val timeoutStrategy: ZLayer[TimeoutStore[String], Nothing, TimeoutStrategy[String]] =
     DurableTimeoutStrategy.layer[String]
@@ -50,7 +50,7 @@ end Layers
 object Main extends ZIOAppDefault:
 
   val app: ZIO[
-    Transactor & EventStore[String, ServiceState, ServiceEvent] & TimeoutStore[String] & TimeoutStrategy[String] &
+    SqlSession & EventStore[String, ServiceState, ServiceEvent] & TimeoutStore[String] & TimeoutStrategy[String] &
       LockingStrategy[String] & InstanceMailbox[String] & Scope,
     Any,
     Unit,
@@ -128,7 +128,7 @@ object Main extends ZIOAppDefault:
   override def run =
     app
       .provideSome[Scope](
-        Layers.transactor,
+        Layers.session,
         Layers.eventStore,
         Layers.timeoutStore,
         Layers.timeoutStrategy,

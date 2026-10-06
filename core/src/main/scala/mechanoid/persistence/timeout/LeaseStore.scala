@@ -25,22 +25,8 @@ import mechanoid.core.MechanoidError
   * );
   * }}}
   *
-  * ==Example PostgreSQL Implementation==
-  *
-  * {{{
-  * class PostgresLeaseStore(xa: Transactor[Task]) extends LeaseStore:
-  *
-  *   def tryAcquire(key: String, holder: String, duration: Duration, now: Instant) =
-  *     val expiresAt = now.plusMillis(duration.toMillis)
-  *     sql"""
-  *       INSERT INTO leases (key, holder, expires_at, acquired_at)
-  *       VALUES (\$key, \$holder, \$expiresAt, \$now)
-  *       ON CONFLICT (key) DO UPDATE
-  *       SET holder = \$holder, expires_at = \$expiresAt, acquired_at = \$now
-  *       WHERE leases.expires_at < \$now OR leases.holder = \$holder
-  *       RETURNING *
-  *     """.query[Lease].option.transact(xa)
-  * }}}
+  * The PostgreSQL store is `PostgresLeaseStore(session: SqlSession)`. `PostgresJdbc.layer()` provides that session from
+  * a `DataSource`.
   */
 trait LeaseStore:
 

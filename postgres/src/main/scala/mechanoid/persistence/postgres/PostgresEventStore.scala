@@ -2,6 +2,7 @@ package mechanoid.persistence.postgres
 
 import saferis.*
 import saferis.postgres.given
+import SessionSyntax.*
 import zio.*
 import zio.json.*
 import zio.stream.*
@@ -28,10 +29,10 @@ import scala.deriving.Mirror
   * val storeLayer = PostgresEventStore.layer[MyState, MyEvent]
   *
   * // Use with FSMRuntime
-  * FSMRuntime(id, definition, initialState).provide(storeLayer, transactorLayer)
+  * FSMRuntime(id, definition, initialState).provide(storeLayer, PostgresJdbc.layer())
   * }}}
   */
-class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) extends EventStore[String, S, E]:
+class PostgresEventStore[S: JsonCodec, E: JsonCodec](session: SqlSession) extends EventStore[String, S, E]:
 
   private val eventsTable = Table[EventRow[E]]
 
@@ -47,7 +48,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
     // Check and insert on one connection so the unique row is decided in the same
     // transaction as the max() read. SequenceConflictError is only for a known lost
     // race (we observed a different sequence). Deadlock / pool errors stay PersistenceError.
-    transactor
+    session
       .transact {
         for
           currentSeq <- highestSeq(instanceId)
@@ -67,10 +68,10 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
         yield result
       }
       .catchAll {
-        case _: SaferisError.ConstraintViolation =>
+        case _: SaferisError.UniqueViolation =>
           // Another transaction committed the same (instance, seq). Re-read the actual
           // highest sequence so SequenceConflictError carries a real actualSeqNr.
-          transactor
+          session
             .run(highestSeq(instanceId))
             .mapError(PersistenceError.fromError)
             .flatMap { actual =>
@@ -95,7 +96,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
 
   override def loadEvents(instanceId: String): ZStream[Any, MechanoidError, StoredEvent[String, E]] =
     ZStream.fromIterableZIO {
-      transactor
+      session
         .run {
           Query[EventRow[E]]
             .where(_.instanceId)
@@ -112,7 +113,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
       fromSequenceNr: Long,
   ): ZStream[Any, MechanoidError, StoredEvent[String, E]] =
     ZStream.fromIterableZIO {
-      transactor
+      session
         .run {
           Query[EventRow[E]]
             .where(_.instanceId)
@@ -127,7 +128,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
     }
 
   override def loadSnapshot(instanceId: String): ZIO[Any, MechanoidError, Option[FSMSnapshot[String, S]]] =
-    transactor
+    session
       .run {
         Query[SnapshotRow[S]]
           .where(_.instanceId)
@@ -140,7 +141,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
   override def saveSnapshot(snapshot: FSMSnapshot[String, S]): ZIO[Any, MechanoidError, Unit] =
     val row = SnapshotRow[S](snapshot.instanceId, Json(snapshot.state), snapshot.sequenceNr, snapshot.timestamp)
 
-    transactor
+    session
       .run {
         Upsert[SnapshotRow[S]]
           .values(row)
@@ -154,7 +155,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
   end saveSnapshot
 
   override def deleteInstance(instanceId: String): ZIO[Any, MechanoidError, Unit] =
-    transactor
+    session
       .transact {
         Delete[EventRow[E]].where(_.instanceId).eq(instanceId).build.dml *>
           Delete[SnapshotRow[S]].where(_.instanceId).eq(instanceId).build.dml
@@ -163,7 +164,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
       .mapError(PersistenceError.fromError)
 
   override def deleteEventsTo(instanceId: String, toSequenceNr: Long): ZIO[Any, MechanoidError, Unit] =
-    transactor
+    session
       .run {
         Delete[EventRow[E]]
           .where(_.instanceId)
@@ -177,7 +178,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](transactor: Transactor) ext
       .mapError(PersistenceError.fromError)
 
   override def highestSequenceNr(instanceId: String): ZIO[Any, MechanoidError, Long] =
-    transactor
+    session
       .run {
         Query[EventRow[E]]
           .where(_.instanceId)
@@ -230,10 +231,10 @@ object PostgresEventStore:
   transparent inline def makeLayer[
       S: Tag: Finite: Mirror.Of,
       E: Tag: Finite: Mirror.Of,
-  ]: ZLayer[Transactor, Nothing, EventStore[String, S, E]] =
+  ]: ZLayer[SqlSession, Nothing, EventStore[String, S, E]] =
     given JsonCodec[S] = JsonCodec.derived[S]
     given JsonCodec[E] = JsonCodec.derived[E]
-    ZLayer.fromFunction((xa: Transactor) => new PostgresEventStore[S, E](xa))
+    ZLayer.fromFunction((xa: SqlSession) => new PostgresEventStore[S, E](xa))
   end makeLayer
 
 end PostgresEventStore

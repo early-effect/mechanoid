@@ -2,6 +2,7 @@ package mechanoid.persistence.postgres
 
 import saferis.*
 import saferis.postgres.given
+import SessionSyntax.*
 import zio.*
 import mechanoid.core.{MechanoidError, PersistenceError}
 import mechanoid.persistence.timeout.*
@@ -11,7 +12,7 @@ import java.time.Instant
   *
   * Atomic UPDATE ... RETURNING for claim operations, keyed by `(instance_id, timeout_key)`.
   */
-class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
+class PostgresTimeoutStore(session: SqlSession) extends TimeoutStore[String]:
 
   private val timeouts = Table[TimeoutRow]
 
@@ -25,7 +26,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
     (for
       now <- Clock.instant
       row = TimeoutRow(instanceId, name, stateHash, sequenceNr, deadline, now, None, None)
-      _ <- transactor.run {
+      _ <- session.run {
         Upsert[TimeoutRow]
           .values(row)
           .onConflict(_.instanceId)
@@ -38,7 +39,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .mapError(PersistenceError.fromError)
 
   override def cancel(instanceId: String): ZIO[Any, MechanoidError, Boolean] =
-    transactor
+    session
       .run {
         Delete[TimeoutRow]
           .where(_.instanceId)
@@ -50,7 +51,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .mapError(PersistenceError.fromError)
 
   override def cancel(instanceId: String, name: String): ZIO[Any, MechanoidError, Boolean] =
-    transactor
+    session
       .run {
         Delete[TimeoutRow]
           .where(_.instanceId)
@@ -64,7 +65,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .mapError(PersistenceError.fromError)
 
   override def queryExpired(limit: Int, now: Instant): ZIO[Any, MechanoidError, List[ScheduledTimeout[String]]] =
-    transactor
+    session
       .run {
         Query[TimeoutRow]
           .where(_.deadline)
@@ -85,7 +86,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       now: Instant,
   ): ZIO[Any, MechanoidError, ClaimResult] =
     val claimedUntil = now.plusMillis(claimDuration.toMillis)
-    transactor
+    session
       .run {
         Update[TimeoutRow]
           .set(_.claimedBy, Some(nodeId))
@@ -122,7 +123,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
   end claim
 
   override def complete(instanceId: String, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
-    transactor
+    session
       .run {
         Delete[TimeoutRow]
           .where(_.instanceId)
@@ -138,7 +139,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .mapError(PersistenceError.fromError)
 
   override def release(instanceId: String, name: String, nodeId: String): ZIO[Any, MechanoidError, Boolean] =
-    transactor
+    session
       .run {
         Update[TimeoutRow]
           .set(_.claimedBy, Option.empty[String])
@@ -156,7 +157,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .mapError(PersistenceError.fromError)
 
   override def get(instanceId: String): ZIO[Any, MechanoidError, Chunk[ScheduledTimeout[String]]] =
-    transactor
+    session
       .run {
         Query[TimeoutRow]
           .where(_.instanceId)
@@ -167,7 +168,7 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
       .mapError(PersistenceError.fromError)
 
   override def get(instanceId: String, name: String): ZIO[Any, MechanoidError, Option[ScheduledTimeout[String]]] =
-    transactor
+    session
       .run {
         Query[TimeoutRow]
           .where(_.instanceId)
@@ -193,5 +194,5 @@ class PostgresTimeoutStore(transactor: Transactor) extends TimeoutStore[String]:
 end PostgresTimeoutStore
 
 object PostgresTimeoutStore:
-  val layer: ZLayer[Transactor, Nothing, TimeoutStore[String]] =
+  val layer: ZLayer[SqlSession, Nothing, TimeoutStore[String]] =
     ZLayer.fromFunction(new PostgresTimeoutStore(_))

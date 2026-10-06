@@ -13,7 +13,7 @@ object MyVersions extends ZipxVersions:
   val sbt: SbtVersion     = SbtVersion("2.1.0-M3")
   val scala: ScalaVersion = ScalaVersion("3.9.0")
 
-  val release = ShipGroup("mechanoid", "0.7.2")("core", "postgres", "webJS")
+  val release = ShipGroup("mechanoid", "0.8.0")("core", "postgres", "webJS")
 
   val zio              = Lib("dev.zio", "zio", "2.1.26")
   val zioStreams       = zio.mod("zio-streams")
@@ -28,7 +28,8 @@ object MyVersions extends ZipxVersions:
   val scalaJavaTime     = Lib("io.github.cquiroz", "scala-java-time", "2.7.0")
   val scalaJavaTimeTzdb = scalaJavaTime.mod("scala-java-time-tzdb")
 
-  val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.19.1")
+  val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.20.0")
+  val saferisPostgresJdbc      = saferis.mod("saferis-postgres-jdbc")
   val postgresql               = Lib("org.postgresql", "postgresql", "42.7.13").java
   val testcontainersPostgresql = Lib("org.testcontainers", "testcontainers-postgresql", "2.0.5").java
   val commonsCompress          = Lib("org.apache.commons", "commons-compress", "1.28.0").java
@@ -53,7 +54,7 @@ object MyVersions extends ZipxVersions:
     )
   val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.18.1")
   val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
-  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.8")
+  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.9")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
 
   def zioLib           = library(zio, zioStreams, zioJson)
@@ -61,7 +62,7 @@ object MyVersions extends ZipxVersions:
   def zioTestsMagnolia = library(zioTest.test, zioTestSbt.test, zioTestMagnolia.test)
   def zioLoggingLib    = library(zioLogging, zioLoggingSlf4j, zioLoggingBridge)
   def javaTime         = library(scalaJavaTime, scalaJavaTimeTzdb)
-  def postgresLib      = library(saferis, postgresql)
+  def postgresLib      = library(saferis, saferisPostgresJdbc, postgresql)
   def postgresTests    = library(testcontainersPostgresql.test, zioTest.test, zioTestSbt.test)
   def webLib           = library(scalajsDom)
   def docsJvm          = library(specularZioTest.test, specularTheme.test)

@@ -2,6 +2,7 @@ package mechanoid.persistence.postgres
 
 import saferis.*
 import saferis.postgres.given
+import SessionSyntax.*
 import zio.*
 import mechanoid.core.{MechanoidError, PersistenceError}
 import mechanoid.persistence.timeout.*
@@ -12,7 +13,7 @@ import java.time.Instant
   * Uses atomic INSERT ... ON CONFLICT for lease acquisition to ensure exactly-one-leader semantics in distributed
   * environments.
   */
-class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
+class PostgresLeaseStore(session: SqlSession) extends LeaseStore:
 
   override def tryAcquire(
       key: String,
@@ -22,7 +23,7 @@ class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
   ): ZIO[Any, MechanoidError, Option[Lease]] =
     val expiresAt = now.plusMillis(duration.toMillis)
     val row       = LeaseRow(key, holder, expiresAt, now)
-    transactor
+    session
       .run {
         Upsert[LeaseRow]
           .values(row)
@@ -46,7 +47,7 @@ class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
       now: Instant,
   ): ZIO[Any, MechanoidError, Boolean] =
     val newExpiry = now.plusMillis(duration.toMillis)
-    transactor
+    session
       .run {
         Update[LeaseRow]
           .set(_.expiresAt, newExpiry)
@@ -64,7 +65,7 @@ class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
   end renew
 
   override def release(key: String, holder: String): ZIO[Any, MechanoidError, Boolean] =
-    transactor
+    session
       .run {
         Delete[LeaseRow]
           .where(_.key)
@@ -78,7 +79,7 @@ class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
       .mapError(PersistenceError.fromError)
 
   override def get(key: String): ZIO[Any, MechanoidError, Option[Lease]] =
-    transactor
+    session
       .run {
         Query[LeaseRow]
           .where(_.key)
@@ -98,5 +99,5 @@ class PostgresLeaseStore(transactor: Transactor) extends LeaseStore:
 end PostgresLeaseStore
 
 object PostgresLeaseStore:
-  val layer: ZLayer[Transactor, Nothing, LeaseStore] =
+  val layer: ZLayer[SqlSession, Nothing, LeaseStore] =
     ZLayer.fromFunction(new PostgresLeaseStore(_))
