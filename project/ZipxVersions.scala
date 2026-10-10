@@ -36,12 +36,19 @@ object MyVersions extends ZipxVersions:
   val scalajsDom               = Lib("org.scala-js", "scalajs-dom", "2.8.1")
   val scaluzzi                 = Lib("com.github.vovapolu", "scaluzzi", "0.1.23")
 
-  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.18.1")
+  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.20.0")
   val specularZioTest = specular.mod("specular-zio-test")
+  val specularSite    = specular.mod("specular-site")
   val specularTheme   = specular.mod("early-effect-docs-theme")
-  val specularMermoid = specular.mod("specular-mermoid")
-  val ascentJs        = Lib("rocks.earlyeffect", "ascent-js", "0.9.0")
-  val ascentCss       = ascentJs.mod("ascent-css")
+
+  /** Docs figures only. Not selected by core, postgres, or web. */
+  val mermoidAscent = Lib("rocks.earlyeffect", "mermoid-ascent", "0.2.0")
+
+  /** mermoid-ascent 0.2.0 resolves these. ascent-js is its own line, not the core family's. */
+  val ascentCore = Lib("rocks.earlyeffect", "ascent-core", "0.10.1")
+  val ascentCss  = ascentCore.mod("ascent-css")
+  val ascentHtml = Lib("rocks.earlyeffect", "ascent-html", "0.10.0")
+  val ascentJs   = Lib("rocks.earlyeffect", "ascent-js", "0.11.0")
 
   val scalajs = Plugin("org.scala-js", "sbt-scalajs", "1.22.0")
   // sbt-scalafmt pulls _2.13 variants via scalafmt-dynamic (for3Use2_13), which clash with _3 variants
@@ -52,7 +59,7 @@ object MyVersions extends ZipxVersions:
       ZipxExclude.org("org.scala-lang.modules", "scala-collection-compat_2.13"),
       ZipxExclude.org("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
     )
-  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.18.1")
+  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.20.0")
   val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
   val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.9")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
@@ -65,6 +72,8 @@ object MyVersions extends ZipxVersions:
   def postgresLib      = library(saferis, saferisPostgresJdbc, postgresql)
   def postgresTests    = library(testcontainersPostgresql.test, zioTest.test, zioTestSbt.test)
   def webLib           = library(scalajsDom)
-  def docsJvm          = library(specularZioTest.test, specularTheme.test)
-  def docsJs           = library(specular, specularMermoid, ascentJs, ascentCss, zio, zioJson)
+  def docsJvm =
+    library(specularZioTest.test, specularSite.test, specularTheme.test, mermoidAscent.test, ascentHtml.test)
+  def docsJs =
+    library(specular, mermoidAscent, ascentCore, ascentCss, ascentHtml, ascentJs, zio, zioJson)
 end MyVersions

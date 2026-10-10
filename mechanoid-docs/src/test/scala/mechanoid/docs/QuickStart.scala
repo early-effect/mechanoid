@@ -11,15 +11,14 @@ object QuickStart extends MechanoidDocSpecSuite:
   def doc = page("Quick Start")(
     section("Install")(
       md"""
-Add the core library (and ZIO, which Mechanoid marks as provided). Use the version shown in
-the site chrome (header / footer); the hub index install snippets stay in sync with releases.
+Add the core library (and ZIO, which Mechanoid marks as provided).
 
 ```scala
-libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "<version from site chrome>"
-libraryDependencies += "dev.zio" %% "zio" % "<version>"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "${DocsVersion.version}"
+libraryDependencies += "dev.zio" %% "zio" % "2.1.26"
 
 // Optional PostgreSQL persistence
-libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "<version from site chrome>"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "${DocsVersion.version}"
 ```
 
 Release tags are `v*`. Maven Central badges on the [GitHub repo](https://github.com/early-effect/mechanoid)

@@ -2,7 +2,6 @@ package mechanoid.docs
 
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -35,11 +34,8 @@ if the Mermaid cannot parse.
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(machine, Some(Created)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(machine, Some(Created)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
     ),
     section("Flowchart")(
       md"""
@@ -61,11 +57,8 @@ if the Mermaid cannot parse.
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(machine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(machine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
     ),
     section("Query the graph")(
       md"""
@@ -90,11 +83,8 @@ not reducer success. `destLeaf` is the Goto leaf name, or the current leaf for S
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(machine, Some(Created)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(machine, Some(Created)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum OrderState derives Finite:
           case Created, Processing, Completed
@@ -144,7 +134,7 @@ Also available:
 - `toGraphViz(...)` / `toGraphVizWithTrace(...)` / `trace.toGraphVizTimeline`
 
 Mark sensitive fields with `@sensitive` when exporting. Feed Mermaid strings into
-`Mermoid.diagram(...)` or a fenced `mermaid` block.
+`Mermaid.from`, then `MermoidAscent.diagram`.
 
 Next: [Reference](reference.html).
 """

@@ -4,7 +4,7 @@ import earlyeffect.docs.EarlyEffectTheme
 import specular.site.{DocsSite, SiteBuilder, Theme}
 import zio.ZLayer
 
-/** Live-demo chrome for Mechanoid DocSpecs. Diagram paint comes from `Mermoid.chalkboard`. */
+/** Live-demo chrome for Mechanoid DocSpecs. Diagram paint comes from [[DocsDiagram.chalkboard]]. */
 object DocsChrome:
 
   private val liveCss: String =

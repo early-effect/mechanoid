@@ -3,7 +3,6 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -88,11 +87,8 @@ produced event is sent back to the FSM. Errors are logged and do not fail the or
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(producingMachine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(producingMachine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum OrderState derives Finite:
           case Created, Processing, AwaitingResult, Succeeded, Failed

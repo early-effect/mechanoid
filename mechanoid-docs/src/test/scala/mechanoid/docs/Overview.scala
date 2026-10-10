@@ -1,9 +1,9 @@
 package mechanoid.docs
 
 import mechanoid.docs.DocZIO.*
+import mermoid.Mermaid
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -21,16 +21,16 @@ states and events as Scala 3 enums, transitions as ZIO effects, assemblies valid
       md"""
 Each rung is optional. Start with a Machine in memory; plug in persistence, durable timeouts,
 and distributed coordination as ZIO layers when the app needs them.
-
-```mermaid
-flowchart LR
-  Define[Define Assembly] --> Run[In-memory Runtime]
-  Run --> Persist[EventStore + Snapshots]
-  Persist --> Timeouts[Durable TimeoutStore]
-  Timeouts --> Dist[Locks and Leader Election]
-  class Define,Run,Persist,Timeouts,Dist happy
-```
-"""
+""",
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart LR
+          |  Define[Define Assembly] --> Run[In-memory Runtime]
+          |  Run --> Persist[EventStore + Snapshots]
+          |  Persist --> Timeouts[Durable TimeoutStore]
+          |  Timeouts --> Dist[Locks and Leader Election]
+          |  class Define,Run,Persist,Timeouts,Dist happy
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("Define"))),
     ),
     section("A first machine")(
       md"""
@@ -54,11 +54,8 @@ is self-contained (the source panel is what Specular captures from the DocSpec).
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(orderMachine, Some(Pending)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(orderMachine, Some(Pending)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum OrderState derives Finite:
           case Pending, Paid, Shipped, Delivered

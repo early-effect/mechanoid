@@ -136,15 +136,17 @@ object Interactive extends DocSpec:
 Open this page in **two browser tabs**. On Scala.js the demo uses **IndexedDB** plus
 **BroadcastChannel** so both tabs share one FSM instance (`docs-order-1`). Unique aliases
 (`SharedFSMRuntime.lookup(Alias.of[S].campaign(id), …)`) resolve against the same IndexedDB `aliases` store. A live
-[mermoid](https://www.earlyeffect.rocks/mermoid/) state diagram (via `specular-mermoid`)
-highlights the current state — click the next node, or use **Pay** / **Ship**.
+[mermoid](https://www.earlyeffect.rocks/mermoid/) state diagram highlights the current state.
+Click the next node, or use **Pay** / **Ship**.
 
 JVM DocSpec SSR uses an in-memory store for the first paint; the live remount in the browser is
 the IndexedDB path (`mechanoid-web`) with interactive diagram selection and reflow.
 """,
       exampleIO {
         Demo.ui
-      }.copy(source = orderDemoSource).interactive.assert(_ => assertTrue(true)),
+      }.copy(source = orderDemoSource)
+        .interactive
+        .assert(ui => assertTrue(ui.toString.contains("Pay"), ui.toString.contains("Ship"))),
     ),
     section("Multi-role publishing flow")(
       md"""
@@ -157,7 +159,9 @@ role actions). Peers reconstruct from IndexedDB when BroadcastChannel notifies.
 """,
       exampleIO {
         PublishDemo.ui
-      }.copy(source = publishDemoSource).interactive.assert(_ => assertTrue(true)),
+      }.copy(source = publishDemoSource)
+        .interactive
+        .assert(ui => assertTrue(ui.toString.contains("Submit for review"), ui.toString.contains("Writer"))),
     ),
   )
 end Interactive

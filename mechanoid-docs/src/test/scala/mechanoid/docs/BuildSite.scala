@@ -60,39 +60,30 @@ object BuildSite extends DocsSite:
 
   private val siteNav: NavModel = SiteNav[MechanoidNav].toNavModel
 
-  def pages: Vector[DocPage] = siteNav.pages
+  /** Not a nav item. The sidebar is the table of contents; this page is the front. */
+  private val frontPage: DocPage = Front.doc
 
-  override def site: SiteModel =
-    val m       = meta
-    val version = m.docsVersion
+  def pages: Vector[DocPage] = frontPage +: siteNav.pages
+
+  override def site(settings: DocsSettings): SiteModel =
+    val version = DocsVersion.advertise(settings.meta.version)
     EarlyEffectTheme
-      .brand(super.site)
+      .brand(super.site(settings))
       .copy(
         nav = Some(siteNav),
-        pages = siteNav.pages,
+        pages = pages,
         clientScript = Some("assets/client.js"),
-        summaryMarkdown = Some(
-          """**Mechanoid** makes domain workflows an explicit, typed state graph on ZIO:
-enums (or sealed traits) for states and events, a tailored DSL for transitions and
-composition, and assemblies validated at compile time. Keep writing ZIO for effects;
-add persistence, durable timeouts, and distributed coordination as optional layers when
-the domain needs them.
-
-Every page here is a Specular DocSpec: examples assert under zio-test, and machines are
-rendered with mermoid so the picture cannot drift from the code. Browser persistence
-uses Scala.js + IndexedDB (`mechanoid-web`) with multi-tab sync.
-"""
-        ),
+        summaryMarkdown = None,
         installSnippets = Vector(
           CodeSnippet(
             "Core (JVM)",
             s"""libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "$version"
-libraryDependencies += "dev.zio" %% "zio" % "<version>" // provided by mechanoid""",
+libraryDependencies += "dev.zio" %% "zio" % "2.1.26" // provided by mechanoid""",
           ),
           CodeSnippet(
             "Core (Scala.js)",
             s"""libraryDependencies += "rocks.earlyeffect" %%% "mechanoid" % "$version"
-libraryDependencies += "dev.zio" %%% "zio" % "<version>"\"""",
+libraryDependencies += "dev.zio" %%% "zio" % "2.1.26\"""",
           ),
           CodeSnippet(
             "Browser IndexedDB (Scala.js)",
@@ -105,7 +96,7 @@ libraryDependencies += "dev.zio" %%% "zio" % "<version>"\"""",
         ),
         brand = Some(
           Brand(
-            name = m.title.getOrElse("mechanoid"),
+            name = settings.meta.displayTitle,
             links = Vector(EarlyEffectTheme.github("https://github.com/early-effect/mechanoid")),
           )
         ),
@@ -115,23 +106,31 @@ libraryDependencies += "dev.zio" %%% "zio" % "<version>"\"""",
   override def layers: ZLayer[Any, Nothing, SiteBuilder] =
     DocsChrome.layers
 
-  override def afterBuild(out: Path, result: SiteOutput): Task[Unit] =
+  override def afterBuild(out: Path, result: SiteOutput): IO[SiteError, Unit] =
     val _ = result
-    EarlyEffectTheme.writeLogo(out) *> copyClientBundle(out)
-
-  private def copyClientBundle(out: Path): Task[Unit] =
-    ZIO.attempt {
-      val dest = out.resolve("assets/client.js")
-      val src  = findClientJs.getOrElse {
-        throw new RuntimeException(
-          "JS client not linked; run docs/specularJsLink (or docs/specularSite) first. " +
-            s"Looked for marker ${clientJsMarker}"
-        )
+    // Specular always writes index.html as a summary plus a second copy of the nav.
+    // The front DocPage is the index. Copy it over that file. Asset paths stay site-relative.
+    val front   = out.resolve(s"${frontPage.slug}.html")
+    val index   = out.resolve("index.html")
+    val promote =
+      ZIO.attemptBlockingIO(Files.copy(front, index, StandardCopyOption.REPLACE_EXISTING)).mapError { err =>
+        SiteError.WriteFailed(index, err)
       }
-      Files.createDirectories(dest.getParent)
-      Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING)
-      ()
-    }
+    promote *> EarlyEffectTheme.writeLogo(out) *> copyClientBundle(out)
+  end afterBuild
+
+  private def copyClientBundle(out: Path): IO[SiteError, Unit] =
+    findClientJs match
+      case None =>
+        ZIO.fail(SiteError.MissingFile(clientJsMarker))
+      case Some(src) =>
+        val dest = out.resolve("assets/client.js")
+        ZIO
+          .attemptBlockingIO {
+            Files.createDirectories(dest.getParent)
+            val _ = Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING)
+          }
+          .mapError(err => SiteError.WriteFailed(dest, err))
 
   private def findClientJs: Option[Path] =
     readMarker.orElse(walkTargetOut)

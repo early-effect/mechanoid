@@ -5,9 +5,9 @@ import ascent.dsl.*
 import ascent.domtypes.{AttrKey, Codec}
 import ascent.squawk.Squawk
 import mermoid.ascent.MermoidAscent
-import mermoid.{DiagramLayout, MermaidParser, Viewport}
+import mermoid.{DiagramLayout, Mermaid, NodeId, Viewport}
 import mechanoid.*
-import specular.mermoid.Mermoid
+import mechanoid.docs.DocsDiagram
 import zio.*
 import zio.json.*
 
@@ -18,8 +18,7 @@ import scala.language.implicitConversions
   * The diagram remounts via docsJS (`.interactive`); selection tracks the live FSM state and clicking a reachable next
   * state fires the transition. UI state is typed [[OrderState]]; strings only at the mermoid node-id boundary.
   *
-  * `Mermoid.diagramControlled` wants `Source[Option[String]]`; live state is a derived `Squawk[OrderState]`, so this
-  * still paints via `fromScene`.
+  * Selection is a `NodeId` derived from the live state. Clicks come back as that id.
   */
 object OrderDemoUi:
 
@@ -43,10 +42,8 @@ object OrderDemoUi:
   private val mermaidSource: String =
     machine.toMermaidStateDiagram(Some(Pending))
 
-  private val parsed =
-    MermaidParser.parse(mermaidSource) match
-      case Right(d)  => d
-      case Left(err) => throw new IllegalArgumentException(s"order demo diagram: $err")
+  private val mermaid: Either[mermoid.ParseError, Mermaid] =
+    Mermaid.from(mermaidSource)
 
   private val testId = AttrKey("data-testid", Codec.StringAsIs)
 
@@ -62,41 +59,44 @@ object OrderDemoUi:
       onShip: UIO[Unit],
       onSelectNode: String => UIO[Unit],
   ): UIO[ascent.ast.UI[Any]] =
-    for width <- sq(560.0)
-    yield
-      val diagram = Squawk.zipWith(width, state) { (w, sel) =>
-        val scene = DiagramLayout.scene(parsed, Mermoid.chalkboard, Some(Viewport(w)))
-        MermoidAscent.fromScene(
-          scene,
-          selected = Some(sel.toString),
-          onSelect = onSelectNode,
-          containerWidth = Some(w),
-        )
-      }
-      E.div(
-        A.className("mechanoid-multitab-demo"),
-        note,
-        E.div(
-          A.className("mermoid-ascent mechanoid-live-fsm"),
+    mermaid match
+      case Left(error)   => ZIO.succeed(E.p(error.message))
+      case Right(parsed) =>
+        for width <- sq(560.0)
+        yield
+          val diagram = Squawk.zipWith(width, state) { (w, sel) =>
+            val scene = DiagramLayout.scene(parsed.diagram, DocsDiagram.chalkboard, Some(Viewport(w)))
+            MermoidAscent.fromScene(
+              scene,
+              selected = NodeId.from(sel.toString).toOption,
+              onSelect = id => onSelectNode(id.value),
+              containerWidth = Some(w),
+            )
+          }
           E.div(
-            A.className("mermoid-controls"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(360.0)), "Narrow"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(560.0)), "Medium"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(720.0)), "Wide"),
-            E.span(A.className("mermoid-width-label"), width.map(w => s"viewport ${w.toInt}px")),
-          ),
-          diagram,
-        ),
-        E.p(
-          A.className("mechanoid-live-status"),
-          "Now: ",
-          E.strong(testId("state"), state.map(_.toString)),
-          " · click the next state on the diagram, or use the buttons",
-        ),
-        E.div(
-          A.className("mechanoid-live-actions"),
-          E.button(testId("pay"), Events.onClick(_ => onPay), "Pay"),
-          E.button(testId("ship"), Events.onClick(_ => onShip), "Ship"),
-        ),
-      )
+            A.className("mechanoid-multitab-demo"),
+            note,
+            E.div(
+              A.className("mermoid-ascent mechanoid-live-fsm"),
+              E.div(
+                A.className("mermoid-controls"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(360.0)), "Narrow"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(560.0)), "Medium"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(720.0)), "Wide"),
+                E.span(A.className("mermoid-width-label"), width.map(w => s"viewport ${w.toInt}px")),
+              ),
+              diagram,
+            ),
+            E.p(
+              A.className("mechanoid-live-status"),
+              "Now: ",
+              E.strong(testId("state"), state.map(_.toString)),
+              " · click the next state on the diagram, or use the buttons",
+            ),
+            E.div(
+              A.className("mechanoid-live-actions"),
+              E.button(testId("pay"), Events.onClick(_ => onPay), "Pay"),
+              E.button(testId("ship"), Events.onClick(_ => onShip), "Ship"),
+            ),
+          )
 end OrderDemoUi

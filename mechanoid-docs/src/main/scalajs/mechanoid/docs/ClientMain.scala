@@ -20,15 +20,15 @@ object ClientMain extends ZIOAppDefault:
   end run
 
   private def mountExample(id: String, body: URIO[Scope, ascent.ast.UI[Any]]): URIO[Scope, Unit] =
-    val el = Dom.document.getElementById(id)
-    if el == null then ZIO.unit
-    else
-      for
-        _ <- ZIO.succeed(clearChildren(el))
-        // Keep Scope open for IndexedDB stores / FSM fibers until the app exits.
-        ui <- body
-        _  <- AscentApp.mount(ui, el)
-      yield ()
+    Dom.document.getElementById(id) match
+      case None     => ZIO.unit
+      case Some(el) =>
+        for
+          _ <- ZIO.succeed(clearChildren(el))
+          // Keep Scope open for IndexedDB stores / FSM fibers until the app exits.
+          ui <- body
+          _  <- AscentApp.mount(ui, el)
+        yield ()
   end mountExample
 
   private def clearChildren(el: dom.Element): Unit =

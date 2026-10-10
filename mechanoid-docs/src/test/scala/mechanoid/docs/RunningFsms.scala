@@ -3,7 +3,6 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -40,11 +39,8 @@ object RunningFsms extends MechanoidDocSpecSuite:
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(machine, Some(Initial)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(machine, Some(Initial)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum MyState derives Finite:
           case Initial, Running, Done

@@ -355,8 +355,13 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
           specularMetaProject                   := Some(LocalProject("core")),
           specularArtifactKind                  := "library",
           specularSiteDirectory                 := (LocalRootProject / baseDirectory).value / "target" / "site",
-          // CI docs builds are dynver `-ci`; stripCi drops the suffix so install snippets show the last published tag.
-          specularDisplayVersion := stripCi,
+          // Do not strip -ci first. Past v0.8.0, sbt-dynver-ci names the distance 0.8.1-ci or
+          // 0.9.0-ci, and stripping that suffix is not a coordinate on Maven Central.
+          // A raw version that contains -ci, +, or SNAPSHOT advertises the published tag.
+          specularDisplayVersion := { raw =>
+            val distance = raw.contains("-ci") || raw.contains("+") || raw.contains("SNAPSHOT")
+            if raw.nonEmpty && !distance then raw else "0.8.0"
+          },
           scalacOptions ~= (_.filterNot(_ == "-Wunused:all")),
           testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
           // Plugin preview watches this client. One fast link feeds both the site build and the dev rebuild.
@@ -382,6 +387,7 @@ lazy val docs = (projectMatrix in file("mechanoid-docs"))
               base / "DocZIO.scala",
               base / "Indexing.scala",
               base / "DurableTimeouts.scala",
+              base / "DocsDiagram.scala",
               base / "platform" / "OrderDemoUi.scala",
               base / "platform" / "PublishDemoUi.scala",
               base / "platform" / "TicketIndexDemoUi.scala",

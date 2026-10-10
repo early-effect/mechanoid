@@ -2,6 +2,7 @@ package mechanoid.docs
 
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
+import mermoid.Mermaid
 import specular.*
 import zio.*
 import zio.test.*
@@ -18,18 +19,19 @@ Mechanoid prefers a **load-on-demand** model over in-memory cluster gossip:
 - State lives in the EventStore
 - Application nodes stay stateless: any node can handle any instance
 - Fresh loads see the latest events; no pub/sub membership protocol
-
-```mermaid
-flowchart LR
-  NodeA[Node A] -->|load / append| DB[(EventStore)]
-  NodeB[Node B] -->|load / append| DB
-  class NodeA,NodeB,DB happy
-```
-
+""",
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart LR
+          |  NodeA[Node A] -->|load / append| DB[(EventStore)]
+          |  NodeB[Node B] -->|load / append| DB
+          |  class NodeA,NodeB,DB happy
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("EventStore"))),
+      md"""
 Optimistic sequence numbers always detect write conflicts. Distributed locking prevents them.
 [Deleting an instance](deleting-an-instance.html) force-releases the lock row for any holder,
 including an expired lease. An in-flight `withLock` on another node can still append once.
-"""
+""",
     ),
     section("LockingStrategy")(
       md"""
@@ -74,17 +76,17 @@ including an expired lease. An in-flight `withLock` on another node can still ap
       }.assert(state => assertTrue(state.toString == "Paid")),
     ),
     section("Lock heartbeat and atomic transitions")(
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart LR
+          |  Acquire[Acquire lock] --> Heartbeat[Heartbeat renew]
+          |  Heartbeat --> Work[Process transitions]
+          |  Work --> Release[Release]
+          |  Heartbeat -.->|renewal fails| Lost[FailFast or Continue]
+          |  class Acquire,Heartbeat,Work,Release happy
+          |  class Lost warn
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("Heartbeat"))),
       md"""
-```mermaid
-flowchart LR
-  Acquire[Acquire lock] --> Heartbeat[Heartbeat renew]
-  Heartbeat --> Work[Process transitions]
-  Work --> Release[Release]
-  Heartbeat -.->|renewal fails| Lost[FailFast or Continue]
-  class Acquire,Heartbeat,Work,Release happy
-  class Lost warn
-```
-
 `withLockAndHeartbeat` renews the lock while long work runs (`LockHeartbeatConfig`:
 `renewalInterval`, `renewalDuration`, `jitterFactor`, `onLockLost`).
 
@@ -124,7 +126,7 @@ GET current state without arming timeouts: `FSMRuntime.readState(id, machine, in
 Do not use `EventStore.currentState` (snapshot-only default).
 
 Next: [Visualization](visualization.html).
-"""
+""",
     ),
   )
 end DistributedCoordination

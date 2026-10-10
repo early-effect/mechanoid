@@ -6,6 +6,7 @@ import mechanoid.*
 import mechanoid.persistence.*
 import mechanoid.persistence.timeout.TimeoutStore
 import mechanoid.stores.*
+import mermoid.Mermaid
 import specular.*
 import zio.*
 import zio.test.*
@@ -20,23 +21,24 @@ object DeletingAnInstance extends MechanoidDocSpecSuite:
 The event log is not the instance. Recovery reads the snapshot and replays later events.
 `lookup` follows an alias. `find` reads index rows. The sweeper fires timeout rows. The
 lock row is the lease other nodes wait on. Any one of those left behind is still the instance.
-
-```mermaid
-flowchart LR
-  Log[Event log] --> Delete[fsm.delete]
-  Snap[Snapshot] --> Delete
-  Alias[Aliases] --> Delete
-  Index[Index rows] --> Delete
-  Time[Timeouts] --> Delete
-  Lock[Lock row] --> Delete
-  Truncate[deleteEventsTo] --> Log
-  class Log,Snap,Alias,Index,Time,Lock,Delete happy
-  class Truncate warn
-```
-
+""",
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart LR
+          |  Log[Event log] --> Delete[fsm.delete]
+          |  Snap[Snapshot] --> Delete
+          |  Alias[Aliases] --> Delete
+          |  Index[Index rows] --> Delete
+          |  Time[Timeouts] --> Delete
+          |  Lock[Lock row] --> Delete
+          |  Truncate[deleteEventsTo] --> Log
+          |  class Log,Snap,Alias,Index,Time,Lock,Delete happy
+          |  class Truncate warn
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("fsm.delete"))),
+      md"""
 `deleteEventsTo` only shortens the log so a snapshot can stand in for the history it replaced.
 Cluster leases are not per instance and are not part of delete.
-"""
+""",
     ),
     section("Truncate is not delete")(
       md"""

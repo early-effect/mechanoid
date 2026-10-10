@@ -5,9 +5,9 @@ import ascent.dsl.*
 import ascent.domtypes.{AttrKey, Codec}
 import ascent.squawk.Squawk
 import mermoid.ascent.MermoidAscent
-import mermoid.{DiagramLayout, MermaidParser, Viewport}
+import mermoid.{DiagramLayout, Mermaid, NodeId, Viewport}
 import mechanoid.*
-import specular.mermoid.Mermoid
+import mechanoid.docs.DocsDiagram
 import zio.*
 import zio.json.*
 
@@ -72,10 +72,8 @@ object PublishDemoUi:
   private val mermaidSource: String =
     MermaidVisualizer.flowchart(machine)
 
-  private val parsed =
-    MermaidParser.parse(mermaidSource) match
-      case Right(d)  => d
-      case Left(err) => throw new IllegalArgumentException(s"publish demo diagram: $err")
+  private val mermaid: Either[mermoid.ParseError, Mermaid] =
+    Mermaid.from(mermaidSource)
 
   private val testId   = AttrKey("data-testid", Codec.StringAsIs)
   private val roleAttr = AttrKey("data-role", Codec.StringAsIs)
@@ -92,90 +90,93 @@ object PublishDemoUi:
       note: ascent.ast.UI[Any],
       send: DocumentEvent => UIO[Unit],
   ): UIO[ascent.ast.UI[Any]] =
-    for width <- sq(720.0)
-    yield
-      val diagram = Squawk.zipWith(width, state) { (w, sel) =>
-        val scene = DiagramLayout.scene(parsed, Mermoid.chalkboard, Some(Viewport(w)))
-        MermoidAscent.fromScene(
-          scene,
-          selected = Some(sel.toString),
-          onSelect = id =>
-            state.get.flatMap { cur =>
-              eventTo(cur, id) match
-                case Some(ev) => send(ev)
-                case None     => ZIO.unit
-            },
-          containerWidth = Some(w),
-        )
-      }
+    mermaid match
+      case Left(error)   => ZIO.succeed(E.p(error.message))
+      case Right(parsed) =>
+        for width <- sq(720.0)
+        yield
+          val diagram = Squawk.zipWith(width, state) { (w, sel) =>
+            val scene = DiagramLayout.scene(parsed.diagram, DocsDiagram.chalkboard, Some(Viewport(w)))
+            MermoidAscent.fromScene(
+              scene,
+              selected = NodeId.from(sel.toString).toOption,
+              onSelect = id =>
+                state.get.flatMap { cur =>
+                  eventTo(cur, id.value) match
+                    case Some(ev) => send(ev)
+                    case None     => ZIO.unit
+                },
+              containerWidth = Some(w),
+            )
+          }
 
-      def action(
-          role: String,
-          event: DocumentEvent,
-          label: String,
-      ): ascent.ast.UI[Any] =
-        E.button(
-          testId(s"$role-${event.toString}"),
-          A.disabled(state.map(s => !canFire(s, event))),
-          Events.onClick(_ => send(event)),
-          label,
-        )
+          def action(
+              role: String,
+              event: DocumentEvent,
+              label: String,
+          ): ascent.ast.UI[Any] =
+            E.button(
+              testId(s"$role-${event.toString}"),
+              A.disabled(state.map(s => !canFire(s, event))),
+              Events.onClick(_ => send(event)),
+              label,
+            )
 
-      E.div(
-        A.className("mechanoid-multitab-demo mechanoid-publish-demo"),
-        note,
-        E.div(
-          A.className("mermoid-ascent mechanoid-live-fsm"),
           E.div(
-            A.className("mermoid-controls"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(480.0)), "Narrow"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(720.0)), "Medium"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(960.0)), "Wide"),
-            E.span(A.className("mermoid-width-label"), width.map(w => s"viewport ${w.toInt}px")),
-          ),
-          diagram,
-        ),
-        E.p(
-          A.className("mechanoid-live-status"),
-          "Document: ",
-          E.strong(testId("publish-state"), state.map(_.toString)),
-          " · gated role actions below (disabled when illegal)",
-        ),
-        E.div(
-          A.className("mechanoid-role-grid"),
-          roleCard(
-            "Writer",
-            "Author the draft and respond to review",
-            "writer",
-            action("writer", SubmitForReview, "Submit for review"),
-            action("writer", ResubmitAfterChanges, "Resubmit after changes"),
-            action("writer", CancelReview, "Cancel review → Draft"),
-          ),
-          roleCard(
-            "Reviewer",
-            "Assign, request changes, or approve the review",
-            "reviewer",
-            action("reviewer", AssignReviewer, "Assign reviewer"),
-            action("reviewer", RequestChanges, "Request changes"),
-            action("reviewer", ApproveReview, "Approve review"),
-          ),
-          roleCard(
-            "Approver",
-            "Publication gate",
-            "approver",
-            action("approver", ApprovePublication, "Approve publication"),
-            action("approver", RejectPublication, "Reject publication"),
-            action("approver", Abandon, "Abandon → Cancelled"),
-          ),
-          roleCard(
-            "Ops",
-            "Archive or reset the document",
-            "ops",
-            action("ops", Archive, "Archive"),
-            action("ops", Reset, "Reset to Draft"),
-          ),
-        ),
-      )
+            A.className("mechanoid-multitab-demo mechanoid-publish-demo"),
+            note,
+            E.div(
+              A.className("mermoid-ascent mechanoid-live-fsm"),
+              E.div(
+                A.className("mermoid-controls"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(480.0)), "Narrow"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(720.0)), "Medium"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(960.0)), "Wide"),
+                E.span(A.className("mermoid-width-label"), width.map(w => s"viewport ${w.toInt}px")),
+              ),
+              diagram,
+            ),
+            E.p(
+              A.className("mechanoid-live-status"),
+              "Document: ",
+              E.strong(testId("publish-state"), state.map(_.toString)),
+              " · gated role actions below (disabled when illegal)",
+            ),
+            E.div(
+              A.className("mechanoid-role-grid"),
+              roleCard(
+                "Writer",
+                "Author the draft and respond to review",
+                "writer",
+                action("writer", SubmitForReview, "Submit for review"),
+                action("writer", ResubmitAfterChanges, "Resubmit after changes"),
+                action("writer", CancelReview, "Cancel review → Draft"),
+              ),
+              roleCard(
+                "Reviewer",
+                "Assign, request changes, or approve the review",
+                "reviewer",
+                action("reviewer", AssignReviewer, "Assign reviewer"),
+                action("reviewer", RequestChanges, "Request changes"),
+                action("reviewer", ApproveReview, "Approve review"),
+              ),
+              roleCard(
+                "Approver",
+                "Publication gate",
+                "approver",
+                action("approver", ApprovePublication, "Approve publication"),
+                action("approver", RejectPublication, "Reject publication"),
+                action("approver", Abandon, "Abandon → Cancelled"),
+              ),
+              roleCard(
+                "Ops",
+                "Archive or reset the document",
+                "ops",
+                action("ops", Archive, "Archive"),
+                action("ops", Reset, "Reset to Draft"),
+              ),
+            ),
+          )
 
   private def roleCard(
       title: String,
