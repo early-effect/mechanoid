@@ -3,7 +3,6 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -101,11 +100,8 @@ Timeout, cancel-from-many, and a durable timeout layer in one path:
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(orderMachine, Some(Pending)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(orderMachine, Some(Pending)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum OrderState derives Finite:
           case Pending, AwaitingPayment, Paid, Shipped, Delivered, Cancelled

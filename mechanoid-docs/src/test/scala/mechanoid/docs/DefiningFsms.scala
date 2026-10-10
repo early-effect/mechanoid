@@ -1,9 +1,9 @@
 package mechanoid.docs
 
 import mechanoid.docs.DocZIO.*
+import mermoid.Mermaid
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -11,15 +11,15 @@ object DefiningFsms extends MechanoidDocSpecSuite:
 
   def doc = page("Defining FSMs")(
     section("Assembly and Machine")(
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart LR
+          |  Specs[Transition specs] --> Asm[assembly macro]
+          |  Asm --> Machine[Machine]
+          |  Machine --> Runtime[FSMRuntime]
+          |  class Specs,Asm,Machine,Runtime happy
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("assembly macro"))),
       md"""
-```mermaid
-flowchart LR
-  Specs[Transition specs] --> Asm[assembly macro]
-  Asm --> Machine[Machine]
-  Machine --> Runtime[FSMRuntime]
-  class Specs,Asm,Machine,Runtime happy
-```
-
 `assembly[S, E](...)` validates transitions at compile time. Pass the assembly **inline** to
 `Machine(...)` so orphan-override detection can see the expression tree. Compose with
 `assembly[…](…) ++ assembly[…](…)` (or top-level `inline def` fragments) so the macro can
@@ -42,11 +42,8 @@ still see both sides.
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(machine, Some(State1)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(machine, Some(State1)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum MyState derives Finite:
           case State1, State2, State3
@@ -107,11 +104,8 @@ Mechanoid catches many mistakes before runtime:
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(groupMachine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(groupMachine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         sealed trait ProcState derives Finite
         sealed trait Processing  extends ProcState derives Finite
@@ -166,11 +160,8 @@ with `@@ Aspect.overriding` (last wins). Here `SpecialState` escalates instead o
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(overrideMachine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(overrideMachine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         sealed trait ProcState derives Finite
         sealed trait Processing  extends ProcState derives Finite
@@ -265,11 +256,8 @@ Block form `assemblyAll[S, E]:` avoids commas between specs when the list gets l
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(machine, Some(Draft)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(machine, Some(Draft)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum ShipState derives Finite:
           case Draft, Paid, Packed, Shipped

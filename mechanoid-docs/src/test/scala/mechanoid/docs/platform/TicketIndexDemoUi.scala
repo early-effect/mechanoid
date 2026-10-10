@@ -2,7 +2,6 @@ package mechanoid.docs.platform
 // live ticket inbox panel
 
 import ascent.*
-import ascent.ast.Attr
 import ascent.dsl.*
 import ascent.squawk.Squawk
 import ascent.domtypes.{AttrKey, Codec}
@@ -245,7 +244,7 @@ object TicketIndexDemoUi:
           }
         }
 
-      def onClass(active: Squawk[Boolean]): Attr[Any] =
+      def onClass(active: Squawk[Boolean]) =
         A.className(active.map(v => if v then "is-on" else ""))
 
       def chipBtn(c: Chip, label: String, id: String) =

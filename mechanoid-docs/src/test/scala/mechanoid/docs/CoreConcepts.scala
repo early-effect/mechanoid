@@ -3,7 +3,6 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -34,11 +33,8 @@ runtime states.
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.stateDiagram(trafficMachine, Some(Red)),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.stateDiagram(trafficMachine, Some(Red)))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         enum TrafficLight derives Finite:
           case Red, Yellow, Green
@@ -104,11 +100,8 @@ A transition is `State via Event to Target`. Targets can be a concrete state, `s
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(matcherMachine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(matcherMachine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         sealed trait GateState derives Finite
         case object Idle                  extends GateState
@@ -214,11 +207,8 @@ restart). A reducer that fails is an action failure; the event is not appended.
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(payloadMachine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(payloadMachine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         sealed trait GateState derives Finite
         case object Idle                  extends GateState
@@ -282,11 +272,8 @@ Organize related states with sealed traits and use `all[T]` for group transition
           )
         )
 
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(hierarchicalMachine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(hierarchicalMachine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       exampleZIO {
         sealed trait OrderState derives Finite
         case object Created           extends OrderState

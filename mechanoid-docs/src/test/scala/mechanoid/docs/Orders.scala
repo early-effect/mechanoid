@@ -3,7 +3,6 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -92,11 +91,8 @@ Teaching slice of `examples/.../petstore`. Machine used below:
     machineSource,
     section("The graph")(
       example {
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(machine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(machine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       md"""
 Payment edges use `event[InitiatePayment]` / `event[PaymentSucceeded]` so runtime values carry
 ids and amounts while the assembly stays declarative.

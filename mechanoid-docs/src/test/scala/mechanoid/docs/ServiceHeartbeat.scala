@@ -3,7 +3,6 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -82,11 +81,8 @@ name.)
     machineSource,
     section("The graph")(
       example {
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(machine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(machine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       md"""
 Features in play: `assemblyAll`, `.producing`, `@@ Aspect.timeout`, `anyOf`. Full stack with
 Postgres stores and `TimeoutSweeper`: `examples/.../heartbeat`.

@@ -1,5 +1,6 @@
 package mechanoid.docs
 
+import mermoid.Mermaid
 import specular.*
 import zio.test.*
 
@@ -16,56 +17,58 @@ can be in, and the events that move it.
 Many product workflows are graphs whether you name them or not: checkout, document review,
 payment capture, service health. Allowed moves, cancellations, and deadlines are part of the
 domain. When that graph stays implicit (a fold of flags and `if` branches), the picture lives
-only in someone's head:
-
-```mermaid
-flowchart LR
-  subgraph implicitFold [Implicit fold]
-    Flags[Booleans and status codes]
-    Branches[Ad hoc branches]
-    Flags --> Branches
-    Branches --> Bug["Invalid transition at 2am"]
-  end
-  subgraph explicitGraph [Explicit FSM]
-    States[Typed states]
-    Events[Typed events]
-    Edges[Declared transitions]
-    States --> Edges
-    Events --> Edges
-    Edges --> Picture[Shared picture of allowed moves]
-  end
-  class Bug sad
-  class Picture happy
-```
-
+only in someone's head.
+""",
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart LR
+          |  subgraph implicitFold [Implicit fold]
+          |    Flags[Booleans and status codes]
+          |    Branches[Ad hoc branches]
+          |    Flags --> Branches
+          |    Branches --> Bug["Invalid transition at 2am"]
+          |  end
+          |  subgraph explicitGraph [Explicit FSM]
+          |    States[Typed states]
+          |    Events[Typed events]
+          |    Edges[Declared transitions]
+          |    States --> Edges
+          |    Events --> Edges
+          |    Edges --> Picture[Shared picture of allowed moves]
+          |  end
+          |  class Bug sad
+          |  class Picture happy
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("Invalid transition"))),
+      md"""
 Making the graph explicit pays off when product and engineering need a shared picture of
 allowed moves, when compile-time checks should catch duplicate or missing transitions, and
 when persistence, timeouts, and locking should be **optional layers**, not a rewrite.
-"""
+""",
     ),
     section("Why Mechanoid")(
       md"""
-Mechanoid is the typed FSM layer that sits inside the ZIO application you already like:
-
-```mermaid
-flowchart TB
-  subgraph zioStack [ZIO stack]
-    Effects[Typed effects]
-    Layers[Layers and resources]
-    Test[zio-test]
-  end
-  subgraph mech [Mechanoid]
-    Graph[Typed state graph]
-    Asm[Compile-time assemblies]
-    Runtime[FSMRuntime]
-  end
-  Effects --> Graph
-  Layers --> Runtime
-  Graph --> Runtime
-  Runtime --> Domain[Durable domain workflows]
-  class Effects,Layers,Test,Graph,Asm,Runtime,Domain happy
-```
-
+Mechanoid is the typed FSM layer that sits inside the ZIO application you already like.
+""",
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart TB
+          |  subgraph zioStack [ZIO stack]
+          |    Effects[Typed effects]
+          |    Layers[Layers and resources]
+          |    Test[zio-test]
+          |  end
+          |  subgraph mech [Mechanoid]
+          |    Graph[Typed state graph]
+          |    Asm[Compile-time assemblies]
+          |    Runtime[FSMRuntime]
+          |  end
+          |  Effects --> Graph
+          |  Layers --> Runtime
+          |  Graph --> Runtime
+          |  Runtime --> Domain[Durable domain workflows]
+          |  class Effects,Layers,Test,Graph,Asm,Runtime,Domain happy
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("FSMRuntime"))),
+      md"""
 - **States and events** are Scala 3 enums or sealed traits (`derives Finite`)
 - **Transitions** are ZIO effects with your environment and error channel
 - **Assemblies** are validated at compile time (duplicates, overrides, produced-event types)
@@ -74,7 +77,7 @@ flowchart TB
 What is special is the **DSL and composability**: infix transitions, hierarchical `all[T]`,
 reusable fragments with `++` / `assemblyAll`, and aspects like timeouts and intentional
 overrides. It is not a generic actor FSM, and it is not a heavyweight workflow engine.
-"""
+""",
     ),
     section("The production ladder")(
       md"""

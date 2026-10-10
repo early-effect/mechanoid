@@ -1,6 +1,7 @@
 package mechanoid.docs
 
 import mechanoid.docs.DocZIO.*
+import mermoid.Mermaid
 import mechanoid.*
 import specular.*
 import zio.*
@@ -15,22 +16,22 @@ object Persistence extends MechanoidDocSpecSuite:
       md"""
 Writes append after the transition succeeds. Recovery loads an optional snapshot, then replays
 later events (transition actions run; entry/producing do not).
-
-```mermaid
-flowchart TB
-  subgraph writePath [Write path]
-    Send[fsm.send] --> Action[Transition action]
-    Action --> Append[EventStore.append]
-    Append --> Snap[Optional snapshot]
-  end
-  subgraph recoverPath [Recover path]
-    Start[FSMRuntime construct] --> LoadSnap[Load snapshot]
-    LoadSnap --> Replay[Replay events after seq]
-    Replay --> Ready[Resume]
-  end
-  class Send,Action,Append,Snap,Start,LoadSnap,Replay,Ready happy
-```
 """,
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart TB
+          |  subgraph writePath [Write path]
+          |    Send[fsm.send] --> Action[Transition action]
+          |    Action --> Append[EventStore.append]
+          |    Append --> Snap[Optional snapshot]
+          |  end
+          |  subgraph recoverPath [Recover path]
+          |    Start[FSMRuntime construct] --> LoadSnap[Load snapshot]
+          |    LoadSnap --> Replay[Replay events after seq]
+          |    Replay --> Ready[Resume]
+          |  end
+          |  class Send,Action,Append,Snap,Start,LoadSnap,Replay,Ready happy
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("EventStore.append"))),
       exampleZIO {
         enum OrderState derives Finite:
           case Pending, Paid, Shipped
@@ -230,7 +231,7 @@ several tabs share one instance without a server. `SharedFSMRuntime.lookup` take
 `Alias.of[S].campaign(id)`, then starts that instance.
 
 ```scala
-libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "<version>"
+libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "${DocsVersion.version}"
 
 import mechanoid.web.*
 

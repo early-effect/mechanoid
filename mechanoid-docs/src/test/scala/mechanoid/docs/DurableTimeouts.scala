@@ -4,6 +4,7 @@ import mechanoid.docs.DocZIO.*
 import mechanoid.docs.platform.NamedTimeoutDemo
 import mechanoid.docs.platform.NamedTimeoutDemoUi.{Campaign, machine as campaignMachine}
 import mechanoid.*
+import mermoid.Mermaid
 import specular.*
 import zio.*
 import zio.test.*
@@ -18,17 +19,17 @@ object DurableTimeouts extends DocSpec:
 Fiber timeouts are fast and local. If the node dies while an FSM sits in a timed state, that
 fiber is gone. Durable timeouts store deadlines in a `TimeoutStore` so another node's sweeper
 can fire them.
-
-```mermaid
-flowchart LR
-  NodeA[Node A schedules] --> Store[TimeoutStore]
-  NodeA -.->|dies| Gone[Fiber gone]
-  Store --> Sweeper[TimeoutSweeper]
-  Sweeper --> NodeB[Node B fires timeout event]
-  class NodeA,Store,Sweeper,NodeB happy
-  class Gone warn
-```
-"""
+""",
+      illustration(
+        DocsDiagram.paint(Mermaid("""flowchart LR
+          |  NodeA[Node A schedules] --> Store[TimeoutStore]
+          |  NodeA -.->|dies| Gone[Fiber gone]
+          |  Store --> Sweeper[TimeoutSweeper]
+          |  Sweeper --> NodeB[Node B fires timeout event]
+          |  class NodeA,Store,Sweeper,NodeB happy
+          |  class Gone warn
+          |""".stripMargin))
+      ).assert(ui => assertTrue(ui.toString.contains("mermoid-root"), ui.toString.contains("TimeoutSweeper"))),
     ),
     section("TimeoutStrategy")(
       md"""
@@ -92,7 +93,7 @@ out) cancels both.
       }.assert(names => assertTrue(names == Set("DailyCheck", "EndCycle"))),
       exampleIO {
         NamedTimeoutDemo.ui
-      }.interactive.assert(ui => assertTrue(ui.toString.nonEmpty)),
+      }.interactive.assert(ui => assertTrue(ui.toString.contains("mermoid-ascent"), ui.toString.contains("Go live"))),
     ),
     section("TimeoutSweeper")(
       md"""

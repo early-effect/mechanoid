@@ -6,9 +6,9 @@ import ascent.dsl.*
 import ascent.domtypes.{AttrKey, Codec}
 import ascent.squawk.Squawk
 import mermoid.ascent.MermoidAscent
-import mermoid.{DiagramLayout, MermaidParser, Viewport}
+import mermoid.{DiagramLayout, Mermaid, NodeId, Viewport}
 import mechanoid.*
-import specular.mermoid.Mermoid
+import mechanoid.docs.DocsDiagram
 import zio.*
 import zio.json.*
 
@@ -67,10 +67,8 @@ object NamedTimeoutDemoUi:
   private val mermaidSource: String =
     machine.toMermaidStateDiagram(Some(Enqueueing))
 
-  private val parsed =
-    MermaidParser.parse(mermaidSource) match
-      case Right(d)  => d
-      case Left(err) => throw new IllegalArgumentException(s"named timeout demo diagram: $err")
+  private val mermaid: Either[mermoid.ParseError, Mermaid] =
+    Mermaid.from(mermaidSource)
 
   private val testId = AttrKey("data-testid", Codec.StringAsIs)
 
@@ -94,84 +92,87 @@ object NamedTimeoutDemoUi:
       send: CampaignEvent => UIO[Unit],
       onSelectNode: String => UIO[Unit],
   ): UIO[ascent.ast.UI[Any]] =
-    for width <- sq(560.0)
-    yield
-      val diagram = Squawk.zipWith(width, state) { (w, sel) =>
-        val scene = DiagramLayout.scene(parsed, Mermoid.chalkboard, Some(Viewport(w)))
-        MermoidAscent.fromScene(
-          scene,
-          selected = Some(sel.toString),
-          onSelect = onSelectNode,
-          containerWidth = Some(w),
-        )
-      }
-      val clocks = Squawk.zipWith(armed, now) { (a, instant) =>
-        a.clocks.map { case (name, deadline) =>
-          (name, deadline.map(d => remainingLabel(instant, d)))
-        }
-      }
-      E.div(
-        A.className("mechanoid-multitab-demo"),
-        note,
-        E.div(
-          A.className("mermoid-ascent mechanoid-live-fsm"),
-          E.div(
-            A.className("mermoid-controls"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(360.0)), "Narrow"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(560.0)), "Medium"),
-            E.button(A.`type`("button"), Events.onClick(_ => width.set(720.0)), "Wide"),
-            E.span(A.className("mermoid-width-label"), width.map(w => s"viewport ${w.toInt}px")),
-          ),
-          diagram,
-        ),
-        E.p(
-          A.className("mechanoid-live-status"),
-          "Now: ",
-          E.strong(testId("state"), state.map(_.toString)),
-          " · DailyCheck Stays and re-arms only itself. EndCycle Gotos Ended and cancels both.",
-        ),
-        E.div(
-          A.className("mechanoid-timeout-rows"),
-          forEach(clocks.map(_.toSeq))(t => s"${t._1}:${t._2.getOrElse("idle")}") { case (name, remaining) =>
-            val idle = remaining.isEmpty
-            E.div(
-              A.className(if idle then "mechanoid-timeout-card is-idle" else "mechanoid-timeout-card"),
-              E.div(A.className("name"), name),
-              E.div(
-                A.className("eta"),
-                testId(s"eta-$name"),
-                remaining.getOrElse("not armed"),
-              ),
+    mermaid match
+      case Left(error)   => ZIO.succeed(E.p(error.message))
+      case Right(parsed) =>
+        for width <- sq(560.0)
+        yield
+          val diagram = Squawk.zipWith(width, state) { (w, sel) =>
+            val scene = DiagramLayout.scene(parsed.diagram, DocsDiagram.chalkboard, Some(Viewport(w)))
+            MermoidAscent.fromScene(
+              scene,
+              selected = NodeId.from(sel.toString).toOption,
+              onSelect = id => onSelectNode(id.value),
+              containerWidth = Some(w),
             )
-          },
-        ),
-        E.div(
-          A.className("mechanoid-live-actions"),
-          E.button(
-            testId("go-live"),
-            A.disabled(state.map(s => !canFire(s, GoLive))),
-            Events.onClick(_ => send(GoLive)),
-            "Go live",
-          ),
-          E.button(
-            testId("daily"),
-            A.disabled(state.map(s => !canFire(s, DailyCheck))),
-            Events.onClick(_ => send(DailyCheck)),
-            "Fire DailyCheck",
-          ),
-          E.button(
-            testId("end-cycle"),
-            A.disabled(state.map(s => !canFire(s, EndCycle))),
-            Events.onClick(_ => send(EndCycle)),
-            "Fire EndCycle",
-          ),
-          E.button(
-            testId("reset"),
-            A.disabled(state.map(s => !canFire(s, Reset))),
-            Events.onClick(_ => send(Reset)),
-            "Reset",
-          ),
-        ),
-      )
+          }
+          val clocks = Squawk.zipWith(armed, now) { (a, instant) =>
+            a.clocks.map { case (name, deadline) =>
+              (name, deadline.map(d => remainingLabel(instant, d)))
+            }
+          }
+          E.div(
+            A.className("mechanoid-multitab-demo"),
+            note,
+            E.div(
+              A.className("mermoid-ascent mechanoid-live-fsm"),
+              E.div(
+                A.className("mermoid-controls"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(360.0)), "Narrow"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(560.0)), "Medium"),
+                E.button(A.`type`("button"), Events.onClick(_ => width.set(720.0)), "Wide"),
+                E.span(A.className("mermoid-width-label"), width.map(w => s"viewport ${w.toInt}px")),
+              ),
+              diagram,
+            ),
+            E.p(
+              A.className("mechanoid-live-status"),
+              "Now: ",
+              E.strong(testId("state"), state.map(_.toString)),
+              " · DailyCheck Stays and re-arms only itself. EndCycle Gotos Ended and cancels both.",
+            ),
+            E.div(
+              A.className("mechanoid-timeout-rows"),
+              forEach(clocks.map(_.toSeq))(t => s"${t._1}:${t._2.getOrElse("idle")}") { case (name, remaining) =>
+                val idle = remaining.isEmpty
+                E.div(
+                  A.className(if idle then "mechanoid-timeout-card is-idle" else "mechanoid-timeout-card"),
+                  E.div(A.className("name"), name),
+                  E.div(
+                    A.className("eta"),
+                    testId(s"eta-$name"),
+                    remaining.getOrElse("not armed"),
+                  ),
+                )
+              },
+            ),
+            E.div(
+              A.className("mechanoid-live-actions"),
+              E.button(
+                testId("go-live"),
+                A.disabled(state.map(s => !canFire(s, GoLive))),
+                Events.onClick(_ => send(GoLive)),
+                "Go live",
+              ),
+              E.button(
+                testId("daily"),
+                A.disabled(state.map(s => !canFire(s, DailyCheck))),
+                Events.onClick(_ => send(DailyCheck)),
+                "Fire DailyCheck",
+              ),
+              E.button(
+                testId("end-cycle"),
+                A.disabled(state.map(s => !canFire(s, EndCycle))),
+                Events.onClick(_ => send(EndCycle)),
+                "Fire EndCycle",
+              ),
+              E.button(
+                testId("reset"),
+                A.disabled(state.map(s => !canFire(s, Reset))),
+                Events.onClick(_ => send(Reset)),
+                "Reset",
+              ),
+            ),
+          )
   end panel
 end NamedTimeoutDemoUi

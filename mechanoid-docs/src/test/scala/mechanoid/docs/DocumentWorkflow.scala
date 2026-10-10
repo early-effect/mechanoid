@@ -3,7 +3,6 @@ package mechanoid.docs
 import mechanoid.docs.DocZIO.*
 import mechanoid.*
 import specular.*
-import specular.mermoid.Mermoid
 import zio.*
 import zio.test.*
 
@@ -100,11 +99,8 @@ Teaching slice of `examples/.../hierarchical`. The machine used by every example
     machineSource,
     section("The graph")(
       example {
-        Mermoid.diagram(
-          MermaidVisualizer.flowchart(machine),
-          Mermoid.chalkboard,
-        )
-      }.assert(ui => assertTrue(ui.toString.nonEmpty)),
+        DocsDiagram.paint(MermaidVisualizer.flowchart(machine))
+      }.assert(ui => assertTrue(ui.toString.contains("mermoid-root"))),
       md"""
 Look for the group edges: every `InReview` leaf can `CancelReview` back to `Draft`, and every
 `Approval` leaf can `Abandon` to `Cancelled`.

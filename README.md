@@ -6,13 +6,7 @@
 [![Maven Central - Web](https://img.shields.io/maven-central/v/rocks.earlyeffect/mechanoid-web_sjs1_3?logo=scala&label=mechanoid-web)](https://central.sonatype.com/artifact/rocks.earlyeffect/mechanoid-web_sjs1_3)
 [![Maven Central - Postgres](https://img.shields.io/maven-central/v/rocks.earlyeffect/mechanoid-postgres_3?logo=apachemaven&label=mechanoid-postgres)](https://central.sonatype.com/artifact/rocks.earlyeffect/mechanoid-postgres_3)
 
-A type-safe finite state machine library for Scala 3 and ZIO (JVM and Scala.js).
-
-ZIO already gives you excellent effect composition. Many domains are also finite state machines.
-Mechanoid makes that graph explicit and typed: states and events as enums, transitions as ZIO
-effects, assemblies validated at compile time. Start in memory, then add persistence, durable
-timeouts, and distributed coordination as ZIO layers when you need them. In the browser,
-`mechanoid-web` persists to IndexedDB and syncs tabs over BroadcastChannel.
+States and events are enums, and an illegal assembly does not compile.
 
 **Docs:** [earlyeffect.rocks/mechanoid](https://www.earlyeffect.rocks/mechanoid/)
 
@@ -29,22 +23,22 @@ timeouts, and distributed coordination as ZIO layers when you need them. In the 
 
 ## Installation
 
-The Maven Central badges above and the [docs site chrome](https://www.earlyeffect.rocks/mechanoid/) show the current version. ZIO is a provided dependency.
+ZIO is a provided dependency.
 
 ```scala
 // Core (JVM)
-libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "<version>"
-libraryDependencies += "dev.zio" %% "zio" % "<version>"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid" % "0.8.0"
+libraryDependencies += "dev.zio" %% "zio" % "2.1.26"
 
 // Core (Scala.js)
-libraryDependencies += "rocks.earlyeffect" %%% "mechanoid" % "<version>"
-libraryDependencies += "dev.zio" %%% "zio" % "<version>"
+libraryDependencies += "rocks.earlyeffect" %%% "mechanoid" % "0.8.0"
+libraryDependencies += "dev.zio" %%% "zio" % "2.1.26"
 
 // Browser IndexedDB + BroadcastChannel (Scala.js)
-libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "<version>"
+libraryDependencies += "rocks.earlyeffect" %%% "mechanoid-web" % "0.8.0"
 
 // Optional PostgreSQL persistence (JVM)
-libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "<version>"
+libraryDependencies += "rocks.earlyeffect" %% "mechanoid-postgres" % "0.8.0"
 ```
 
 ## Quick Start
