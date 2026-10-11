@@ -30,7 +30,7 @@ object MyVersions extends ZipxVersions:
 
   val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.20.0")
   val saferisPostgresJdbc      = saferis.mod("saferis-postgres-jdbc")
-  val postgresql               = Lib("org.postgresql", "postgresql", "42.7.13").java
+  val postgresql               = Lib("org.postgresql", "postgresql", "42.7.14").java
   val testcontainersPostgresql = Lib("org.testcontainers", "testcontainers-postgresql", "2.0.5").java
   val commonsCompress          = Lib("org.apache.commons", "commons-compress", "1.28.0").java
   val scalajsDom               = Lib("org.scala-js", "scalajs-dom", "2.8.1")
