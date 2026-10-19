@@ -993,7 +993,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       case TransitionResult.Stay(newState) =>
         for
           _ <- stateRef.update(_.replaceCurrent(newState))
-          _ <- rearmFiredTimeout(event, newState)
+          _ <- rearmStay(event, fsmState.current, newState)
         yield ()
 
       case TransitionResult.Stop(_) =>
@@ -1033,20 +1033,32 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
     yield ()
   end startTimeout
 
-  private def rearmFiredTimeout(event: E, state: S): UIO[Unit] =
-    timeoutSpecForEvent(state, event) match
-      case Some(spec) =>
-        for
-          seqNr <- seqNrRef.get
-          _     <- timeoutStrategy.cancel(instanceId, spec.name)
-          _     <- armTimeout(state, seqNr, spec)
-        yield ()
-      case None =>
-        ZIO.unit
+  /** Re-arm the timer that just fired, and any other payload timer whose instant moved. */
+  private def rearmStay(event: E, old: S, next: S): UIO[Unit] =
+    val firedHash = machine.eventEnum.caseHash(event)
+    ZIO.foreachDiscard(machine.timeoutsFor(next)) { spec =>
+      val fired = machine.eventEnum.caseHash(spec.event) == firedHash
+      spec.deadline match
+        case TimeoutDeadline.FromPayload(_) if !fired =>
+          for
+            before <- TimeoutDeadline.instant(spec.deadline, old)
+            after  <- TimeoutDeadline.instant(spec.deadline, next)
+            _      <- ZIO.when(before != after)(rearm(next, spec))
+          yield ()
+        case _ if fired =>
+          rearm(next, spec)
+        case _ =>
+          ZIO.unit
+      end match
+    }
+  end rearmStay
 
-  private def timeoutSpecForEvent(state: S, event: E): Option[TimeoutSpec[S, E]] =
-    val eventHash = machine.eventEnum.caseHash(event)
-    machine.timeoutsFor(state).find(s => machine.eventEnum.caseHash(s.event) == eventHash)
+  private def rearm(state: S, spec: TimeoutSpec[S, E]): UIO[Unit] =
+    for
+      seqNr <- seqNrRef.get
+      _     <- timeoutStrategy.cancel(instanceId, spec.name)
+      _     <- armTimeout(state, seqNr, spec)
+    yield ()
 
   private def armTimeout(state: S, seqNr: Long, spec: TimeoutSpec[S, E]): UIO[Unit] =
     val stateHash = machine.stateEnum.caseHash(state)
