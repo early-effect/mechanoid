@@ -252,9 +252,11 @@ private[machine] object MacroUtils:
 
     // Extract symbol from a term that represents a state or event value
     def extractValueSymbol(t: Term): Option[Symbol] =
+      def usable(sym: Symbol): Option[Symbol] =
+        if sym.exists && !sym.flags.is(Flags.Method) && sym.name != "<init>" then Some(sym) else None
       t match
-        case Ident(_)             => Some(t.symbol)
-        case Select(_, _)         => Some(t.symbol)
+        case Ident(_)             => usable(t.symbol)
+        case Select(_, _)         => usable(t.symbol)
         case Inlined(_, _, inner) => extractValueSymbol(inner)
         case Typed(inner, _)      => extractValueSymbol(inner)
         case _                    => None
@@ -425,66 +427,245 @@ private[machine] object MacroUtils:
     else None
   end extractHashInfoFromDSL
 
-  /** `all[T].via(event)` before the inner macros expand. The leaves are `T`'s denotation. */
-  private def extractAllMatcherVia(using Quotes)(term: quotes.reflect.Term): Option[SpecHashInfo] =
+  private val AllMatcherName        = "mechanoid.machine.AllMatcher"
+  private val EventMatcherName      = "mechanoid.machine.EventMatcher"
+  private val StateMatcherName      = "mechanoid.machine.StateMatcher"
+  private val AnyOfMatcherName      = "mechanoid.machine.AnyOfMatcher"
+  private val AnyOfEventMatcherName = "mechanoid.machine.AnyOfEventMatcher"
+  private val DenotedMatcherNames   = Set(AllMatcherName, EventMatcherName, StateMatcherName)
+
+  private def leafLabel(name: String): String =
+    if name.endsWith("$") then name.dropRight(1) else name
+
+  private def packLeaves(using Quotes)(syms: List[quotes.reflect.Symbol]): (Set[Int], List[String]) =
+    (
+      syms.map(sym => Macros.hashFullName(sym.fullName)).toSet,
+      syms.map(sym => leafLabel(sym.name)),
+    )
+
+  private def denotePacked(using Quotes)(tpe: quotes.reflect.TypeRepr): Option[(Set[Int], List[String])] =
+    Leaves.denote(tpe) match
+      case Right(leaves) if leaves.nonEmpty => Some(packLeaves(leaves))
+      case _                                => None
+
+  private def valueLeaf(using Quotes)(term: quotes.reflect.Term): Option[quotes.reflect.Symbol] =
     import quotes.reflect.*
-    var found: Option[SpecHashInfo] = None
+    val sym = Leaves.leafSymbol(unwrap(term).tpe)
+    if sym.exists && !sym.flags.is(Flags.Method) &&
+      (sym.flags.is(Flags.Case) || sym.flags.is(Flags.Enum) || sym.flags.is(Flags.Module))
+    then Some(sym)
+    else None
 
-    def isAll(fn: Term): Boolean =
-      fn.symbol.name == "all"
+  /** Leaves a matcher or a value term denotes. Type matchers use `Leaves.denote`, not the `<init>` symbol. */
+  private def matcherSide(using Quotes)(term: quotes.reflect.Term): Option[(Set[Int], List[String])] =
+    import quotes.reflect.*
+    val t = unwrap(term)
 
-    def allType(receiver: Term): Option[TypeRepr] =
-      receiver match
-        case TypeApply(fn, List(tpt)) if isAll(fn) => Some(tpt.tpe)
-        case Inlined(_, _, inner)                  => allType(inner)
-        case Typed(inner, _)                       => allType(inner)
-        case _                                     => None
+    def denotedCall(name: String, tpe: TypeRepr): Option[(Set[Int], List[String])] =
+      name match
+        case "all" | "state" | "event" => denotePacked(tpe)
+        case _                         => None
 
-    def label(name: String): String =
-      if name.endsWith("$") then name.dropRight(1) else name
+    def flattenArgs(args: List[Term]): List[Term] =
+      args.flatMap {
+        case Repeated(elems, _)           => flattenArgs(elems)
+        case Typed(Repeated(elems, _), _) => flattenArgs(elems)
+        case Typed(inner, _)              => flattenArgs(List(inner))
+        case Inlined(_, _, inner)         => flattenArgs(List(inner))
+        case other                        => List(other)
+      }
 
-    object Finder extends TreeAccumulator[Unit]:
-      def record(receiver: Term, eventArg: Term, owner: Symbol, tree: Tree): Unit =
-        allType(receiver) match
-          case Some(tpe) =>
-            Leaves.denote(tpe) match
-              case Right(leaves) =>
-                val stateHashes = leaves.map(sym => Macros.hashFullName(sym.fullName)).toSet
-                val stateNames  = leaves.map(sym => label(sym.name))
-                val eventTerm   = unwrap(eventArg)
-                val eventSym    = eventTerm.symbol
-                val eventHash   =
-                  if eventSym.exists &&
-                    (eventSym.flags.is(Flags.Case) || eventSym.flags.is(Flags.Enum) ||
-                      eventSym.flags.is(Flags.Module))
-                  then Macros.hashFullName(eventSym.fullName)
-                  else Macros.leafHashOf(eventTerm)
-                val eventName = if eventSym.exists then eventSym.name else "?"
-                found = Some(
-                  SpecHashInfo(stateHashes, Set(eventHash), stateNames, List(eventName), "?", false, "?")
-                )
-              case Left(_) =>
-                foldOverTree((), tree)(owner)
-          case None =>
-            foldOverTree((), tree)(owner)
+    def anyOfSide(fn: Term, args: List[Term]): Option[(Set[Int], List[String])] =
+      fn.symbol.name match
+        case "anyOf" | "anyOfEvents" =>
+          val syms = flattenArgs(args).flatMap(valueLeaf)
+          if syms.nonEmpty then Some(packLeaves(syms)) else None
+        case _ => None
 
-      def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
-        if found.isEmpty then
-          tree match
-            case Apply(TypeApply(Select(receiver, "via"), _), List(eventArg)) =>
-              record(receiver, eventArg, owner, tree)
-            case Apply(Select(receiver, "via"), List(eventArg)) =>
-              record(receiver, eventArg, owner, tree)
-            case Inlined(_, _, inner) =>
-              foldTree((), inner)(owner)
-            case _ =>
-              foldOverTree((), tree)(owner)
-        else ()
-    end Finder
+    def typeArg(tpe: TypeRepr): Option[TypeRepr] =
+      tpe.dealias match
+        case AppliedType(_, List(arg)) => Some(arg)
+        case _                         => None
 
-    Finder.foldTree((), term)(Symbol.spliceOwner)
-    found
-  end extractAllMatcherVia
+    def fromType(tpe: TypeRepr): Option[(Set[Int], List[String])] =
+      tpe.dealias match
+        case AppliedType(con, List(arg)) if DenotedMatcherNames.contains(con.typeSymbol.fullName) =>
+          denotePacked(arg)
+        case _ => None
+
+    def ctorSide(
+        tpt: TypeTree,
+        tpts: List[TypeTree],
+        args: List[Term],
+        tpe: TypeRepr,
+    ): Option[(Set[Int], List[String])] =
+      val fromTpt = tpt.tpe.typeSymbol.fullName
+      val full    =
+        if DenotedMatcherNames.contains(fromTpt) || fromTpt == AnyOfMatcherName || fromTpt == AnyOfEventMatcherName
+        then fromTpt
+        else
+          tpe.dealias match
+            case AppliedType(con, _) => con.typeSymbol.fullName
+            case _                   => fromTpt
+      if DenotedMatcherNames.contains(full) then
+        tpts.headOption
+          .flatMap(tp => denotePacked(tp.tpe))
+          .orElse(typeArg(tpt.tpe).flatMap(denotePacked))
+          .orElse(typeArg(tpe).flatMap(denotePacked))
+      else if full == AnyOfMatcherName || full == AnyOfEventMatcherName then
+        val hashes = if args.length >= 2 then extractSetInts(args(1)) else Set.empty[Int]
+        val names  = if args.length >= 3 then extractListStrings(args(2)).map(leafLabel) else Nil
+        if hashes.nonEmpty then Some((hashes, names)) else None
+      else None
+      end if
+    end ctorSide
+
+    t match
+      case TypeApply(fn, List(tpt)) =>
+        denotedCall(fn.symbol.name, tpt.tpe)
+      case Apply(TypeApply(Select(New(tpt), "<init>"), tpts), args) =>
+        ctorSide(tpt, tpts, args, t.tpe)
+      case Apply(Select(New(tpt), "<init>"), args) =>
+        ctorSide(tpt, Nil, args, t.tpe)
+      case Apply(TypeApply(fn, List(tpt)), args) =>
+        denotedCall(fn.symbol.name, tpt.tpe)
+          .orElse(anyOfSide(fn, args))
+          .orElse(fromType(t.tpe))
+          .orElse(valueLeaf(t).map(sym => packLeaves(List(sym))))
+      case Apply(fn, args) =>
+        anyOfSide(fn, args).orElse(fromType(t.tpe)).orElse(valueLeaf(t).map(sym => packLeaves(List(sym))))
+      case _ =>
+        fromType(t.tpe).orElse(valueLeaf(t).map(sym => packLeaves(List(sym))))
+    end match
+  end matcherSide
+
+  private def isMatcherTerm(using Quotes)(term: quotes.reflect.Term): Boolean =
+    import quotes.reflect.*
+    val t                         = unwrap(term)
+    def called(fn: Term): Boolean =
+      fn.symbol.name match
+        case "all" | "state" | "event" | "anyOf" | "anyOfEvents" => true
+        case "<init>"                                            =>
+          def selectNew(term: Term): Option[TypeTree] =
+            term match
+              case Select(New(tpt), _) => Some(tpt)
+              case TypeApply(inner, _) => selectNew(inner)
+              case _                   => None
+          selectNew(fn) match
+            case Some(tpt) =>
+              val full = tpt.tpe.typeSymbol.fullName
+              DenotedMatcherNames.contains(full) || full == AnyOfMatcherName || full == AnyOfEventMatcherName
+            case None => false
+        case _ => false
+    t match
+      case TypeApply(fn, _)           => called(fn)
+      case Apply(TypeApply(fn, _), _) => called(fn)
+      case Apply(fn, _)               => called(fn)
+      case _                          =>
+        t.tpe.dealias match
+          case AppliedType(con, _) =>
+            val full = con.typeSymbol.fullName
+            DenotedMatcherNames.contains(full) || full == AnyOfMatcherName || full == AnyOfEventMatcherName
+          case _ => false
+    end match
+  end isMatcherTerm
+
+  /** `via` / `viaAll` / `viaAnyOf` whose receiver or argument is a matcher. Both sides are denotations. */
+  private def extractDenotedSpec(using Quotes)(term: quotes.reflect.Term): (Option[SpecHashInfo], String) =
+    import quotes.reflect.*
+    var targetDesc = "?"
+    var isOverride = false
+    var state      = Option.empty[(Set[Int], List[String])]
+    var event      = Option.empty[(Set[Int], List[String])]
+    var sawMatcher = false
+
+    def describeTarget(target: Term): String =
+      val name = extractTargetName(unwrap(target))
+      if name == "stay" || unwrap(target).symbol.name == "stay" then "stay"
+      else if name == "stop" || unwrap(target).symbol.name == "stop" then "stop"
+      else if name == "?" then "-> ?"
+      else s"-> $name"
+
+    def consider(method: String, receiver: Term, arg: Term): Unit =
+      if (method == "via" || method == "viaAll" || method == "viaAnyOf") && state.isEmpty then
+        if isMatcherTerm(receiver) || isMatcherTerm(arg) then
+          sawMatcher = true
+          state = matcherSide(receiver)
+          event = matcherSide(arg)
+
+    def walk(tree: Tree): Unit =
+      tree match
+        case Inlined(_, bindings, inner) =>
+          bindings.foreach(walk)
+          walk(inner)
+        case Typed(inner, _)    => walk(inner)
+        case Block(stats, expr) =>
+          stats.foreach(walk)
+          walk(expr)
+        case ValDef(_, _, Some(rhs))                 => walk(rhs)
+        case Apply(Select(base, "@@"), List(aspect)) =>
+          if aspect.show.contains("overriding") then isOverride = true
+          walk(base)
+        case Apply(Apply(inner, specArgs), aspectArgs) if isAtAtMethod(inner) && aspectArgs.nonEmpty =>
+          if aspectArgs.head.show.contains("overriding") then isOverride = true
+          specArgs.foreach(walk)
+        case Apply(Apply(TypeApply(Select(qual, "to"), _), List(target)), _) =>
+          targetDesc = describeTarget(target)
+          walk(qual)
+        case Apply(Apply(Select(qual, "to"), List(target)), _) =>
+          targetDesc = describeTarget(target)
+          walk(qual)
+        case Apply(TypeApply(Select(TypeApply(Select(qual, "to"), List(tpt)), "apply"), _), _) =>
+          targetDesc = s"-> ${leafLabel(tpt.symbol.name)}"
+          walk(qual)
+        case Apply(Select(TypeApply(Select(qual, "to"), List(tpt)), "apply"), _) =>
+          targetDesc = s"-> ${leafLabel(tpt.symbol.name)}"
+          walk(qual)
+        case Apply(TypeApply(Select(qual, "to"), List(tpt)), List(target)) =>
+          val terminal = describeTarget(target)
+          targetDesc = if terminal == "stay" || terminal == "stop" || tpt.symbol.name == "<none>" then terminal
+          else s"-> ${leafLabel(tpt.symbol.name)}"
+          walk(qual)
+        case Apply(TypeApply(Select(qual, "to"), _), List(target)) =>
+          targetDesc = describeTarget(target)
+          walk(qual)
+        case Apply(Select(qual, "to"), List(target)) =>
+          targetDesc = describeTarget(target)
+          walk(qual)
+        case Apply(TypeApply(Select(New(tpt), "<init>"), _), args) if tpt.show.contains("ComputeTo") =>
+          if args.length >= 6 then
+            unwrap(args(5)) match
+              case Literal(StringConstant(name)) => targetDesc = s"-> $name"
+              case _                             => ()
+          args.foreach(walk)
+        case Apply(Select(New(tpt), "<init>"), args) if tpt.show.contains("ComputeTo") =>
+          if args.length >= 6 then
+            unwrap(args(5)) match
+              case Literal(StringConstant(name)) => targetDesc = s"-> $name"
+              case _                             => ()
+          args.foreach(walk)
+        case Apply(TypeApply(Select(receiver, method), _), List(arg)) =>
+          consider(method, receiver, arg)
+          walk(receiver)
+          walk(arg)
+        case Apply(Select(receiver, method), List(arg)) =>
+          consider(method, receiver, arg)
+          walk(receiver)
+          walk(arg)
+        case Apply(fun, args) =>
+          walk(fun)
+          args.foreach(walk)
+        case TypeApply(fun, _) => walk(fun)
+        case Select(qual, _)   => walk(qual)
+        case _                 => ()
+
+    walk(term)
+    val info = (state, event) match
+      case (Some(stateSide), Some(eventSide)) if sawMatcher && stateSide._1.nonEmpty && eventSide._1.nonEmpty =>
+        Some(SpecHashInfo(stateSide._1, eventSide._1, stateSide._2, eventSide._2, targetDesc, isOverride, "?"))
+      case _ => None
+    (info, targetDesc)
+  end extractDenotedSpec
 
   /** Extract hash info from a TransitionSpec term (either inline expr or val definition).
     *
@@ -494,8 +675,9 @@ private[machine] object MacroUtils:
   def extractHashInfo(using Quotes)(term: quotes.reflect.Term): Option[SpecHashInfo] =
     import quotes.reflect.*
 
-    // all[T].via(event) is still a call here. Read the type's leaves directly.
-    extractAllMatcherVia(term) match
+    // A matcher call still in the tree. Read both sides from the type, not from `<init>`.
+    val (denotedInfo, denotedTarget) = extractDenotedSpec(term)
+    denotedInfo match
       case Some(info) => return Some(info)
       case None       => ()
 
@@ -551,6 +733,27 @@ private[machine] object MacroUtils:
 
     val intVals = localIntVals(term)
 
+    val stringVals: Map[String, String] =
+      var bound                             = Map.empty[String, String]
+      def stringOf(t: Term): Option[String] =
+        unwrap(t) match
+          case Literal(StringConstant(s))           => Some(s)
+          case Apply(Select(qual, "toString"), Nil) =>
+            valueLeaf(qual).map(sym => leafLabel(sym.name))
+          case _ => None
+      object Walk extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          tree match
+            case ValDef(name, _, Some(rhs)) =>
+              stringOf(rhs).foreach(value => bound = bound.updated(name, value))
+              foldOverTree((), tree)(owner)
+            case _ =>
+              foldOverTree((), tree)(owner)
+      end Walk
+      Walk.foldTree((), term)(Symbol.spliceOwner)
+      bound
+    end stringVals
+
     def resolveInts(setTerm: Term): Set[Int] =
       val direct = extractSetInts(setTerm)
       var extra  = Set.empty[Int]
@@ -574,9 +777,160 @@ private[machine] object MacroUtils:
         (matcherHashes, names)
       else (stateHashes, stateNames)
 
+    val matcherBindings: Map[String, (Set[Int], List[String])] =
+      var bound = Map.empty[String, (Set[Int], List[String])]
+      object BindWalk extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          tree match
+            case ValDef(name, _, Some(rhs)) =>
+              if isMatcherTerm(rhs) then matcherSide(rhs).foreach(side => bound = bound.updated(name, side))
+              foldOverTree((), tree)(owner)
+            case _ =>
+              foldOverTree((), tree)(owner)
+      end BindWalk
+      BindWalk.foldTree((), term)(Symbol.spliceOwner)
+      bound
+    end matcherBindings
+
+    def identsOf(root: Term): Set[String] =
+      var names = Set.empty[String]
+      object Ids extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          tree match
+            case Ident(name) =>
+              names += name
+              foldOverTree((), tree)(owner)
+            case _ =>
+              foldOverTree((), tree)(owner)
+      end Ids
+      Ids.foldTree((), root)(Symbol.spliceOwner)
+      names
+    end identsOf
+
+    def nestedCtor(arg: Term): Option[(Set[Int], List[String])] =
+      var found = Option.empty[(Set[Int], List[String])]
+      object Walk extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          if found.isEmpty then
+            tree match
+              case t: Term if isMatcherTerm(t) =>
+                matcherSide(t) match
+                  case Some(side) if side._1.nonEmpty => found = Some(side)
+                  case _                              => foldOverTree((), tree)(owner)
+              case _ =>
+                foldOverTree((), tree)(owner)
+          else ()
+      end Walk
+      Walk.foldTree((), arg)(Symbol.spliceOwner)
+      found
+    end nestedCtor
+
+    def sideFromArg(arg: Term): Option[(Set[Int], List[String])] =
+      val boundSides   = identsOf(arg).toList.flatMap(matcherBindings.get)
+      val boundHashes  = boundSides.flatMap(_._1).toSet
+      val hashes       = boundHashes ++ resolveInts(arg)
+      val literalNames = extractListStrings(arg)
+      val boundNames   = boundSides.flatMap(_._2)
+      val nested       = if isMatcherTerm(arg) then matcherSide(arg) else nestedCtor(arg)
+      val chosenHashes =
+        if hashes.nonEmpty then hashes
+        else nested.fold(Set.empty[Int])(_._1)
+      val chosenNames =
+        if literalNames.nonEmpty then literalNames
+        else if boundNames.nonEmpty then boundNames
+        else nested.fold(List.empty[String])(_._2)
+      if chosenHashes.nonEmpty then Some((chosenHashes, chosenNames)) else None
+    end sideFromArg
+
+    def viaBuilderSides: (Option[(Set[Int], List[String])], Option[(Set[Int], List[String])]) =
+      var stateSide                        = Option.empty[(Set[Int], List[String])]
+      var eventSide                        = Option.empty[(Set[Int], List[String])]
+      def namesOf(arg: Term): List[String] =
+        val literals = extractListStrings(arg)
+        if literals.nonEmpty then literals
+        else
+          val fromVals = identsOf(arg).toList.flatMap(stringVals.get)
+          if fromVals.nonEmpty then fromVals
+          else identsOf(arg).toList.flatMap(matcherBindings.get).flatMap(_._2)
+
+      def named(side: Option[(Set[Int], List[String])], names: List[String]): Option[(Set[Int], List[String])] =
+        side match
+          case Some((hashes, existing)) =>
+            Some((hashes, if existing.nonEmpty then existing else names))
+          case None => None
+      def take(args: List[Term]): Unit =
+        if args.length >= 2 && stateSide.isEmpty then
+          val stateNames = if args.length >= 3 then namesOf(args(2)) else Nil
+          val eventNames = if args.length >= 4 then namesOf(args(3)) else Nil
+          stateSide = named(sideFromArg(args(0)), stateNames)
+          eventSide = named(sideFromArg(args(1)), eventNames)
+      val terminals = Set("goto", "stay", "stop", "computeGoto", "computeStay")
+      object Walk extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          if stateSide.isEmpty then
+            tree match
+              case Apply(TypeApply(Select(New(tpt), "<init>"), _), args) if tpt.show.contains("ViaBuilder") =>
+                take(args)
+              case Apply(Select(New(tpt), "<init>"), args) if tpt.show.contains("ViaBuilder") =>
+                take(args)
+              case Apply(TypeApply(Select(_, method), _), args) if args.length >= 2 && terminals.contains(method) =>
+                take(args)
+              case Apply(Select(_, method), args) if args.length >= 2 && terminals.contains(method) =>
+                take(args)
+              case _ =>
+                foldOverTree((), tree)(owner)
+          else ()
+      end Walk
+      Walk.foldTree((), term)(Symbol.spliceOwner)
+      (stateSide, eventSide)
+    end viaBuilderSides
+
+    val builtSides = viaBuilderSides
+
+    def fillSide(
+        hashes: Set[Int],
+        names: List[String],
+        side: Option[(Set[Int], List[String])],
+    ): (Set[Int], List[String]) =
+      val poisoned = names.contains("<init>") || names.contains("?")
+      side match
+        case Some((denotedHashes, denotedNames)) =>
+          val keptHashes =
+            if hashes.nonEmpty && !poisoned then hashes
+            else if denotedHashes.nonEmpty then denotedHashes
+            else hashes
+          val keptNames =
+            if names.nonEmpty && !poisoned then names
+            else if denotedNames.nonEmpty then denotedNames
+            else names
+          (keptHashes, keptNames)
+        case None => (hashes, names)
+      end match
+    end fillSide
+
+    def enrich(info: SpecHashInfo): SpecHashInfo =
+      val state       = fillSide(info.stateHashes, info.stateNames, builtSides._1)
+      val event       = fillSide(info.eventHashes, info.eventNames, builtSides._2)
+      val stateFilled =
+        if state._1.nonEmpty then state
+        else fillSide(state._1, state._2, if matcherHashes.nonEmpty then Some((matcherHashes, matcherNames)) else None)
+      val target =
+        if info.targetDesc == "?" || info.targetDesc == "-> ?" || info.targetDesc.contains("<none>") then
+          if denotedTarget != "?" && denotedTarget != "-> ?" && !denotedTarget.contains("<none>") then denotedTarget
+          else info.targetDesc
+        else info.targetDesc
+      info.copy(
+        stateHashes = stateFilled._1,
+        stateNames = stateFilled._2,
+        eventHashes = event._1,
+        eventNames = event._2,
+        targetDesc = target,
+      )
+    end enrich
+
     // First try to extract from DSL pattern (unexpanded inline macro)
     extractHashInfoFromDSL(term) match
-      case Some(info) => return Some(info)
+      case Some(info) => return Some(enrich(info))
       case None       => ()
 
     // Helper to extract names from ViaBuilder constructor in a tree
@@ -700,7 +1054,7 @@ private[machine] object MacroUtils:
         }
     end HashFinder
 
-    HashFinder.foldTree(None, term)(Symbol.spliceOwner)
+    HashFinder.foldTree(None, term)(Symbol.spliceOwner).map(enrich)
   end extractHashInfo
 
   // ====== Expression Generation Helpers ======

@@ -55,6 +55,17 @@ final class Machine[S, E] private[machine] (
 
 end Machine
 
+/** A machine could not be built. The assembly macro rejects these; this is the runtime backstop. */
+private[machine] enum AssemblyDefect:
+  case DuplicateTransition(state: String, event: String)
+  case DuplicateTimeout(leaf: String, name: String)
+
+  def message: String = this match
+    case DuplicateTransition(state, event) =>
+      s"Duplicate transition $state via $event without override"
+    case DuplicateTimeout(leaf, name) =>
+      s"Duplicate timeout name '$name' on leaf $leaf"
+
 object Machine:
 
   /** Create a Machine from a validated Assembly.
@@ -96,19 +107,20 @@ object Machine:
 
   /** Create a Machine from validated specs.
     *
-    * This is an internal method used by `MachineMacros.applyImpl`. All specs reaching this method have already passed
-    * compile-time duplicate detection in the `assembly`/`assemblyAll`/`combine` macros.
+    * This is an internal method used by `MachineMacros.applyImpl`. Compile-time duplicate detection is the primary
+    * check. A second non-override write of the same `(leaf, event)` pair is [[AssemblyDefect.DuplicateTransition]].
     */
   private[machine] def fromSpecs[S: Finite, E: Finite](
       specs: List[TransitionSpec[S, E, ?]],
       stateEntryEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
       stateExitEffects: Map[Int, (E, S) => ZIO[Any, Any, Unit]] = Map.empty,
-  ): Machine[S, E] =
+  ): Either[AssemblyDefect, Machine[S, E]] =
     var transitions         = Map.empty[(Int, Int), Transition[S, E, S]]
     var transitionMetaList  = List.empty[TransitionMeta]
     var stateTimeouts       = Map.empty[Int, Chunk[TimeoutSpec[S, E]]]
     var entryEffectsMap     = Map.empty[(Int, Int), EntryEffect[E, S]]
     var producingEffectsMap = Map.empty[(Int, Int), ProducingEffect[E, S, E]]
+    var rejected            = Option.empty[AssemblyDefect]
 
     val stateEnumInstance = summon[Finite[S]]
     val eventEnumInstance = summon[Finite[E]]
@@ -127,18 +139,20 @@ object Machine:
         val deadline = decl.deadline.asInstanceOf[TimeoutDeadline[S]]
         val spec     = TimeoutSpec(event, name, deadline)
         val existing = stateTimeouts.getOrElse(leafHash, Chunk.empty)
-        existing.find(_.name == name) match
-          case Some(prev)
-              if eventEnumInstance.caseHash(prev.event) == eventEnumInstance.caseHash(event) &&
-                sameDeadline(prev.deadline, deadline) =>
-            ()
-          case Some(_) =>
-            throw IllegalArgumentException(
-              s"Duplicate timeout name '$name' on leaf ${stateEnumInstance.nameFor(leafHash)}"
-            )
-          case None =>
-            stateTimeouts = stateTimeouts.updated(leafHash, existing :+ spec)
-        end match
+        if rejected.isEmpty then
+          existing.find(_.name == name) match
+            case Some(prev)
+                if eventEnumInstance.caseHash(prev.event) == eventEnumInstance.caseHash(event) &&
+                  sameDeadline(prev.deadline, deadline) =>
+              ()
+            case Some(_) =>
+              rejected = Some(
+                AssemblyDefect.DuplicateTimeout(stateEnumInstance.nameFor(leafHash), name)
+              )
+            case None =>
+              stateTimeouts = stateTimeouts.updated(leafHash, existing :+ spec)
+          end match
+        end if
       }
 
     def wrapReducer(reducer: PayloadReducer[S, E, S])(s: S, e: E): ZIO[Any, MechanoidError, S] =
@@ -182,7 +196,7 @@ object Machine:
           .map(TransitionResult.Stay(_))
       }
 
-    for spec <- specs do
+    for spec <- specs if rejected.isEmpty do
       val transition = spec.handler match
         case Handler.Goto(target) =>
           val targetState = target.asInstanceOf[S]
@@ -229,18 +243,28 @@ object Machine:
       for
         stateHash <- spec.stateHashes
         eventHash <- spec.eventHashes
+        if rejected.isEmpty
       do
-        val key  = (stateHash, eventHash)
-        val meta = TransitionMeta(stateHash, eventHash, targetHash, kind)
-        transitions = transitions + (key -> transition)
-        transitionMetaList = transitionMetaList :+ meta
+        val key = (stateHash, eventHash)
+        if transitions.contains(key) && !spec.isOverride then
+          rejected = Some(
+            AssemblyDefect.DuplicateTransition(
+              stateEnumInstance.nameFor(stateHash),
+              eventEnumInstance.nameFor(eventHash),
+            )
+          )
+        else
+          val meta = TransitionMeta(stateHash, eventHash, targetHash, kind)
+          transitions = transitions + (key -> transition)
+          transitionMetaList = transitionMetaList :+ meta
 
-        spec.entryEffect.foreach { f =>
-          entryEffectsMap = entryEffectsMap + (key -> f)
-        }
-        spec.producingEffect.foreach { f =>
-          producingEffectsMap = producingEffectsMap + (key -> f)
-        }
+          spec.entryEffect.foreach { f =>
+            entryEffectsMap = entryEffectsMap + (key -> f)
+          }
+          spec.producingEffect.foreach { f =>
+            producingEffectsMap = producingEffectsMap + (key -> f)
+          }
+        end if
       end for
 
       spec.handler match
@@ -252,16 +276,22 @@ object Machine:
       end match
     end for
 
-    new Machine(
-      transitions,
-      stateTimeouts,
-      transitionMetaList,
-      entryEffectsMap,
-      producingEffectsMap,
-      stateEntryEffects,
-      stateExitEffects,
-      specs,
-    )
+    rejected match
+      case Some(reason) => Left(reason)
+      case None         =>
+        Right(
+          new Machine(
+            transitions,
+            stateTimeouts,
+            transitionMetaList,
+            entryEffectsMap,
+            producingEffectsMap,
+            stateEntryEffects,
+            stateExitEffects,
+            specs,
+          )
+        )
+    end match
   end fromSpecs
 
   /** Create an empty Machine. */
