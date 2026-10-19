@@ -10,20 +10,24 @@ object FSMStateSpec extends ZIOSpecDefault:
 
   import S.*
 
+  private val t0 = Instant.parse("2026-01-01T00:00:00Z")
+
   def spec = suite("FSMState")(
     test("initial creates correct defaults") {
-      val state = FSMState.initial(A)
+      val state = FSMState.initial(A, t0)
       assertTrue(
         state.current == A,
         state.history.isEmpty,
         state.stateData.isEmpty,
         state.previousState.isEmpty,
         state.transitionCount == 0,
+        state.startedAt == t0,
+        state.lastTransitionAt == t0,
       )
     },
     test("transitionTo pushes old state to history") {
-      val now   = Instant.now()
-      val state = FSMState.initial(A).transitionTo(B, now)
+      val now   = t0.plusSeconds(1)
+      val state = FSMState.initial(A, t0).transitionTo(B, now)
       assertTrue(
         state.current == B,
         state.history == List(A),
@@ -33,9 +37,9 @@ object FSMStateSpec extends ZIOSpecDefault:
       )
     },
     test("multiple transitions build history in order") {
-      val t1    = Instant.now()
+      val t1    = t0.plusSeconds(1)
       val t2    = t1.plusSeconds(1)
-      val state = FSMState.initial(A).transitionTo(B, t1).transitionTo(C, t2)
+      val state = FSMState.initial(A, t0).transitionTo(B, t1).transitionTo(C, t2)
       assertTrue(
         state.current == C,
         state.history == List(B, A),
@@ -44,9 +48,9 @@ object FSMStateSpec extends ZIOSpecDefault:
       )
     },
     test("replaceCurrent keeps history and lastTransitionAt") {
-      val t1    = Instant.now()
+      val t1    = t0.plusSeconds(1)
       val t2    = t1.plusSeconds(5)
-      val state = FSMState.initial(A).transitionTo(B, t1).replaceCurrent(C)
+      val state = FSMState.initial(A, t0).transitionTo(B, t1).replaceCurrent(C)
       assertTrue(
         state.current == C,
         state.history == List(A),
@@ -56,7 +60,7 @@ object FSMStateSpec extends ZIOSpecDefault:
       )
     },
     test("withData and getData round-trip") {
-      val state = FSMState.initial(A).withData("saved", B)
+      val state = FSMState.initial(A, t0).withData("saved", B)
       assertTrue(
         state.getData("saved").contains(B),
         state.getData("missing").isEmpty,
@@ -65,11 +69,10 @@ object FSMStateSpec extends ZIOSpecDefault:
     test("direct construction with defaults") {
       // Exercise the default parameter accessors by using FSMState directly
       // with only required params, letting others default
-      val now   = Instant.now()
       val state = FSMState(
         current = A,
-        startedAt = now,
-        lastTransitionAt = now,
+        startedAt = t0,
+        lastTransitionAt = t0,
       )
       assertTrue(
         state.current == A,

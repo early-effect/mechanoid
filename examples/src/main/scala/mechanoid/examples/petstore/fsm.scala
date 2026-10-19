@@ -258,7 +258,7 @@ object OrderFSM:
             // Send shipping notification, then simulate delivery confirmation
             notificationService.sendNotification(sd.customerEmail, "shipped").ignore *>
               ZIO.sleep(100.millis) *> // Small delay to simulate delivery
-              ZIO.succeed(DeliveryConfirmed(sd.orderId, java.time.Instant.now().toString))
+              Clock.instant.map(now => DeliveryConfirmed(sd.orderId, now.toString))
           case _ => ZIO.succeed(DeliveryConfirmed(0, ""))
       }
 

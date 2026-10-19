@@ -63,12 +63,9 @@ class PostgresInstanceLock(session: SqlSession) extends FSMInstanceLock[String]:
       duration: Duration,
       timeout: Duration,
   ): ZIO[Any, MechanoidError, LockResult[String]] =
-    val deadline = java.time.Instant.now().plusMillis(timeout.toMillis)
-
-    def attempt: ZIO[Any, MechanoidError, LockResult[String]] =
+    def attempt(deadline: Instant): ZIO[Any, MechanoidError, LockResult[String]] =
       for
         now         <- Clock.instant
-        _           <- ZIO.when(now.isAfter(deadline))(ZIO.succeed(LockResult.TimedOut[String]()))
         result      <- tryAcquire(instanceId, nodeId, duration, now)
         finalResult <- result match
           case acquired: LockResult.Acquired[String] => ZIO.succeed(acquired)
@@ -76,11 +73,11 @@ class PostgresInstanceLock(session: SqlSession) extends FSMInstanceLock[String]:
             if now.isAfter(deadline) then ZIO.succeed(LockResult.TimedOut[String]())
             else
               val waitTime = java.time.Duration.between(now, until).toMillis.min(100L).max(10L)
-              ZIO.sleep(Duration.fromMillis(waitTime)) *> attempt
+              ZIO.sleep(Duration.fromMillis(waitTime)) *> attempt(deadline)
           case timedOut: LockResult.TimedOut[String] => ZIO.succeed(timedOut)
       yield finalResult
 
-    attempt
+    Clock.instant.flatMap(now => attempt(now.plusMillis(timeout.toMillis)))
   end acquire
 
   override def release(token: LockToken[String]): ZIO[Any, MechanoidError, Boolean] =
