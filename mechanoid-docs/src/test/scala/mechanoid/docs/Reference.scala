@@ -21,7 +21,7 @@ object Reference extends MechanoidDocSpecSuite:
 | `viaAnyOf` / `anyOfEvents` / `viaAll` | Multi-event edges |
 | `stay` / `stop` / `stop("reason")` | Self-loop or terminal |
 | `.to[Leaf] { (s, e) => ... }` | Compute Goto payload for that leaf |
-| `.to(stay) { (s, e) => ... }` | Rewrite payload, Stay lifecycle (no timeout reset) |
+| `.to(stay) { (s, e) => ... }` | Rewrite payload. Stay does not push history or reset `After` or `At`. A `FromPayload` timer moves when the new instant differs |
 """
     ),
     section("Aspects and effects")(

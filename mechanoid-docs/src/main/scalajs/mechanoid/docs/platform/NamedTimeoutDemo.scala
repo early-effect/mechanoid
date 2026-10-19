@@ -56,7 +56,7 @@ object NamedTimeoutDemo:
         now = now,
         note = E.p(
           A.className("note"),
-          "DailyCheck is 3s (Stay, re-arm only that name). EndCycle is 9s (Goto Ended).",
+          "DailyCheck is an After stay (3s), so only that name re-arms. EndCycle is 9s and Gotos Ended.",
         ),
         send = ev => fsm.send(ev).ignore *> refresh,
         onSelectNode = id =>

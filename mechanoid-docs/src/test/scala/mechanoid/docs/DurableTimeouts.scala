@@ -81,16 +81,80 @@ a live clock; unit tests can `TestClock.adjust` fiber timeouts instead):
     section("Named timeouts on one leaf")(
       md"""
 Stack `@@ Aspect.timeout(event)(deadline)` to arm independent cadences on the same leaf. The name
-defaults to `Finite.nameOf(event)`. Stay on one timeout re-arms only that name; Goto cancels
-every name for the instance.
+defaults to `Finite.nameOf(event)`. A stay re-arms the timer that fired. It also re-arms a
+`FromPayload` timer when the new payload computes a different instant. `After` and `At` stay
+put, and Goto cancels every name for the instance.
 
-The panel is a campaign: **Go live** arms `DailyCheck` (3s, Stay) and `EndCycle` (9s, Goto
-Ended). Wait for DailyCheck, or fire it: the weekly clock keeps running. EndCycle (or wait it
-out) cancels both.
+The panel is a campaign: **Go live** arms `DailyCheck` (3s `After`, Stay) and `EndCycle` (9s, Goto
+Ended). Wait for DailyCheck, or fire it: the weekly clock keeps running because that stay does not
+reset an `After` timer. EndCycle (or wait it out) cancels both.
 """,
       exampleZIO {
         ZIO.succeed(campaignMachine.timeoutsFor(Campaign.Live).map(_.name).toSet)
       }.assert(names => assertTrue(names == Set("DailyCheck", "EndCycle"))),
+      exampleZIO {
+        enum Leaf derives Finite:
+          case Idle
+          case Open(due: Long)
+
+        enum Ev derives Finite:
+          case Begin
+          case Edit(due: Long)
+          case Watch
+          case Beat
+
+        import Leaf.*, Ev.*
+
+        val epoch = java.time.Instant.parse("2026-01-01T00:00:00Z")
+        val near  = epoch.plusSeconds(5)
+        val far   = epoch.plusSeconds(100)
+
+        def dueOf(state: Leaf): java.time.Instant =
+          state match
+            case Open(due) => java.time.Instant.ofEpochSecond(due)
+            case Idle      => epoch.plusSeconds(1000000)
+
+        val machine = Machine(
+          assembly[Leaf, Ev](
+            (Idle via Begin to Open(0L)) @@
+              Aspect.timeout(Watch)(dueOf) @@
+              Aspect.timeout(Beat)(1.hour),
+            (state[Leaf.Open] via event[Edit]).to(stay)((s, e) => s.copy(due = e.due)),
+          )
+        )
+
+        ZIO.scoped {
+          for
+            events <- InMemoryEventStore.makeUnbounded[String, Leaf, Ev]
+            store  <- InMemoryTimeoutStore.make[String]
+            durable = DurableTimeoutStrategy.make[String](store)
+            fsm <- FSMRuntime("stay-due", machine, Open(far.getEpochSecond)).provideSome[Scope](
+              ZLayer.succeed(events) ++
+                ZLayer.succeed(durable) ++
+                LockingStrategy.optimistic[String]
+            )
+            beatBefore <- store.get("stay-due", "Beat")
+            _          <- fsm.send(Edit(near.getEpochSecond))
+            moved      <- store.get("stay-due", "Watch")
+            _          <- fsm.send(Edit(near.getEpochSecond))
+            same       <- store.get("stay-due", "Watch")
+            beatAfter  <- store.get("stay-due", "Beat")
+          yield (
+            moved.map(_.deadline),
+            same.map(_.deadline),
+            beatBefore.map(_.deadline),
+            beatAfter.map(_.deadline),
+          )
+        }.asDoc
+      }.assert { (moved, same, beatBefore, beatAfter) =>
+        val near = java.time.Instant.parse("2026-01-01T00:00:00Z").plusSeconds(5)
+        assertTrue(
+          moved == Some(near),
+          same == Some(near),
+          beatBefore == beatAfter,
+          beatBefore.isDefined,
+        )
+      },
       exampleIO {
         NamedTimeoutDemo.ui
       }.interactive.assert(ui => assertTrue(ui.toString.contains("mermoid-ascent"), ui.toString.contains("Go live"))),

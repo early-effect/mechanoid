@@ -129,7 +129,7 @@ object NamedTimeoutDemoUi:
               A.className("mechanoid-live-status"),
               "Now: ",
               E.strong(testId("state"), state.map(_.toString)),
-              " · DailyCheck Stays and re-arms only itself. EndCycle Gotos Ended and cancels both.",
+              " · DailyCheck is an After stay and re-arms only itself. EndCycle Gotos Ended and cancels both.",
             ),
             E.div(
               A.className("mechanoid-timeout-rows"),

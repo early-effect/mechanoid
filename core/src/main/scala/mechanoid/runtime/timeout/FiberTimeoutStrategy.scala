@@ -24,8 +24,9 @@ final class FiberTimeoutStrategy[Id] private (
       onTimeout: UIO[Unit],
   ): UIO[Unit] =
     for
-      _     <- cancel(instanceId, name)
-      fiber <- (sleepUntil(deadline) *> drop(instanceId, name) *> onTimeout).forkDaemon
+      _ <- cancel(instanceId, name)
+      // Acquire is uninterruptible. Only the wait may inherit that, or cancel waits out the deadline.
+      fiber <- (sleepUntil(deadline).interruptible *> drop(instanceId, name) *> onTimeout).forkDaemon
       _     <- fibers.update { map =>
         val inner = map.getOrElse(instanceId, Map.empty) + (name -> fiber)
         map + (instanceId -> inner)
