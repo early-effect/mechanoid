@@ -15,7 +15,7 @@ object Persistence extends MechanoidDocSpecSuite:
     section("Event sourcing model")(
       md"""
 Writes append after the transition succeeds. Recovery loads an optional snapshot, then replays
-later events (transition actions run; entry/producing do not).
+later events at each event's stored instant (transition actions run; entry/producing do not).
 """,
       illustration(
         DocsDiagram.paint(Mermaid("""flowchart TB

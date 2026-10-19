@@ -21,10 +21,10 @@ final class IndexedDbEventStore[S: JsonCodec, E: JsonCodec] private (
       instanceId: String,
       event: E,
       expectedSeqNr: Long,
+      at: java.time.Instant,
   ): ZIO[Any, MechanoidError, Long] =
     val newSeqNr = expectedSeqNr + 1
     for
-      now     <- Clock.instant
       highest <- highestSequenceNr(instanceId)
       _       <- ZIO.when(highest != expectedSeqNr) {
         ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, highest))
@@ -34,7 +34,7 @@ final class IndexedDbEventStore[S: JsonCodec, E: JsonCodec] private (
         instanceId = instanceId,
         sequenceNr = newSeqNr,
         eventJson = event.toJson,
-        timestampEpoch = now.toEpochMilli,
+        timestampEpoch = at.toEpochMilli,
       )
       _ <- Idb.txn(db, Seq(Idb.EventsStore), IDBTransactionMode.readwrite) { tx =>
         Idb.request(Idb.store(tx, Idb.EventsStore).put(row.toJs))

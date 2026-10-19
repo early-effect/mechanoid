@@ -832,9 +832,9 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
       for
         store <- ZIO.service[EventStore[String, OrderState, OrderEvent]]
         // Manually append to store to simulate concurrent access
-        _ <- store.append(id, Pay, 0)
+        _ <- store.append(id, Pay, 0, java.time.Instant.EPOCH)
         // Try to append with same expected sequence (conflict)
-        result <- store.append(id, Ship, 0).either
+        result <- store.append(id, Ship, 0, java.time.Instant.EPOCH).either
       yield result match
         case Left(e: SequenceConflictError) =>
           // PostgreSQL store detects conflict
