@@ -13,7 +13,7 @@ object MyVersions extends ZipxVersions:
   val sbt: SbtVersion     = SbtVersion("2.1.0-RC1")
   val scala: ScalaVersion = ScalaVersion("3.9.0")
 
-  val release = ShipGroup("mechanoid", "0.10.2")("core", "postgres", "webJS")
+  val release = ShipGroup("mechanoid", "0.11.0")("core", "postgres", "webJS")
 
   val zio              = Lib("dev.zio", "zio", "2.1.27")
   val zioStreams       = zio.mod("zio-streams")
@@ -72,7 +72,7 @@ object MyVersions extends ZipxVersions:
   def postgresLib      = library(saferis, saferisPostgresJdbc, postgresql)
   def postgresTests    = library(testcontainersPostgresql.test, zioTest.test, zioTestSbt.test)
   def webLib           = library(scalajsDom)
-  def docsJvm =
+  def docsJvm          =
     library(specularZioTest.test, specularSite.test, specularTheme.test, mermoidAscent.test, ascentHtml.test)
   def docsJs =
     library(specular, mermoidAscent, ascentCore, ascentCss, ascentHtml, ascentJs, zio, zioJson)
