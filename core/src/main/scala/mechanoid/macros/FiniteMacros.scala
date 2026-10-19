@@ -41,24 +41,9 @@ object FiniteMacros:
         s"Type ${symbol.fullName} must be a sealed trait or enum for Finite derivation"
       )
 
-    // Recursively find all leaf cases (non-sealed case classes/objects)
-    def findLeafCases(sym: Symbol): List[Symbol] =
-      sym.children.flatMap { child =>
-        if child.flags.is(Flags.Sealed) then
-          // Recurse into nested sealed traits
-          findLeafCases(child)
-        else if child.flags.is(Flags.Case) || child.flags.is(Flags.Enum) then
-          // Leaf case - include it
-          List(child)
-        else Nil
-      }
-
-    val cases = findLeafCases(symbol)
-
-    if cases.isEmpty then
-      report.errorAndAbort(
-        s"Sealed type ${symbol.fullName} has no leaf cases. Ensure it has at least one case class or case object."
-      )
+    val cases = Leaves.sealedLeaves(symbol) match
+      case Right(leaves) => leaves
+      case Left(error)   => report.errorAndAbort(finiteLeafMessage(symbol, error))
 
     // Detect which hasher is being used
     val (hashFn, hasherName) = detectHasher(hasher)
@@ -130,31 +115,21 @@ object FiniteMacros:
 
     val (hashFn, _) = detectHasher(hasher)
 
-    // Build mapping from each sealed parent to its leaf descendants
-    // Returns (parentFullName, Set[leafFullName])
-    def collectHierarchy(sym: Symbol): List[(String, Set[String])] =
-      val leafDescendants = findLeafCasesWithNames(sym)
-      val selfEntry       =
-        if sym.flags.is(Flags.Sealed) && leafDescendants.nonEmpty then List((sym.fullName, leafDescendants.toSet))
-        else Nil
-
-      val childEntries = sym.children.flatMap { child =>
-        if child.flags.is(Flags.Sealed) then collectHierarchy(child)
-        else Nil
+    // Each sealed parent maps to the full names of its leaves. A diamond aborts.
+    def collectHierarchy(sym: Symbol): Either[Leaves.LeafError, List[(String, Set[String])]] =
+      Leaves.sealedLeaves(sym).flatMap { leaves =>
+        val selfEntry =
+          if sym.flags.is(Flags.Sealed) && leaves.nonEmpty then List((sym.fullName, leaves.map(_.fullName).toSet))
+          else Nil
+        sym.children.foldLeft[Either[Leaves.LeafError, List[(String, Set[String])]]](Right(selfEntry)) { (acc, child) =>
+          if child.flags.is(Flags.Sealed) then acc.flatMap(soFar => collectHierarchy(child).map(soFar ++ _))
+          else acc
+        }
       }
 
-      selfEntry ++ childEntries
-    end collectHierarchy
-
-    // Helper to find all leaf case names under a symbol
-    def findLeafCasesWithNames(sym: Symbol): List[String] =
-      sym.children.flatMap { child =>
-        if child.flags.is(Flags.Sealed) then findLeafCasesWithNames(child)
-        else if child.flags.is(Flags.Case) || child.flags.is(Flags.Enum) then List(child.fullName)
-        else Nil
-      }
-
-    val hierarchy = collectHierarchy(symbol)
+    val hierarchy = collectHierarchy(symbol) match
+      case Right(entries) => entries
+      case Left(error)    => report.errorAndAbort(finiteLeafMessage(symbol, error))
 
     // Convert names to hashes
     val parentToLeavesMap: Map[Int, Set[Int]] = hierarchy.map { case (parentName, leafNames) =>
@@ -211,87 +186,7 @@ object FiniteMacros:
     else (_.hashCode, "default")
   end detectHasher
 
-  /** Get the caseHash for a value of a sealed type.
-    *
-    * This macro extracts the ordinal from the value and maps it to the corresponding hash. Hashes are computed at
-    * compile time.
-    */
-  inline def caseHashOf[T](inline value: T)(using inline hasher: CaseHasher): Int =
-    ${ caseHashOfImpl[T]('value, 'hasher) }
-
-  private def caseHashOfImpl[T: Type](value: Expr[T], hasher: Expr[CaseHasher])(using Quotes): Expr[Int] =
-    import quotes.reflect.*
-
-    val tpe    = TypeRepr.of[T]
-    val symbol = tpe.typeSymbol
-
-    if !symbol.flags.is(Flags.Sealed) then
-      report.errorAndAbort(
-        s"Type ${symbol.fullName} must be a sealed trait or enum"
-      )
-
-    // Recursively find all leaf cases (non-sealed case classes/objects)
-    def findLeafCases(sym: Symbol): List[Symbol] =
-      sym.children.flatMap { child =>
-        if child.flags.is(Flags.Sealed) then findLeafCases(child)
-        else if child.flags.is(Flags.Case) || child.flags.is(Flags.Enum) then List(child)
-        else Nil
-      }
-
-    val cases = findLeafCases(symbol)
-
-    // Get compile-time hash function
-    val (hashFn, _) = detectHasher(hasher)
-
-    // Build lookup based on comparing ordinal or class identity
-    // For enums, use ordinal; for sealed traits with case classes, use class identity
-    val isEnum = symbol.flags.is(Flags.Enum)
-
-    if isEnum then
-      // For enums, we can use ordinal - build a hash array indexed by ordinal
-      // First, we need to map each case's ordinal to its hash
-      // The ordinal matches the order of children
-      val directChildren = symbol.children
-      val hashByOrdinal  = directChildren.zipWithIndex.map { (child, ordinal) =>
-        val hash = cases.find(_.fullName == child.fullName).map(c => hashFn(c.fullName)).getOrElse(-1)
-        (ordinal, hash)
-      }.toMap
-
-      val maxOrdinal = directChildren.length
-      val hashArray  = (0 until maxOrdinal).map(i => hashByOrdinal.getOrElse(i, -1)).toArray
-
-      val hashArrayExpr = Expr(hashArray)
-      '{
-        val ordinal = $value.asInstanceOf[scala.reflect.Enum].ordinal
-        $hashArrayExpr(ordinal)
-      }
-    else
-      // For sealed traits (not enums), distinguish case objects vs case classes
-      val baseCase: Expr[Int] = '{ throw new MatchError($value) }
-
-      cases.foldRight(baseCase) { (caseSymbol, accExpr) =>
-        val hash = Expr(hashFn(caseSymbol.fullName))
-
-        if caseSymbol.flags.is(Flags.Module) then
-          // Case object - use reference equality (eq)
-          val singleton = Ref(caseSymbol).asExprOf[AnyRef]
-          '{ if $value.asInstanceOf[AnyRef] eq $singleton then $hash else $accExpr }
-        else
-          // Case class - use isInstanceOf
-          val caseType = caseSymbol.typeRef
-          caseType.asType match
-            case '[t] =>
-              '{ if $value.isInstanceOf[t] then $hash else $accExpr }
-        end if
-      }
-    end if
-  end caseHashOfImpl
-
-  /** Generate a caseHash function for a sealed type.
-    *
-    * This creates a function that pattern-matches on all leaf cases and returns their pre-computed hashes. Unlike
-    * caseHashOf which takes a value inline, this returns a reusable function.
-    */
+  /** Pattern-match every leaf and return its pre-computed full-name hash. The match has no default arm. */
   inline def generateCaseHash[T](inline hasher: CaseHasher): T => Int =
     ${ generateCaseHashImpl[T]('hasher) }
 
@@ -306,68 +201,69 @@ object FiniteMacros:
         s"Type ${symbol.fullName} must be a sealed trait or enum"
       )
 
-    // Recursively find all leaf cases
-    def findLeafCases(sym: Symbol): List[Symbol] =
-      sym.children.flatMap { child =>
-        if child.flags.is(Flags.Sealed) then findLeafCases(child)
-        else if child.flags.is(Flags.Case) || child.flags.is(Flags.Enum) then List(child)
-        else Nil
-      }
+    val cases = Leaves.sealedLeaves(symbol) match
+      case Right(leaves) => leaves
+      case Left(error)   => report.errorAndAbort(finiteLeafMessage(symbol, error))
 
-    val cases = findLeafCases(symbol)
-
-    if cases.isEmpty then
-      report.errorAndAbort(
-        s"Sealed type ${symbol.fullName} has no leaf cases."
-      )
-
-    // Get compile-time hash function
     val (hashFn, _) = detectHasher(hasher)
 
-    // Build lookup based on comparing ordinal or class identity
-    // For enums, use ordinal; for sealed traits with case classes, use class identity
-    val isEnum = symbol.flags.is(Flags.Enum)
-
-    if isEnum then
-      // For enums, we can use ordinal - build a hash array indexed by ordinal
-      val directChildren = symbol.children
-      val hashByOrdinal  = directChildren.zipWithIndex.map { (child, ordinal) =>
-        val hash = cases.find(_.fullName == child.fullName).map(c => hashFn(c.fullName)).getOrElse(-1)
-        (ordinal, hash)
-      }.toMap
-
-      val maxOrdinal = directChildren.length
-      val hashArray  = (0 until maxOrdinal).map(i => hashByOrdinal.getOrElse(i, -1)).toArray
-
-      val hashArrayExpr = Expr(hashArray)
-      '{ (value: T) =>
-        val ordinal = value.asInstanceOf[scala.reflect.Enum].ordinal
-        $hashArrayExpr(ordinal)
-      }
+    if symbol.flags.is(Flags.Enum) then enumOrdinalHash[T](cases, hashFn)
     else
-      // For sealed traits (not enums), distinguish case objects vs case classes
-      '{ (value: T) =>
-        ${
-          val baseCase: Expr[Int] = '{ throw new MatchError(value) }
+      // Sealed-trait case classes are real classes. A typed wildcard is a checked type test.
+      def patternFor(sym: Symbol): Tree =
+        if sym.flags.is(Flags.Module) then
+          val term =
+            if sym.name.endsWith("$") && sym.companionModule.exists then sym.companionModule
+            else sym
+          Ref(term)
+        else Typed(Wildcard(), Inferred(sym.typeRef))
 
-          cases.foldRight(baseCase) { (caseSymbol, accExpr) =>
-            val hash = Expr(hashFn(caseSymbol.fullName))
-
-            if caseSymbol.flags.is(Flags.Module) then
-              // Case object - use reference equality (eq)
-              val singleton = Ref(caseSymbol).asExprOf[AnyRef]
-              '{ if value.asInstanceOf[AnyRef] eq $singleton then $hash else $accExpr }
-            else
-              // Case class - use isInstanceOf
-              val caseType = caseSymbol.typeRef
-              caseType.asType match
-                case '[t] =>
-                  '{ if value.isInstanceOf[t] then $hash else $accExpr }
-            end if
-          }
+      def hashMatch(scrutinee: Expr[T]): Expr[Int] =
+        val branches = cases.map { sym =>
+          CaseDef(patternFor(sym), None, Literal(IntConstant(hashFn(sym.fullName))))
         }
+        Match(scrutinee.asTerm, branches).asExprOf[Int]
+
+      '{ (value: T) =>
+        ${ hashMatch('value) }
       }
     end if
   end generateCaseHashImpl
+
+  /** Enum ordinal is the index of `symbol.children`. A child that is not a leaf is an error, not hash `-1`. */
+  private def enumOrdinalHash[T: Type](using
+      Quotes
+  )(
+      cases: List[quotes.reflect.Symbol],
+      hashFn: String => Int,
+  ): Expr[T => Int] =
+    import quotes.reflect.*
+    val parent = TypeRepr.of[T].typeSymbol
+    val byFull = cases.map(sym => sym.fullName -> hashFn(sym.fullName)).toMap
+    val hashes = parent.children.map { child =>
+      byFull.get(child.fullName) match
+        case Some(hash) => hash
+        case None       =>
+          report.errorAndAbort(
+            s"${child.name} is not a leaf of ${parent.name}. A leaf has one sealed parent."
+          )
+    }
+    val table = Expr(hashes.toArray)
+    // The quote is checked where T is abstract, so `value: Enum` does not typecheck.
+    // Flags.Enum means T is a Scala 3 enum, whose ordinal is the child index.
+    '{ (value: T) =>
+      val ordinal = value.asInstanceOf[scala.reflect.Enum].ordinal
+      $table(ordinal)
+    }
+  end enumOrdinalHash
+
+  private def finiteLeafMessage(using Quotes)(symbol: quotes.reflect.Symbol, error: Leaves.LeafError): String =
+    error match
+      case Leaves.LeafError.NotATree(_, _) =>
+        Leaves.message(error)
+      case Leaves.LeafError.Empty(_) =>
+        s"Sealed type ${symbol.fullName} has no leaf cases. Ensure it has at least one case class or case object."
+      case Leaves.LeafError.NotFinite(_) =>
+        s"Type ${symbol.fullName} must be a sealed trait or enum for Finite derivation"
 
 end FiniteMacros

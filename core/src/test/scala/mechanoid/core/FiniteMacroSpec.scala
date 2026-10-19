@@ -43,9 +43,12 @@ object FiniteMacroSpec extends ZIOSpecDefault:
       },
       test("extracts case info from event enum with case classes") {
         val infos = FiniteMacros.extractCaseInfo[TestEvent](CaseHasher.Default)
+        val se    = summon[Finite[TestEvent]]
         assertTrue(
           infos.length == 2,
           infos.map(_.simpleName).toSet == Set("Click", "Submit"),
+          infos.exists(ci => ci.simpleName == "Submit" && se.caseHash(TestEvent.Submit("z")) == ci.hash),
+          infos.exists(ci => ci.simpleName == "Click" && se.caseHash(TestEvent.Click) == ci.hash),
         )
       },
     ),
@@ -129,10 +132,8 @@ object FiniteMacroSpec extends ZIOSpecDefault:
         val se   = summon[Finite[TestEnum]]
         val hash = se.caseHash(TestEnum.One)
         // The hash should be the hashCode of the fully qualified name
-        val infos    = se.caseInfos
-        val oneInfo  = infos.find(_.simpleName == "One").get
-        val expected = oneInfo.fullName.hashCode
-        assertTrue(hash == expected)
+        val infos = se.caseInfos
+        assertTrue(infos.exists(ci => ci.simpleName == "One" && hash == ci.fullName.hashCode))
       },
       test("murmur3 hasher produces different hashes than default") {
         // Default hasher

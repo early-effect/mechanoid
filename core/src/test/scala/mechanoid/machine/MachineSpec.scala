@@ -537,7 +537,7 @@ object MachineSpec extends ZIOSpecDefault:
         assertTrue(machine.transitions.size == 2)
       },
       test("state[T] toString returns readable format") {
-        val matcher = state[TestState]
+        val matcher = state[TestState.A.type]
         assertTrue(matcher.toString.contains("state["))
       },
     ),

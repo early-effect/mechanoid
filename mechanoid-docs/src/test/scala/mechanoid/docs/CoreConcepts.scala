@@ -13,8 +13,8 @@ object CoreConcepts extends MechanoidDocSpecSuite:
       md"""
 States and events are plain Scala 3 enums (or sealed traits) that derive `Finite`. `Finite`
 proves the type is sealed and non-empty so Mechanoid can validate assemblies and visualize the
-full case set. Nested sealed traits declare parent types for `all[T]`; only leaf cases are
-runtime states.
+full case set. Nested sealed traits are a tree: a leaf has one sealed parent. Only leaf cases
+are runtime states. `all[T]` names the leaves `T` denotes.
 """,
       example {
         enum TrafficLight derives Finite:
@@ -68,10 +68,10 @@ A transition is `State via Event to Target`. Targets can be a concrete state, `s
 
 | Matcher | Meaning |
 |---------|---------|
-| `all[T]` | Every leaf under sealed trait / enum parent `T` |
-| `anyOf(s1, s2, …)` | Explicit list of states |
-| `state[S]` | Match a state **type** (parameterized cases: `Failed(_)`) |
-| `event[E]` | Match an event **type** (payload carriers) |
+| `all[T]` | The leaves `T` denotes: a sealed parent, a union, or an alias of either |
+| `anyOf(s1, s2, …)` | An unnamed list of state values |
+| `state[S]` | One state leaf. A parent or a union is `all[S]` |
+| `event[E]` | One event leaf. A parent or a union is `all[E]` |
 | `viaAnyOf` / `anyOfEvents` | Several events from one state (or group) |
 | `viaAll` | Every event under an event parent type |
 """,
@@ -306,6 +306,97 @@ Organize related states with sealed traits and use `all[T]` for group transition
           yield state
         }.asDoc
       }.assert(state => assertTrue(state.toString == "Cancelled")),
+      md"""
+Next: a set that is not itself a node in that tree.
+""",
+    ),
+    section("Groups that are not a parent")(
+      md"""
+`all[Parent]` is the family that already exists in the sealed tree. A set that cuts across
+the tree is a type alias of a union, then `all[Alias]`. The leaf does not grow a second
+`extends`. A list you use once, and do not want to name, stays `anyOf`.
+
+`state[T]` and `event[T]` name one leaf. A parent or a union does not compile: write `all[T]`.
+The same edge from `all[Alias]` and from one of its leaves is a duplicate. See
+[Defining FSMs](defining-fsms.html) for `@@ Aspect.overriding`.
+
+`Named` is `Draft | Live`. `Archived` is not in that set, so `SetName` has no edge there.
+The reducer sees `Named`, with no ascription:
+""",
+      example {
+        enum Doc derives Finite:
+          case Draft(name: String)
+          case Live(name: String)
+          case Archived(name: String)
+
+        enum DocEvent derives Finite:
+          case SetName(name: String)
+
+        import Doc.*
+        import DocEvent.*
+
+        type Named = Draft | Live
+
+        val namedMachine = Machine(
+          assembly[Doc, DocEvent](
+            (all[Named] via event[SetName]).to(stay) { (s, e) =>
+              s match
+                case _: Draft => Draft(e.name)
+                case _: Live  => Live(e.name)
+            }
+          )
+        )
+
+        DocsDiagram.paint(MermaidVisualizer.flowchart(namedMachine))
+      }.assert { ui =>
+        val text = ui.toString
+        assertTrue(text.contains("Draft"), text.contains("Live"))
+      },
+      exampleZIO {
+        enum Doc derives Finite:
+          case Draft(name: String)
+          case Live(name: String)
+          case Archived(name: String)
+
+        enum DocEvent derives Finite:
+          case SetName(name: String)
+
+        import Doc.*
+        import DocEvent.*
+
+        type Named = Draft | Live
+
+        val namedMachine = Machine(
+          assembly[Doc, DocEvent](
+            (all[Named] via event[SetName]).to(stay) { (s, e) =>
+              s match
+                case _: Draft => Draft(e.name)
+                case _: Live  => Live(e.name)
+            }
+          )
+        )
+
+        ZIO.scoped {
+          for
+            draftFsm <- namedMachine.start(Draft("old"))
+            _        <- draftFsm.send(SetName("new"))
+            draft    <- draftFsm.currentState
+            liveFsm  <- namedMachine.start(Live("old"))
+            _        <- liveFsm.send(SetName("new"))
+            live     <- liveFsm.currentState
+            keptFsm  <- namedMachine.start(Archived("keep"))
+            missed   <- keptFsm.send(SetName("new")).either
+            kept     <- keptFsm.currentState
+          yield (draft.toString, live.toString, missed.isLeft, kept.toString)
+        }.asDoc
+      }.assert { case (draft, live, missed, kept) =>
+        assertTrue(
+          draft == "Draft(new)",
+          live == "Live(new)",
+          missed,
+          kept == "Archived(keep)",
+        )
+      },
       md"""
 Next: [Defining FSMs](defining-fsms.html) for assemblies, overrides, composition, and
 compile-time checks.

@@ -1,5 +1,6 @@
 package mechanoid.machine
 
+import mechanoid.macros.Leaves
 import scala.quoted.*
 
 /** Shared utilities for mechanoid macro implementations.
@@ -245,9 +246,9 @@ private[machine] object MacroUtils:
   def extractHashInfoFromDSL(using Quotes)(term: quotes.reflect.Term): Option[SpecHashInfo] =
     import quotes.reflect.*
 
-    // Compute hash from a symbol's full name
+    // Same full-name hash the matchers emit, including the module-class '$' strip.
     def computeSymbolHash(sym: Symbol): Int =
-      sym.fullName.hashCode
+      Macros.hashFullName(sym.fullName)
 
     // Extract symbol from a term that represents a state or event value
     def extractValueSymbol(t: Term): Option[Symbol] =
@@ -424,6 +425,67 @@ private[machine] object MacroUtils:
     else None
   end extractHashInfoFromDSL
 
+  /** `all[T].via(event)` before the inner macros expand. The leaves are `T`'s denotation. */
+  private def extractAllMatcherVia(using Quotes)(term: quotes.reflect.Term): Option[SpecHashInfo] =
+    import quotes.reflect.*
+    var found: Option[SpecHashInfo] = None
+
+    def isAll(fn: Term): Boolean =
+      fn.symbol.name == "all"
+
+    def allType(receiver: Term): Option[TypeRepr] =
+      receiver match
+        case TypeApply(fn, List(tpt)) if isAll(fn) => Some(tpt.tpe)
+        case Inlined(_, _, inner)                  => allType(inner)
+        case Typed(inner, _)                       => allType(inner)
+        case _                                     => None
+
+    def label(name: String): String =
+      if name.endsWith("$") then name.dropRight(1) else name
+
+    object Finder extends TreeAccumulator[Unit]:
+      def record(receiver: Term, eventArg: Term, owner: Symbol, tree: Tree): Unit =
+        allType(receiver) match
+          case Some(tpe) =>
+            Leaves.denote(tpe) match
+              case Right(leaves) =>
+                val stateHashes = leaves.map(sym => Macros.hashFullName(sym.fullName)).toSet
+                val stateNames  = leaves.map(sym => label(sym.name))
+                val eventTerm   = unwrap(eventArg)
+                val eventSym    = eventTerm.symbol
+                val eventHash   =
+                  if eventSym.exists &&
+                    (eventSym.flags.is(Flags.Case) || eventSym.flags.is(Flags.Enum) ||
+                      eventSym.flags.is(Flags.Module))
+                  then Macros.hashFullName(eventSym.fullName)
+                  else Macros.leafHashOf(eventTerm)
+                val eventName = if eventSym.exists then eventSym.name else "?"
+                found = Some(
+                  SpecHashInfo(stateHashes, Set(eventHash), stateNames, List(eventName), "?", false, "?")
+                )
+              case Left(_) =>
+                foldOverTree((), tree)(owner)
+          case None =>
+            foldOverTree((), tree)(owner)
+
+      def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+        if found.isEmpty then
+          tree match
+            case Apply(TypeApply(Select(receiver, "via"), _), List(eventArg)) =>
+              record(receiver, eventArg, owner, tree)
+            case Apply(Select(receiver, "via"), List(eventArg)) =>
+              record(receiver, eventArg, owner, tree)
+            case Inlined(_, _, inner) =>
+              foldTree((), inner)(owner)
+            case _ =>
+              foldOverTree((), tree)(owner)
+        else ()
+    end Finder
+
+    Finder.foldTree((), term)(Symbol.spliceOwner)
+    found
+  end extractAllMatcherVia
+
   /** Extract hash info from a TransitionSpec term (either inline expr or val definition).
     *
     * Uses a TreeAccumulator to find ViaBuilder, TransitionSpec, AllMatcher constructors and extract their compile-time
@@ -431,6 +493,86 @@ private[machine] object MacroUtils:
     */
   def extractHashInfo(using Quotes)(term: quotes.reflect.Term): Option[SpecHashInfo] =
     import quotes.reflect.*
+
+    // all[T].via(event) is still a call here. Read the type's leaves directly.
+    extractAllMatcherVia(term) match
+      case Some(info) => return Some(info)
+      case None       => ()
+
+    def allMatcherLiterals(root: Term): (Set[Int], List[String]) =
+      var hashes = Set.empty[Int]
+      var names  = List.empty[String]
+      object Walk extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          tree match
+            case Apply(TypeApply(Select(New(tpt), "<init>"), _), args)
+                if args.length >= 2 && tpt.show.contains("AllMatcher") =>
+              val found = extractSetInts(args(0))
+              if found.nonEmpty then
+                hashes = found
+                names = extractListStrings(args(1))
+              foldOverTree((), tree)(owner)
+            case Apply(Select(New(tpt), "<init>"), args) if args.length >= 2 && tpt.show.contains("AllMatcher") =>
+              val found = extractSetInts(args(0))
+              if found.nonEmpty then
+                hashes = found
+                names = extractListStrings(args(1))
+              foldOverTree((), tree)(owner)
+            case _ =>
+              foldOverTree((), tree)(owner)
+      end Walk
+      Walk.foldTree((), root)(Symbol.spliceOwner)
+      (hashes, names)
+    end allMatcherLiterals
+
+    val (matcherHashes, matcherNames) = allMatcherLiterals(term)
+
+    def localIntVals(root: Term): Map[String, Int] =
+      var bound                       = Map.empty[String, Int]
+      def intOf(t: Term): Option[Int] =
+        t match
+          case Literal(IntConstant(v)) => Some(v)
+          case Typed(inner, _)         => intOf(inner)
+          case Inlined(_, _, inner)    => intOf(inner)
+          case Block(_, expr)          => intOf(expr)
+          case _                       => None
+      object Walk extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          tree match
+            case ValDef(name, _, Some(rhs)) =>
+              intOf(rhs).foreach(v => bound = bound.updated(name, v))
+              foldOverTree((), tree)(owner)
+            case _ =>
+              foldOverTree((), tree)(owner)
+      end Walk
+      Walk.foldTree((), root)(Symbol.spliceOwner)
+      bound
+    end localIntVals
+
+    val intVals = localIntVals(term)
+
+    def resolveInts(setTerm: Term): Set[Int] =
+      val direct = extractSetInts(setTerm)
+      var extra  = Set.empty[Int]
+      object Ids extends TreeAccumulator[Unit]:
+        def foldTree(u: Unit, tree: Tree)(owner: Symbol): Unit =
+          tree match
+            case Ident(name) =>
+              intVals.get(name).foreach(v => extra += v)
+              foldOverTree((), tree)(owner)
+            case _ =>
+              foldOverTree((), tree)(owner)
+      end Ids
+      Ids.foldTree((), setTerm)(Symbol.spliceOwner)
+      direct ++ extra
+    end resolveInts
+
+    def withMatcherLeaves(stateHashes: Set[Int], stateNames: List[String]): (Set[Int], List[String]) =
+      if stateHashes.nonEmpty then (stateHashes, stateNames)
+      else if matcherHashes.nonEmpty then
+        val names = if stateNames.nonEmpty then stateNames else matcherNames
+        (matcherHashes, names)
+      else (stateHashes, stateNames)
 
     // First try to extract from DSL pattern (unexpanded inline macro)
     extractHashInfoFromDSL(term) match
@@ -472,9 +614,10 @@ private[machine] object MacroUtils:
                 if methodName == "goto" || methodName == "stay" || methodName == "stop" ||
                   methodName == "computeGoto" || methodName == "computeStay" =>
               if args.length >= 4 then
-                val stateHashes = extractSetInts(args(0))
-                val eventHashes = extractSetInts(args(1))
-                var stateNames  = extractListStrings(args(2))
+                val filled      = withMatcherLeaves(resolveInts(args(0)), extractListStrings(args(2)))
+                val stateHashes = filled._1
+                val eventHashes = resolveInts(args(1))
+                var stateNames  = filled._2
                 var eventNames  = extractListStrings(args(3))
                 // If names are empty, use ViaBuilder info if available
                 if stateNames.isEmpty && eventNames.isEmpty then
@@ -499,9 +642,10 @@ private[machine] object MacroUtils:
             // Match new ViaBuilder(...) constructor
             case Apply(TypeApply(Select(New(tpt), "<init>"), _), args)
                 if args.length >= 4 && tpt.show.contains("ViaBuilder") =>
-              val stateHashes = extractSetInts(args(0))
-              val eventHashes = extractSetInts(args(1))
-              val stateNames  = extractListStrings(args(2))
+              val filled      = withMatcherLeaves(resolveInts(args(0)), extractListStrings(args(2)))
+              val stateHashes = filled._1
+              val eventHashes = resolveInts(args(1))
+              val stateNames  = filled._2
               val eventNames  = extractListStrings(args(3))
               Some(SpecHashInfo(stateHashes, eventHashes, stateNames, eventNames, "?", false, "?"))
 
@@ -540,13 +684,6 @@ private[machine] object MacroUtils:
                 case Literal(StringConstant(s)) => s
                 case _                          => "?"
               Some(SpecHashInfo(stateHashes, eventHashes, stateNames, eventNames, targetDesc, false, "?"))
-
-            // Match new AllMatcher(...) constructor
-            case Apply(TypeApply(Select(New(tpt), "<init>"), _), args)
-                if args.length >= 2 && tpt.show.contains("AllMatcher") =>
-              val stateHashes = extractSetInts(args(0))
-              val stateNames  = extractListStrings(args(1))
-              Some(SpecHashInfo(stateHashes, Set.empty, stateNames, Nil, "?", false, "?"))
 
             // Match spec.copy for override detection
             case Apply(Select(inner, "copy"), args) =>
