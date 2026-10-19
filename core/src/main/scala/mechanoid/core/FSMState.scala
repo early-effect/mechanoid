@@ -57,14 +57,13 @@ final case class FSMState[S](
 end FSMState
 
 object FSMState:
-  /** Create an initial FSM state. */
-  def initial[S](state: S): FSMState[S] =
-    val now = Instant.now()
+  /** Create an initial FSM state, started at `at`. */
+  def initial[S](state: S, at: Instant): FSMState[S] =
     FSMState(
       current = state,
       history = Nil,
       stateData = Map.empty,
-      startedAt = now,
-      lastTransitionAt = now,
+      startedAt = at,
+      lastTransitionAt = at,
     )
 end FSMState

@@ -804,23 +804,25 @@ object FSMRuntime:
       startState: S,
       events: List[StoredEvent[?, E]],
   ): ZIO[Any, MechanoidError, FSMState[S]] =
-    ZIO.foldLeft(events)(FSMState.initial(startState)) { (fsmState, stored) =>
-      val currentCaseHash = machine.stateEnum.caseHash(fsmState.current)
-      val eventCaseHash   = machine.eventEnum.caseHash(stored.event)
-      machine.transitions.get((currentCaseHash, eventCaseHash)) match
-        case Some(transition) =>
-          transition.action(fsmState.current, stored.event).map {
-            case TransitionResult.Goto(newState) =>
-              fsmState.transitionTo(newState, stored.timestamp)
-            case TransitionResult.Stay(newState) =>
-              fsmState.replaceCurrent(newState)
-            case TransitionResult.Stop(_) =>
-              fsmState
-          }
-        case None =>
-          // Event doesn't match current FSM definition - fail explicitly
-          ZIO.fail(EventReplayError(fsmState.current, stored.event, stored.sequenceNr))
-      end match
+    Clock.instant.flatMap { now =>
+      ZIO.foldLeft(events)(FSMState.initial(startState, now)) { (fsmState, stored) =>
+        val currentCaseHash = machine.stateEnum.caseHash(fsmState.current)
+        val eventCaseHash   = machine.eventEnum.caseHash(stored.event)
+        machine.transitions.get((currentCaseHash, eventCaseHash)) match
+          case Some(transition) =>
+            transition.action(fsmState.current, stored.event).map {
+              case TransitionResult.Goto(newState) =>
+                fsmState.transitionTo(newState, stored.timestamp)
+              case TransitionResult.Stay(newState) =>
+                fsmState.replaceCurrent(newState)
+              case TransitionResult.Stop(_) =>
+                fsmState
+            }
+          case None =>
+            // Event doesn't match current FSM definition - fail explicitly
+            ZIO.fail(EventReplayError(fsmState.current, stored.event, stored.sequenceNr))
+        end match
+      }
     }
 end FSMRuntime
 
@@ -982,8 +984,8 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
           // Run exit effect for current state
           _ <- runStateExitEffect(event, fsmState.current)
           // Update state
-          now = Instant.now()
-          _ <- stateRef.update(_.transitionTo(newState, now))
+          now <- Clock.instant
+          _   <- stateRef.update(_.transitionTo(newState, now))
           // Run entry effect for new state
           _ <- runStateEntryEffect(event, newState)
           // Start timeout for new state if configured
@@ -1125,11 +1127,12 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
     for
       fsmState <- stateRef.get
       seqNr    <- seqNrRef.get
+      now      <- Clock.instant
       snapshot = FSMSnapshot(
         instanceId = instanceId,
         state = fsmState.current,
         sequenceNr = seqNr,
-        timestamp = Instant.now(),
+        timestamp = now,
       )
       _ <- store.saveSnapshot(snapshot)
     yield ()

@@ -10,7 +10,27 @@ object PostgresInstanceLockSpec extends ZIOSpecDefault:
   val xaLayer   = PostgresTestContainer.DataSourceProvider.transactor
   val lockLayer = xaLayer >>> PostgresInstanceLock.layer
 
-  def spec = suite("PostgresInstanceLock")(
+  def spec = suite("PostgresInstanceLock")(liveClock, testClock).provideShared(lockLayer)
+
+  /** `acquire` waits on the ZIO clock, so its deadline must come from that clock too. */
+  val testClock = suite("under TestClock")(
+    test("acquire times out once the clock passes the timeout") {
+      for
+        lock  <- ZIO.service[FSMInstanceLock[String]]
+        now   <- Clock.instant
+        _     <- lock.tryAcquire("lock-clock-1", "node-1", 1.hour, now)
+        fiber <- lock.acquire("lock-clock-1", "node-2", Duration.fromSeconds(30), Duration.fromSeconds(5)).fork
+        _     <- (TestClock.adjust(1.second) *> fiber.poll).repeatUntil(_.isDefined)
+        res   <- fiber.join
+        after <- Clock.instant
+      yield assertTrue(
+        res == LockResult.TimedOut[String](),
+        !after.isAfter(now.plusSeconds(60)),
+      )
+    }
+  ) @@ TestAspect.timeout(60.seconds)
+
+  val liveClock = suite("live clock")(
     test("tryAcquire succeeds on unlocked instance") {
       for
         lock   <- ZIO.service[FSMInstanceLock[String]]
@@ -146,5 +166,5 @@ object PostgresInstanceLockSpec extends ZIOSpecDefault:
         busy.length == 2,
       )
     },
-  ).provideShared(lockLayer) @@ TestAspect.sequential @@ TestAspect.withLiveClock
+  ) @@ TestAspect.sequential @@ TestAspect.withLiveClock
 end PostgresInstanceLockSpec
