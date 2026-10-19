@@ -12,6 +12,7 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
   enum Job derives Finite:
     case Boot
     case Live(due: Long, note: String)
+    case Done
 
   enum Act derives Finite:
     case Start
@@ -33,6 +34,7 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
     state match
       case Job.Live(due, _) => Instant.ofEpochSecond(due)
       case Job.Boot         => at(placeholder)
+      case Job.Done         => at(placeholder)
 
   private val watchDue = Aspect.timeout(Act.Watch)(dueOf)
   private val pulseDue = Aspect.timeout(Act.Pulse)(1.hour)
@@ -42,6 +44,15 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
       (state[Job.Boot.type] via Act.Start).to[Job.Live]((_, _) => Job.Live(0L, "")) @@ watchDue @@ pulseDue,
       (state[Job.Live] via event[Act.Edit]).to(stay)((s, e) => s.copy(due = e.due)),
       (state[Job.Live] via Act.Watch).to(stay)((s, _) => s.copy(note = "fired")),
+    )
+  )
+
+  /** Watch leaves the leaf, so a fire at the deadline does not re-arm and fire again. */
+  private val firing: Machine[Job, Act] = Machine(
+    assembly[Job, Act](
+      (state[Job.Boot.type] via Act.Start).to[Job.Live]((_, _) => Job.Live(0L, "")) @@ watchDue @@ pulseDue,
+      (state[Job.Live] via event[Act.Edit]).to(stay)((s, e) => s.copy(due = e.due)),
+      (state[Job.Live] via Act.Watch).to(Job.Done),
     )
   )
 
@@ -89,9 +100,10 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
       id: String,
       timeouts: TimeoutStrategy[String],
       initial: Job,
+      definition: Machine[Job, Act] = machine,
   ): ZIO[Scope, MechanoidError, FSMRuntime[String, Job, Act]] =
     InMemoryEventStore.makeUnbounded[String, Job, Act].flatMap { store =>
-      FSMRuntime(id, machine, initial).provideSome[Scope](
+      FSMRuntime(id, definition, initial).provideSome[Scope](
         ZLayer.succeed(store) ++
           ZLayer.succeed(timeouts) ++
           LockingStrategy.optimistic[String]
@@ -105,12 +117,12 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
           for
             _        <- TestClock.setTime(epoch)
             strategy <- FiberTimeoutStrategy.make[String]
-            fsm      <- open("early", strategy, Job.Live(at(later).getEpochSecond, ""))
+            fsm      <- open("early", strategy, Job.Live(at(later).getEpochSecond, ""), firing)
             _        <- fsm.send(Act.Edit(at(near).getEpochSecond))
             _        <- TestClock.adjust(5.seconds)
             _        <- ZIO.yieldNow
             s        <- fsm.currentState
-          yield assertTrue(s == Job.Live(at(near).getEpochSecond, "fired"))
+          yield assertTrue(s == Job.Done)
         )
       },
       test("a stay from a placeholder to a near instant fires at the near instant") {
@@ -118,12 +130,12 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
           for
             _        <- TestClock.setTime(epoch)
             strategy <- FiberTimeoutStrategy.make[String]
-            fsm      <- open("near", strategy, Job.Live(at(placeholder).getEpochSecond, ""))
+            fsm      <- open("near", strategy, Job.Live(at(placeholder).getEpochSecond, ""), firing)
             _        <- fsm.send(Act.Edit(at(near).getEpochSecond))
             _        <- TestClock.adjust(5.seconds)
             _        <- ZIO.yieldNow
             s        <- fsm.currentState
-          yield assertTrue(s == Job.Live(at(near).getEpochSecond, "fired"))
+          yield assertTrue(s == Job.Done)
         )
       },
       test("a stay out to the placeholder does not fire the old near timer") {
@@ -131,7 +143,7 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
           for
             _        <- TestClock.setTime(epoch)
             strategy <- FiberTimeoutStrategy.make[String]
-            fsm      <- open("far", strategy, Job.Live(at(near).getEpochSecond, ""))
+            fsm      <- open("far", strategy, Job.Live(at(near).getEpochSecond, ""), firing)
             _        <- fsm.send(Act.Edit(at(placeholder).getEpochSecond))
             _        <- TestClock.adjust(5.seconds)
             _        <- ZIO.yieldNow
@@ -139,7 +151,7 @@ object PayloadDeadlineSpec extends ZIOSpecDefault:
           yield assertTrue(s == Job.Live(at(placeholder).getEpochSecond, ""))
         )
       },
-    ),
+    ) @@ TestAspect.timeout(20.seconds),
     suite("recording")(
       test("an unchanged payload instant is not cancelled or scheduled again") {
         ZIO.scoped(
