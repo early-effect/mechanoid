@@ -2,7 +2,7 @@
 addSbtPlugin("rocks.earlyeffect" % "sbt-zipx" % "0.19.1")
 addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")
 addSbtPlugin(("org.scalameta" % "sbt-scalafmt" % "2.6.2").excludeAll(ExclusionRule("org.scala-lang.modules", "scala-xml_2.13"), ExclusionRule("org.scala-lang.modules", "scala-collection-compat_2.13"), ExclusionRule("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13")))
-addSbtPlugin("rocks.earlyeffect" % "sbt-specular" % "0.20.0")
+addSbtPlugin("rocks.earlyeffect" % "sbt-specular" % "0.21.1")
 addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.5.0")
 addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.14.9")
 addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.4.4")

@@ -15,7 +15,7 @@ object MyVersions extends ZipxVersions:
 
   val release = ShipGroup("mechanoid", "0.8.0")("core", "postgres", "webJS")
 
-  val zio              = Lib("dev.zio", "zio", "2.1.26")
+  val zio              = Lib("dev.zio", "zio", "2.1.27")
   val zioStreams       = zio.mod("zio-streams")
   val zioTest          = zio.mod("zio-test")
   val zioTestSbt       = zio.mod("zio-test-sbt")
@@ -25,7 +25,7 @@ object MyVersions extends ZipxVersions:
   val zioLoggingSlf4j  = zioLogging.mod("zio-logging-slf4j")
   val zioLoggingBridge = zioLogging.mod("zio-logging-slf4j-bridge")
 
-  val scalaJavaTime     = Lib("io.github.cquiroz", "scala-java-time", "2.7.0")
+  val scalaJavaTime     = Lib("io.github.cquiroz", "scala-java-time", "2.8.0")
   val scalaJavaTimeTzdb = scalaJavaTime.mod("scala-java-time-tzdb")
 
   val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.21.0")
@@ -36,7 +36,7 @@ object MyVersions extends ZipxVersions:
   val scalajsDom               = Lib("org.scala-js", "scalajs-dom", "2.8.1")
   val scaluzzi                 = Lib("com.github.vovapolu", "scaluzzi", "0.1.23")
 
-  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.20.0")
+  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.21.1")
   val specularZioTest = specular.mod("specular-zio-test")
   val specularSite    = specular.mod("specular-site")
   val specularTheme   = specular.mod("early-effect-docs-theme")
@@ -45,10 +45,10 @@ object MyVersions extends ZipxVersions:
   val mermoidAscent = Lib("rocks.earlyeffect", "mermoid-ascent", "0.2.0")
 
   /** mermoid-ascent 0.2.0 resolves these. ascent-js is its own line, not the core family's. */
-  val ascentCore = Lib("rocks.earlyeffect", "ascent-core", "0.10.1")
+  val ascentCore = Lib("rocks.earlyeffect", "ascent-core", "0.10.2")
   val ascentCss  = ascentCore.mod("ascent-css")
-  val ascentHtml = Lib("rocks.earlyeffect", "ascent-html", "0.10.0")
-  val ascentJs   = Lib("rocks.earlyeffect", "ascent-js", "0.11.0")
+  val ascentHtml = Lib("rocks.earlyeffect", "ascent-html", "0.10.1")
+  val ascentJs   = Lib("rocks.earlyeffect", "ascent-js", "0.11.1")
 
   val scalajs = Plugin("org.scala-js", "sbt-scalajs", "1.22.0")
   // sbt-scalafmt pulls _2.13 variants via scalafmt-dynamic (for3Use2_13), which clash with _3 variants
@@ -59,7 +59,7 @@ object MyVersions extends ZipxVersions:
       ZipxExclude.org("org.scala-lang.modules", "scala-collection-compat_2.13"),
       ZipxExclude.org("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
     )
-  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.20.0")
+  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.21.1")
   val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
   val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.9")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
