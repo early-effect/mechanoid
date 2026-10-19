@@ -390,7 +390,7 @@ object MachineSpec extends ZIOSpecDefault:
             )
           )
           None
-        catch case e: IllegalArgumentException => Some(e.getMessage)
+        catch case e: IllegalStateException => Some(e.getMessage)
         assertTrue(ex.exists(_.contains("Duplicate timeout name")))
       },
       test("fromSpecs skips timeout for Stay handler") {
@@ -731,7 +731,7 @@ object MachineSpec extends ZIOSpecDefault:
           )
         )
         val machine = Machine.fromSpecs[TestState, TestEvent](specs)
-        assertTrue(machine.stateEntryEffects.isEmpty)
+        assertTrue(machine.exists(_.stateEntryEffects.isEmpty))
       },
       test("fromSpecs uses default empty stateExitEffects") {
         // Call fromSpecs without specifying stateExitEffects - uses default Map.empty
@@ -745,7 +745,7 @@ object MachineSpec extends ZIOSpecDefault:
           )
         )
         val machine = Machine.fromSpecs[TestState, TestEvent](specs)
-        assertTrue(machine.stateExitEffects.isEmpty)
+        assertTrue(machine.exists(_.stateExitEffects.isEmpty))
       },
     ),
   ).provideLayer(ZLayer.succeed(zio.Scope.global)) @@ TestAspect.sequential

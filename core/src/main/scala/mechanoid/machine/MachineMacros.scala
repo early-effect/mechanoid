@@ -53,11 +53,14 @@ private[machine] object MachineMacros:
             s"${orphan.description}: marked @@ Aspect.overriding but no duplicate to override"
           )
         '{
+          // Machine.apply is a Machine. A pair the macro missed fails here instead of replacing the earlier handler.
           Machine.fromSpecs[S, E](
             $assemblyExpr.specs,
             $assemblyExpr.stateEntryEffects,
             $assemblyExpr.stateExitEffects,
-          )(using $finiteS, $finiteE)
+          )(using $finiteS, $finiteE) match
+            case Right(machine) => machine
+            case Left(defect)   => throw new IllegalStateException(defect.message)
         }
     end match
   end applyImpl

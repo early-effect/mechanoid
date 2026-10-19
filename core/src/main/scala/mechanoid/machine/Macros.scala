@@ -68,14 +68,20 @@ object Macros:
       case Varargs(exprs) => exprs.toList
       case _              => report.errorAndAbort("anyOf requires inline arguments")
 
-    val allExprs  = first :: restExprs
-    val hashes    = allExprs.map(e => leafHashOf(MacroUtils.unwrap(e.asTerm)))
+    val allExprs = first :: restExprs
+    val syms     = allExprs.map { expr =>
+      val sym = Leaves.leafSymbol(MacroUtils.unwrap(expr.asTerm).tpe)
+      if !sym.exists then report.errorAndAbort(s"Cannot extract Finite leaf from ${expr.show}")
+      sym
+    }
+    val hashes    = syms.map(sym => hashFullName(sym.fullName))
+    val names     = syms.map(sym => if sym.name.endsWith("$") then sym.name.dropRight(1) else sym.name)
     val hashesSet = Expr(hashes.toSet)
+    val namesExpr = Expr(names)
 
     '{
       val allValues = $first +: $rest
-      val names     = allValues.map(_.toString).toList
-      new AnyOfMatcher[S](allValues, $hashesSet, names)
+      new AnyOfMatcher[S](allValues, $hashesSet, $namesExpr)
     }
   end anyOfStatesImplMacro
 
@@ -93,14 +99,20 @@ object Macros:
       case Varargs(exprs) => exprs.toList
       case _              => report.errorAndAbort("anyOfEvents requires inline arguments")
 
-    val allExprs  = first :: restExprs
-    val hashes    = allExprs.map(e => leafHashOf(MacroUtils.unwrap(e.asTerm)))
+    val allExprs = first :: restExprs
+    val syms     = allExprs.map { expr =>
+      val sym = Leaves.leafSymbol(MacroUtils.unwrap(expr.asTerm).tpe)
+      if !sym.exists then report.errorAndAbort(s"Cannot extract Finite leaf from ${expr.show}")
+      sym
+    }
+    val hashes    = syms.map(sym => hashFullName(sym.fullName))
+    val names     = syms.map(sym => if sym.name.endsWith("$") then sym.name.dropRight(1) else sym.name)
     val hashesSet = Expr(hashes.toSet)
+    val namesExpr = Expr(names)
 
     '{
       val allValues = $first +: $rest
-      val names     = allValues.map(_.toString).toList
-      new AnyOfEventMatcher[E](allValues, $hashesSet, names)
+      new AnyOfEventMatcher[E](allValues, $hashesSet, $namesExpr)
     }
   end anyOfEventsImplMacro
 
