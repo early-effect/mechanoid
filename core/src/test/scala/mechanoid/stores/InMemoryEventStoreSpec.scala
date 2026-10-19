@@ -36,16 +36,16 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("appends event and returns sequence number") {
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          seq1  <- store.append("fsm-1", Event1, 0L)
-          seq2  <- store.append("fsm-1", Event2, 1L)
+          seq1  <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          seq2  <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
         yield assertTrue(seq1 == 1L, seq2 == 2L)
       },
       test("maintains separate sequence numbers per instance") {
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          seq1a <- store.append("fsm-1", Event1, 0L)
-          seq2a <- store.append("fsm-2", Event1, 0L)
-          seq1b <- store.append("fsm-1", Event2, 1L)
+          seq1a <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          seq2a <- store.append("fsm-2", Event1, 0L, java.time.Instant.EPOCH)
+          seq1b <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
         yield assertTrue(seq1a == 1L, seq2a == 1L, seq1b == 2L)
       },
     ),
@@ -53,8 +53,8 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("loads events for an instance") {
         for
           store  <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _      <- store.append("fsm-1", Event1, 0L)
-          _      <- store.append("fsm-1", Event2, 1L)
+          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
           events <- store.loadEvents("fsm-1").runCollect
         yield assertTrue(
           events.size == 2,
@@ -71,8 +71,8 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("does not load events from other instances") {
         for
           store  <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _      <- store.append("fsm-1", Event1, 0L)
-          _      <- store.append("fsm-2", Event2, 0L)
+          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          _      <- store.append("fsm-2", Event2, 0L, java.time.Instant.EPOCH)
           events <- store.loadEvents("fsm-1").runCollect
         yield assertTrue(
           events.size == 1,
@@ -84,9 +84,9 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("evicts oldest events when limit exceeded") {
         for
           store  <- InMemoryEventStore.make[String, TestState, TestEvent](maxEventsPerInstance = 2)
-          _      <- store.append("fsm-1", Event1, 0L) // seqNr 1
-          _      <- store.append("fsm-1", Event2, 1L) // seqNr 2
-          _      <- store.append("fsm-1", Event1, 2L) // seqNr 3, evicts seqNr 1
+          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH) // seqNr 1
+          _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH) // seqNr 2
+          _      <- store.append("fsm-1", Event1, 2L, java.time.Instant.EPOCH) // seqNr 3, evicts seqNr 1
           events <- store.loadEvents("fsm-1").runCollect
         yield assertTrue(
           events.size == 2,
@@ -97,9 +97,9 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("maintains sequence numbers after eviction") {
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent](maxEventsPerInstance = 2)
-          _     <- store.append("fsm-1", Event1, 0L)
-          _     <- store.append("fsm-1", Event2, 1L)
-          _     <- store.append("fsm-1", Event1, 2L)
+          _     <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          _     <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
+          _     <- store.append("fsm-1", Event1, 2L, java.time.Instant.EPOCH)
           seqNr <- store.highestSequenceNr("fsm-1")
         yield assertTrue(seqNr == 3L)
       },
@@ -108,7 +108,7 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("keeps all events without eviction") {
         for
           store  <- InMemoryEventStore.makeUnbounded[String, TestState, TestEvent]
-          _      <- ZIO.foreachDiscard(1 to 10)(_ => store.append("fsm-1", Event1, 0L))
+          _      <- ZIO.foreachDiscard(1 to 10)(_ => store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH))
           events <- store.loadEvents("fsm-1").runCollect
         yield assertTrue(events.size == 10)
       }
@@ -156,9 +156,9 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("returns highest sequence number after appends") {
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _     <- store.append("fsm-1", Event1, 0L)
-          _     <- store.append("fsm-1", Event2, 1L)
-          _     <- store.append("fsm-1", Event1, 2L)
+          _     <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          _     <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
+          _     <- store.append("fsm-1", Event1, 2L, java.time.Instant.EPOCH)
           seqNr <- store.highestSequenceNr("fsm-1")
         yield assertTrue(seqNr == 3L)
       },
@@ -167,7 +167,7 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("clears all data") {
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _     <- store.append("fsm-1", Event1, 0L)
+          _     <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
           snapshot: FSMSnapshot[String, TestState] = FSMSnapshot("fsm-1", StateA, 1L, java.time.Instant.now())
           _      <- store.saveSnapshot(snapshot)
           _      <- store.clear
@@ -181,7 +181,7 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("provides EventStore service with default config") {
         val program =
           for seqNr <- ZIO.serviceWithZIO[EventStore[String, TestState, TestEvent]](
-              _.append("fsm-1", Event1, 0L)
+              _.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
             )
           yield assertTrue(seqNr == 1L)
 
@@ -190,9 +190,9 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("provides EventStore service with custom config") {
         val program = for
           store  <- ZIO.service[EventStore[String, TestState, TestEvent]]
-          _      <- store.append("fsm-1", Event1, 0L)
-          _      <- store.append("fsm-1", Event2, 1L)
-          _      <- store.append("fsm-1", Event1, 2L) // Should trigger eviction
+          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
+          _      <- store.append("fsm-1", Event1, 2L, java.time.Instant.EPOCH) // Should trigger eviction
           events <- store.loadEvents("fsm-1").runCollect
         yield assertTrue(events.size == 2) // Only 2 due to limit
 
@@ -205,7 +205,7 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("unboundedLayer provides unbounded store") {
         val program = for
           store  <- ZIO.service[EventStore[String, TestState, TestEvent]]
-          _      <- ZIO.foreachDiscard(1 to 10)(_ => store.append("fsm-1", Event1, 0L))
+          _      <- ZIO.foreachDiscard(1 to 10)(_ => store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH))
           events <- store.loadEvents("fsm-1").runCollect
         yield assertTrue(events.size == 10)
 
@@ -216,9 +216,9 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("loadEventsFrom filters events after sequence number") {
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _     <- store.append("fsm-1", Event1, 0L) // seqNr 1
-          _     <- store.append("fsm-1", Event2, 1L) // seqNr 2
-          _     <- store.append("fsm-1", Event1, 2L) // seqNr 3
+          _     <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH) // seqNr 1
+          _     <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH) // seqNr 2
+          _     <- store.append("fsm-1", Event1, 2L, java.time.Instant.EPOCH) // seqNr 3
           // loadEventsFrom with fromSequenceNr=1 should return events with seqNr > 1
           events <- store.loadEventsFrom("fsm-1", 1L).runCollect
         yield assertTrue(
@@ -230,24 +230,24 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("loadEventsFrom returns empty when fromSequenceNr is at highest") {
         for
           store  <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _      <- store.append("fsm-1", Event1, 0L) // seqNr 1
-          _      <- store.append("fsm-1", Event2, 1L) // seqNr 2
+          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH) // seqNr 1
+          _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH) // seqNr 2
           events <- store.loadEventsFrom("fsm-1", 2L).runCollect
         yield assertTrue(events.isEmpty)
       },
       test("loadEventsFrom returns all events when fromSequenceNr is 0") {
         for
           store  <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _      <- store.append("fsm-1", Event1, 0L) // seqNr 1
-          _      <- store.append("fsm-1", Event2, 1L) // seqNr 2
+          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH) // seqNr 1
+          _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH) // seqNr 2
           events <- store.loadEventsFrom("fsm-1", 0L).runCollect
         yield assertTrue(events.size == 2)
       },
       test("deleteEventsTo removes events up to sequence number") {
         for
           store  <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _      <- store.append("fsm-1", Event1, 0L) // seqNr 1
-          _      <- store.append("fsm-1", Event2, 1L) // seqNr 2
+          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH) // seqNr 1
+          _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH) // seqNr 2
           _      <- store.deleteEventsTo("fsm-1", 1L)
           events <- store.loadEvents("fsm-1").runCollect
           seqNr  <- store.highestSequenceNr("fsm-1")
@@ -281,16 +281,16 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
       test("deleteInstance drops the log, the snapshot, and the sequence") {
         for
           store    <- InMemoryEventStore.make[String, TestState, TestEvent]()
-          _        <- store.append("fsm-1", Event1, 0L)
+          _        <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
           _        <- store.saveSnapshot(FSMSnapshot("fsm-1", StateA, 1L, java.time.Instant.now()))
-          _        <- store.append("fsm-2", Event2, 0L)
+          _        <- store.append("fsm-2", Event2, 0L, java.time.Instant.EPOCH)
           _        <- store.saveSnapshot(FSMSnapshot("fsm-2", StateB, 1L, java.time.Instant.now()))
           _        <- store.deleteInstance("fsm-1")
           events   <- store.loadEvents("fsm-1").runCollect
           snap     <- store.loadSnapshot("fsm-1")
           state    <- store.currentState("fsm-1")
           seq      <- store.highestSequenceNr("fsm-1")
-          again    <- store.append("fsm-1", Event1, 0L)
+          again    <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
           kept     <- store.loadEvents("fsm-2").runCollect
           keptSnap <- store.loadSnapshot("fsm-2")
         yield assertTrue(

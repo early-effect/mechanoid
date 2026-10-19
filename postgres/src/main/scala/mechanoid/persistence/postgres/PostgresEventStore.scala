@@ -40,6 +40,7 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](session: SqlSession) extend
       instanceId: String,
       event: E,
       expectedSeqNr: Long,
+      at: java.time.Instant,
   ): ZIO[Any, MechanoidError, Long] =
     // New sequence number is expectedSeqNr + 1
     // expectedSeqNr is the expected CURRENT highest sequence number
@@ -55,16 +56,14 @@ class PostgresEventStore[S: JsonCodec, E: JsonCodec](session: SqlSession) extend
           result     <-
             if currentSeq != expectedSeqNr then ZIO.succeed(Left(currentSeq))
             else
-              Clock.instant.flatMap { now =>
-                Insert[EventRow[E]]
-                  .value(_.instanceId, instanceId)
-                  .value(_.sequenceNr, newSeqNr)
-                  .value(_.eventData, Json(event))
-                  .value(_.createdAt, now)
-                  .build
-                  .dml
-                  .as(Right(newSeqNr))
-              }
+              Insert[EventRow[E]]
+                .value(_.instanceId, instanceId)
+                .value(_.sequenceNr, newSeqNr)
+                .value(_.eventData, Json(event))
+                .value(_.createdAt, at)
+                .build
+                .dml
+                .as(Right(newSeqNr))
         yield result
       }
       .catchAll {

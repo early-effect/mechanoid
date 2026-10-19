@@ -810,7 +810,7 @@ object FSMRuntime:
         val eventCaseHash   = machine.eventEnum.caseHash(stored.event)
         machine.transitions.get((currentCaseHash, eventCaseHash)) match
           case Some(transition) =>
-            transition.action(fsmState.current, stored.event).map {
+            EventClock.pinned(stored.timestamp)(transition.action(fsmState.current, stored.event)).map {
               case TransitionResult.Goto(newState) =>
                 fsmState.transitionTo(newState, stored.timestamp)
               case TransitionResult.Stay(newState) =>
@@ -887,9 +887,10 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       eventHash: Int,
   ): ZIO[Any, MechanoidError, TransitionOutcome[S]] =
     for
-      // Execute the transition action FIRST
-      // If it fails (e.g., external service call), the event is NOT persisted
-      result <- transition.action(fsmState.current, event)
+      // One instant for the action, the stored event, and a goto's lastTransitionAt.
+      at <- Clock.instant.map(EventClock.truncate)
+      // If the action fails, the event is NOT persisted
+      result <- EventClock.pinned(at)(transition.action(fsmState.current, event))
 
       targetState = result match
         case TransitionResult.Goto(s) => s
@@ -904,7 +905,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
 
       // Only persist after successful action execution
       currentSeqNr <- seqNrRef.get
-      seqNr        <- store.append(instanceId, event, currentSeqNr)
+      seqNr        <- store.append(instanceId, event, currentSeqNr, at)
       _            <- seqNrRef.set(seqNr)
 
       _ <- result match
@@ -914,7 +915,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
         case _ => ZIO.unit
 
       // Update state
-      _ <- handleTransitionResult(fsmState, event, result)
+      _ <- handleTransitionResult(fsmState, event, result, at)
 
       // Run per-transition entry effect (sync)
       _ <- runTransitionEntryEffect(stateHash, eventHash, event, targetState)
@@ -975,6 +976,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       fsmState: FSMState[S],
       event: E,
       result: TransitionResult[S],
+      at: Instant,
   ): ZIO[Any, MechanoidError, Unit] =
     result match
       case TransitionResult.Goto(newState) =>
@@ -983,9 +985,8 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
           _ <- cancelTimeout
           // Run exit effect for current state
           _ <- runStateExitEffect(event, fsmState.current)
-          // Update state
-          now <- Clock.instant
-          _   <- stateRef.update(_.transitionTo(newState, now))
+          // Update state. Stay does not move lastTransitionAt.
+          _ <- stateRef.update(_.transitionTo(newState, at))
           // Run entry effect for new state
           _ <- runStateEntryEffect(event, newState)
           // Start timeout for new state if configured

@@ -396,14 +396,14 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
       underlying: InMemoryEventStore[String, Leaf, Signal],
       armed: Ref[Boolean],
   ) extends EventStore[String, Leaf, Signal]:
-    override def append(instanceId: String, event: Signal, expectedSeqNr: Long) =
+    override def append(instanceId: String, event: Signal, expectedSeqNr: Long, at: Instant) =
       armed.get.flatMap {
         case true if event == Tick =>
           armed.set(false) *>
-            underlying.append(instanceId, Ping, expectedSeqNr) *>
+            underlying.append(instanceId, Ping, expectedSeqNr, at) *>
             ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, expectedSeqNr + 1))
         case _ =>
-          underlying.append(instanceId, event, expectedSeqNr)
+          underlying.append(instanceId, event, expectedSeqNr, at)
       }
     override def loadEvents(instanceId: String)   = underlying.loadEvents(instanceId)
     override def loadSnapshot(instanceId: String) =

@@ -70,7 +70,7 @@ returns `Paid`. `fsm.delete` removes the log and the snapshot. The id can be reu
               ZLayer.succeed[InstanceIndex[OrderId]](index) ++
               TimeoutStrategy.fiber[OrderId] ++
               LockingStrategy.optimistic[OrderId]
-            _         <- events.append(orderId, Pay, 0L)
+            _         <- events.append(orderId, Pay, 0L, java.time.Instant.EPOCH)
             _         <- events.saveSnapshot(FSMSnapshot(orderId, Paid, 1L, Instant.EPOCH))
             _         <- events.deleteEventsTo(orderId, 1L)
             truncated <- FSMRuntime.readState(orderId, machine, Pending).provide(layers)
@@ -86,7 +86,7 @@ returns `Paid`. `fsm.delete` removes the log and the snapshot. The id can be reu
               }
               .provide(layers)
             deleted   <- FSMRuntime.readState(orderId, machine, Pending).provide(layers)
-            restarted <- events.append(orderId, Pay, 0L)
+            restarted <- events.append(orderId, Pay, 0L, java.time.Instant.EPOCH)
           yield (truncated.map(_.toString), deleted.isEmpty, restarted)
         }.asDoc
       }.assert { case (truncated, deleted, restarted) =>
@@ -133,7 +133,7 @@ The environment is `EventStore`, `TimeoutStrategy`, `LockingStrategy`, and `Inst
           lock     <- InMemoryFSMInstanceLock.make[OrderId]
           now      <- Clock.instant
           strategy <- DistributedLockingStrategy.make(lock)
-          _        <- events.append(orderId, Pay, 0L)
+          _        <- events.append(orderId, Pay, 0L, java.time.Instant.EPOCH)
           _        <- events.saveSnapshot(FSMSnapshot(orderId, OrderState.Paid, 1L, now))
           _        <- index.bind(campaign, orderId)
           _        <- index.bindIndexes(Chunk(IndexKey("assignee", "me")), orderId, IndexMeta("Paid", now, now, None))

@@ -25,7 +25,7 @@ import scala.annotation.unused
   * // Bounded store (production use)
   * for
   *   store <- InMemoryEventStore.make[String, MyState, MyEvent]()
-  *   _     <- store.append("instance-1", event, 0L)
+  *   _     <- store.append("instance-1", event, 0L, java.time.Instant.EPOCH)
   * yield ()
   *
   * // Custom bound
@@ -46,15 +46,15 @@ final class InMemoryEventStore[Id, S, E] private (
       instanceId: Id,
       event: E,
       @unused expectedSeqNr: Long,
+      at: java.time.Instant,
   ): ZIO[Any, MechanoidError, Long] =
     for
-      now   <- Clock.instant
       seqNr <- seqNrRef.modify { seqNrs =>
         val current  = seqNrs.getOrElse(instanceId, 0L)
         val newSeqNr = current + 1
         (newSeqNr, seqNrs + (instanceId -> newSeqNr))
       }
-      stored = StoredEvent(instanceId, seqNr, event, now)
+      stored = StoredEvent(instanceId, seqNr, event, at)
       _ <- eventsRef.update { events =>
         val current = events.getOrElse(instanceId, Chunk.empty)
         val withNew = current :+ stored

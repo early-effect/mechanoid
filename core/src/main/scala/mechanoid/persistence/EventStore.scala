@@ -3,6 +3,7 @@ package mechanoid.persistence
 import zio.*
 import zio.stream.*
 import mechanoid.core.*
+import java.time.Instant
 import scala.annotation.unused
 
 /** Abstract storage trait for event sourcing with distributed safety guarantees.
@@ -134,6 +135,8 @@ trait EventStore[Id, S, E]:
     *   The event to persist
     * @param expectedSeqNr
     *   The sequence number we expect to be current (0 for new instances)
+    * @param at
+    *   The event instant. Store this value. Do not read the clock.
     * @return
     *   The newly assigned sequence number, or fails with SequenceConflictError
     */
@@ -141,6 +144,7 @@ trait EventStore[Id, S, E]:
       instanceId: Id,
       event: E,
       expectedSeqNr: Long,
+      at: Instant,
   ): ZIO[Any, MechanoidError, Long]
 
   /** Load all events for an FSM instance in sequence order.

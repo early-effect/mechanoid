@@ -56,13 +56,23 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
 
   def spec = suite("IndexedDb stores")(
     suite("EventStore")(
+      test("append round-trips a millisecond instant") {
+        val at = java.time.Instant.parse("2026-01-01T00:00:00.123Z")
+        for
+          _      <- installFakeIdb
+          dbName <- uniqueDb
+          store  <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
+          _      <- store.append("o1", Pay, 0L, at)
+          events <- store.loadEvents("o1").runCollect
+        yield assertTrue(events.map(_.timestamp) == Chunk(at))
+      },
       test("append and load events") {
         for
           _      <- installFakeIdb
           dbName <- uniqueDb
           store  <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
-          seq1   <- store.append("o1", Pay, 0L)
-          seq2   <- store.append("o1", Ship, 1L)
+          seq1   <- store.append("o1", Pay, 0L, java.time.Instant.EPOCH)
+          seq2   <- store.append("o1", Ship, 1L, java.time.Instant.EPOCH)
           events <- store.loadEvents("o1").runCollect
         yield assertTrue(seq1 == 1L, seq2 == 2L, events.map(_.event) == Chunk(Pay, Ship))
       },
@@ -71,8 +81,8 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           _      <- installFakeIdb
           dbName <- uniqueDb
           store  <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
-          _      <- store.append("o1", Pay, 0L)
-          result <- store.append("o1", Ship, 0L).either
+          _      <- store.append("o1", Pay, 0L, java.time.Instant.EPOCH)
+          result <- store.append("o1", Ship, 0L, java.time.Instant.EPOCH).either
         yield assertTrue(result.isLeft)
       },
       test("deleteInstance removes events and the snapshot") {
@@ -81,16 +91,16 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           dbName   <- uniqueDb
           store    <- IndexedDbEventStore.make[TestState, TestEvent](dbName)
           now      <- Clock.instant
-          _        <- store.append("o1", Pay, 0L)
+          _        <- store.append("o1", Pay, 0L, java.time.Instant.EPOCH)
           _        <- store.saveSnapshot(FSMSnapshot("o1", Paid, 1L, now))
-          _        <- store.append("o2", Ship, 0L)
+          _        <- store.append("o2", Ship, 0L, java.time.Instant.EPOCH)
           _        <- store.saveSnapshot(FSMSnapshot("o2", Shipped, 1L, now))
           _        <- store.deleteInstance("o1")
           events   <- store.loadEvents("o1").runCollect
           snap     <- store.loadSnapshot("o1")
           state    <- store.currentState("o1")
           seq      <- store.highestSequenceNr("o1")
-          again    <- store.append("o1", Pay, 0L)
+          again    <- store.append("o1", Pay, 0L, java.time.Instant.EPOCH)
           kept     <- store.loadEvents("o2").runCollect
           keptSnap <- store.loadSnapshot("o2")
         yield assertTrue(
@@ -137,9 +147,9 @@ object IndexedDbStoresSpec extends ZIOSpecDefault:
           keyA   = IndexKey("assignee", "me")
           keyB   = IndexKey("assignee", "you")
           row    = IndexMeta("Paid", now, now, None)
-          _ <- events.append("a", Pay, 0L)
+          _ <- events.append("a", Pay, 0L, java.time.Instant.EPOCH)
           _ <- events.saveSnapshot(FSMSnapshot("a", Paid, 1L, now))
-          _ <- events.append("b", Ship, 0L)
+          _ <- events.append("b", Ship, 0L, java.time.Instant.EPOCH)
           _ <- events.saveSnapshot(FSMSnapshot("b", Shipped, 1L, now))
           _ <- index.bind(aliasA, "a")
           _ <- index.bind(aliasB, "b")

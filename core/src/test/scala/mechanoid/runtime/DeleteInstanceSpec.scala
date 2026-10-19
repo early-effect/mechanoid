@@ -60,7 +60,7 @@ object DeleteInstanceSpec extends ZIOSpecDefault:
               for
                 _       <- fsm.send(Signal.Go)
                 _       <- fsm.saveSnapshot
-                _       <- events.append("b", Signal.Go, 0L)
+                _       <- events.append("b", Signal.Go, 0L, java.time.Instant.EPOCH)
                 _       <- events.saveSnapshot(FSMSnapshot("b", Leaf.Done, 1L, now))
                 _       <- index.bind(aliasA, "a")
                 _       <- index.bind(aliasB, "b")
@@ -83,7 +83,7 @@ object DeleteInstanceSpec extends ZIOSpecDefault:
         goneSnap   <- events.loadSnapshot("a")
         goneState  <- events.currentState("a")
         goneSeq    <- events.highestSequenceNr("a")
-        restarted  <- events.append("a", Signal.Go, 0L)
+        restarted  <- events.append("a", Signal.Go, 0L, java.time.Instant.EPOCH)
         goneAlias  <- index.resolve(aliasA)
         goneIndex  <- index.indexesOf("a")
         goneTimer  <- timeouts.get("a")
@@ -121,7 +121,7 @@ object DeleteInstanceSpec extends ZIOSpecDefault:
         lock     <- InMemoryFSMInstanceLock.make[String]
         strategy <- DistributedLockingStrategy.make(lock)
         now      <- Clock.instant
-        _        <- events.append("a", Signal.Go, 0L)
+        _        <- events.append("a", Signal.Go, 0L, java.time.Instant.EPOCH)
         _        <- events.saveSnapshot(FSMSnapshot("a", Leaf.Done, 1L, now))
         _        <- index.bind(aliasA, "a")
         _        <- index.bindIndexes(Chunk(keyA), "a", meta(now))
@@ -170,7 +170,7 @@ object DeleteInstanceSpec extends ZIOSpecDefault:
         events <- InMemoryEventStore.make[String, Leaf, Signal]()
         index  <- InMemoryInstanceIndex.make[String]
         fiber  <- FiberTimeoutStrategy.make[String]
-        _      <- events.append("a", Signal.Go, 0L)
+        _      <- events.append("a", Signal.Go, 0L, java.time.Instant.EPOCH)
         _      <- ZIO
           .scoped {
             FSMRuntime("a", machine, Leaf.Open, AliasExtractor.none[Leaf], IndexExtractor.none[Leaf])

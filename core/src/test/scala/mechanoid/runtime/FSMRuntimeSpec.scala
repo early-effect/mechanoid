@@ -754,8 +754,8 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
           // Persist some events
-          _ <- store.append("fsm-1", E1, 0L)
-          _ <- store.append("fsm-1", E2, 1L)
+          _ <- store.append("fsm-1", E1, 0L, java.time.Instant.EPOCH)
+          _ <- store.append("fsm-1", E2, 1L, java.time.Instant.EPOCH)
           // Create runtime which should replay events
           runtime <- FSMRuntime[String, TestState, TestEvent](
             "fsm-1",
@@ -781,7 +781,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
           // Persist invalid event (E2 not valid from initial state A)
-          _      <- store.append("fsm-1", E2, 0L)
+          _      <- store.append("fsm-1", E2, 0L, java.time.Instant.EPOCH)
           result <- FSMRuntime[String, TestState, TestEvent](
             "fsm-1",
             simpleMachine,
@@ -936,7 +936,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
           // Persist E1 event which triggers stay
-          _       <- store.append("fsm-stay-test", E1, 0L)
+          _       <- store.append("fsm-stay-test", E1, 0L, java.time.Instant.EPOCH)
           runtime <- FSMRuntime[String, TestState, TestEvent](
             "fsm-stay-test",
             stayMachine,
@@ -970,7 +970,7 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         for
           store <- InMemoryEventStore.make[String, TestState, TestEvent]()
           // Persist E1 event which triggers stop
-          _       <- store.append("fsm-stop-test", E1, 0L)
+          _       <- store.append("fsm-stop-test", E1, 0L, java.time.Instant.EPOCH)
           runtime <- FSMRuntime[String, TestState, TestEvent](
             "fsm-stop-test",
             stopMachine,

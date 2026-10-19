@@ -1,5 +1,6 @@
 package mechanoid.persistence.timeout
 
+import java.time.Instant
 import zio.*
 import zio.test.*
 import mechanoid.core.{Finite, SequenceConflictError}
@@ -203,10 +204,10 @@ object InMemoryTimeoutClusterSpec extends ZIOSpecDefault:
       underlying: InMemoryEventStore[String, ClusterState, ClusterEvent],
       lock: Semaphore,
   ) extends EventStore[String, ClusterState, ClusterEvent]:
-    override def append(instanceId: String, event: ClusterEvent, expectedSeqNr: Long) =
+    override def append(instanceId: String, event: ClusterEvent, expectedSeqNr: Long, at: Instant) =
       lock.withPermit {
         underlying.highestSequenceNr(instanceId).flatMap { actual =>
-          if actual == expectedSeqNr then underlying.append(instanceId, event, expectedSeqNr)
+          if actual == expectedSeqNr then underlying.append(instanceId, event, expectedSeqNr, at)
           else ZIO.fail(SequenceConflictError(instanceId, expectedSeqNr, actual))
         }
       }
