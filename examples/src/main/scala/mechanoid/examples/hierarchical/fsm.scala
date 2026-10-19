@@ -30,7 +30,8 @@ import zio.*
   *   └── Cancelled                (leaf - cancelled state)
   * }}}
   *
-  * The `all[T]` matcher allows defining transitions that apply to all leaf states under a parent:
+  * `all[Parent]` names every leaf under that parent. A set that is not a subtree is a union alias (`type Archivable =
+  * Draft | Published`), not a second `extends` on the leaf:
   * {{{
   * // Cancel from any InReview state goes back to Draft
   * all[InReview] via CancelReview to Draft,

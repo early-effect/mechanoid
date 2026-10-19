@@ -93,6 +93,8 @@ val machine = Machine(
     md"""
 Hierarchical states keep review and approval phases readable. Nested sealed traits group leaves;
 `all[T]` applies one transition to every leaf under a parent; fragments compose with `++`.
+These groups are parents in the tree. A set that is not a subtree is a union alias, on
+[Core Concepts](core-concepts.html).
 
 Teaching slice of `examples/.../hierarchical`. The machine used by every example on this page:
 """,

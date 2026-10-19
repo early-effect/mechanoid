@@ -142,6 +142,22 @@ object CompileTimeRejectSpec extends ZIOSpecDefault:
       """)
       assertZIO(result)(Assertion.isRight)
     },
+    test("a leaf with two sealed parents is not a hash collision") {
+      val result = typeCheck("""
+        import mechanoid.core.Finite
+        sealed trait S derives Finite
+        sealed trait P1 extends S
+        sealed trait P2 extends S
+        case object X extends P1, P2
+      """)
+      assertZIO(result)(
+        Assertion.isLeft(
+          Assertion.containsString("X") &&
+            Assertion.containsString("union") &&
+            !Assertion.containsString("Hash collision")
+        )
+      )
+    },
     test("duplicate computed edges are rejected") {
       val result = typeCheck("""
         import mechanoid.machine.*

@@ -15,9 +15,9 @@ object Reference extends MechanoidDocSpecSuite:
       md"""
 | Construct | Role |
 |-----------|------|
-| `all[T]` | Every leaf under parent `T` |
-| `anyOf(s1, …)` | Explicit state list |
-| `state[S]` / `event[E]` | Match by type (payload cases) |
+| `all[T]` | Leaves of a sealed parent, a union, or an alias of either |
+| `anyOf(s1, …)` | Unnamed list of state values |
+| `state[S]` / `event[E]` | One leaf. A parent or a union is `all` |
 | `viaAnyOf` / `anyOfEvents` / `viaAll` | Multi-event edges |
 | `stay` / `stop` / `stop("reason")` | Self-loop or terminal |
 | `.to[Leaf] { (s, e) => ... }` | Compute Goto payload for that leaf |

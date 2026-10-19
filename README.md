@@ -14,7 +14,7 @@ States and events are enums, and an illegal assembly does not compile.
 
 - **Declarative DSL** — `State via Event to Target`
 - **Compile-time validation** — duplicate transitions, overrides, produced-event types
-- **Hierarchical states** — nested sealed traits and `all[T]` group transitions
+- **Hierarchical states**: `all[Parent]` for a sealed family, and a union alias when the set is not a parent
 - **Composable assemblies** — reusable fragments with full compile-time checks
 - **ZIO on every edge** — entry effects, producing effects, env and errors
 - **Optional production rungs** — event sourcing, durable timeouts, distributed locks

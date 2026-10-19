@@ -269,16 +269,6 @@ lazy val examples = project
     },
   )
 
-lazy val compileExperiments = project
-  .in(file("compile-experiments"))
-  .dependsOn(core.jvm(scala3Version))
-  .settings(commonSettings)
-  .settings(
-    name           := "compile-experiments",
-    publish / skip := true,
-    zipxPublish    := Some(false),
-  )
-
 lazy val compileTimeChecks = project
   .in(file("compile-time-checks"))
   .dependsOn(core.jvm(scala3Version))

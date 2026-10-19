@@ -82,8 +82,11 @@ Mechanoid catches many mistakes before runtime:
 | Inline assembly | `Machine(valAssembly)` when orphan detection needs the tree |
 | Produced events | `.producing` returning an unrelated event type |
 | Case collisions | Distinct cases that hash alike (`CaseHasher`); rename the case |
+| Matcher leaves | `all[T]` where `T` denotes no leaves |
+| One leaf | `state[T]` / `event[T]` of a parent or a union. Write `all[T]` |
+| One sealed parent | A leaf under two sealed parents. Name the group with a union |
 
-`all[T]` expands to every leaf under `T`. Here both processing leaves cancel the same way:
+`all[T]` denotes the leaves of `T`. Here both processing leaves cancel the same way:
 """,
       example {
         sealed trait ProcState derives Finite

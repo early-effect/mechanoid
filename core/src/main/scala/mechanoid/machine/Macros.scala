@@ -1,5 +1,6 @@
 package mechanoid.machine
 
+import mechanoid.macros.Leaves
 import scala.quoted.*
 
 /** Macros for the suite-style DSL.
@@ -15,63 +16,37 @@ object Macros:
     * `widenTermRefByName` (that walks to the parent enum).
     */
   private def leafSymbol(using Quotes)(tpe: quotes.reflect.TypeRepr): quotes.reflect.Symbol =
-    import quotes.reflect.*
-    def isLeaf(sym: Symbol): Boolean =
-      sym.flags.is(Flags.Case) || sym.flags.is(Flags.Enum) || sym.flags.is(Flags.Module)
+    Leaves.leafSymbol(tpe)
 
-    val d = tpe.dealias
-    d match
-      case TermRef(prefix, _) =>
-        val ts = d.termSymbol
-        if !ts.exists then d.typeSymbol
-        else if isLeaf(ts) then ts
-        else leafSymbol(prefix.memberType(ts).dealias)
-      case _ => d.typeSymbol
-  end leafSymbol
+  private[machine] def hashFullName(fullName: String): Int =
+    val normalized = if fullName.endsWith("$") then fullName.dropRight(1) else fullName
+    normalized.hashCode
 
   private def leafHash(using Quotes)(tpe: quotes.reflect.TypeRepr): Int =
     import quotes.reflect.*
     val sym = leafSymbol(tpe)
     if !sym.exists then report.errorAndAbort(s"Cannot extract Finite leaf from type: ${tpe.show}")
-    val fullName   = sym.fullName
-    val normalized = if fullName.endsWith("$") then fullName.dropRight(1) else fullName
-    normalized.hashCode
+    hashFullName(sym.fullName)
 
-  private def leafHashOf(using Quotes)(expr: quotes.reflect.Term): Int =
+  private[machine] def leafHashOf(using Quotes)(expr: quotes.reflect.Term): Int =
     leafHash(expr.tpe)
 
-  /** Implementation of `all[T]` - expands sealed type to all leaf children. */
+  /** Implementation of `all[T]`. `T` denotes a non-empty set of leaves: a parent, a union, or an alias. */
   def allImpl[T: Type](using Quotes): Expr[AllMatcher[T]] =
     import quotes.reflect.*
 
-    val tpe = TypeRepr.of[T]
-    val sym = tpe.typeSymbol
-
-    def findLeafCases(s: Symbol): List[Symbol] =
-      if !s.exists then Nil
-      else
-        s.children.flatMap { child =>
-          if child.flags.is(Flags.Sealed) then findLeafCases(child)
-          else if child.flags.is(Flags.Case) || child.flags.is(Flags.Enum) then List(child)
-          else Nil
-        }
+    val leaves = Leaves.denote(TypeRepr.of[T]) match
+      case Right(found) => found
+      case Left(error)  => report.errorAndAbort(Leaves.message(error), Position.ofMacroExpansion)
 
     def computeHash(fullName: String): Int =
-      val normalized = if fullName.endsWith("$") then fullName.dropRight(1) else fullName
-      normalized.hashCode
+      hashFullName(fullName)
 
-    val leaves =
-      if sym.flags.is(Flags.Sealed) then findLeafCases(sym)
-      else List(sym)
-
-    if leaves.isEmpty then
-      report.errorAndAbort(
-        s"Type ${sym.name} has no case children. Use a sealed trait/class or enum.",
-        Position.ofMacroExpansion,
-      )
+    def label(name: String): String =
+      if name.endsWith("$") then name.dropRight(1) else name
 
     val hashes = leaves.map(c => computeHash(c.fullName))
-    val names  = leaves.map(_.name)
+    val names  = leaves.map(c => label(c.name))
 
     val hashesExpr = Expr(hashes.toSet)
     val namesExpr  = Expr(names)
@@ -192,7 +167,8 @@ object Macros:
     */
   def eventMatcherImpl[E: Type](using Quotes): Expr[EventMatcher[E]] =
     import quotes.reflect.*
-    val tpe  = TypeRepr.of[E]
+    val tpe = TypeRepr.of[E]
+    requireOneLeaf(tpe)
     val sym  = leafSymbol(tpe)
     val hash = leafHash(tpe)
     val name = sym.name
@@ -205,12 +181,35 @@ object Macros:
     */
   def stateMatcherImpl[S: Type](using Quotes): Expr[StateMatcher[S]] =
     import quotes.reflect.*
-    val tpe  = TypeRepr.of[S]
+    val tpe = TypeRepr.of[S]
+    requireOneLeaf(tpe)
     val sym  = leafSymbol(tpe)
     val hash = leafHash(tpe)
     val name = sym.name
     '{ new StateMatcher[S](${ Expr(hash) }, ${ Expr(name) }) }
   end stateMatcherImpl
+
+  /** `state[T]` and `event[T]` denote one leaf. A parent or a union is `all[T]`. */
+  private def requireOneLeaf(using Quotes)(tpe: quotes.reflect.TypeRepr): Unit =
+    import quotes.reflect.*
+    val label = Leaves.shown(tpe)
+    if Leaves.isGroup(tpe) then
+      report.errorAndAbort(
+        s"$label is not one leaf. Use all[$label] to match its leaves.",
+        Position.ofMacroExpansion,
+      )
+    else
+      Leaves.denote(tpe) match
+        case Right(List(_)) => ()
+        case Right(_)       =>
+          report.errorAndAbort(
+            s"$label is not one leaf. Use all[$label] to match its leaves.",
+            Position.ofMacroExpansion,
+          )
+        case Left(error) =>
+          report.errorAndAbort(Leaves.message(error), Position.ofMacroExpansion)
+    end if
+  end requireOneLeaf
 
 end Macros
 
@@ -285,9 +284,10 @@ end extension
 // Top-level DSL functions
 // ============================================
 
-/** Match ALL children of a sealed parent type.
+/** Match the leaves `T` denotes.
   *
-  * Useful for defining transitions that apply to all subtypes of a sealed trait or enum.
+  * `T` is a sealed parent, a union, or an alias of either. A sealed parent is a family in the tree. A set that cuts
+  * across the tree is a union alias. A leaf has one sealed parent.
   *
   * @example
   *   {{{
@@ -295,20 +295,23 @@ end extension
   * case object Validating extends ProcessingState
   * case object Charging extends ProcessingState
   *
-  * // All processing states can be cancelled
+  * // Every leaf under the parent
   * all[ProcessingState] via Cancel to Cancelled
+  *
+  * type Archivable = Draft | Live | Stopped
+  * all[Archivable] via Archive to Archived
   *   }}}
   *
   * @tparam T
-  *   A sealed trait, sealed class, or enum
+  *   A sealed parent, a union of leaves, or an alias of either
   * @return
-  *   A matcher that matches all leaf case children of T
+  *   A matcher for exactly those leaves
   */
 inline def all[T]: AllMatcher[T] = ${ Macros.allImpl[T] }
 
-/** Create a type-based event matcher for parameterized case classes.
+/** Match one event leaf by type.
   *
-  * Useful for matching events by type rather than by value, especially for events that carry data.
+  * A sealed parent or a union is not one leaf: write `all[E]`. Useful when the case carries data.
   *
   * @example
   *   {{{
@@ -327,9 +330,9 @@ inline def all[T]: AllMatcher[T] = ${ Macros.allImpl[T] }
   */
 transparent inline def event[E]: EventMatcher[E] = ${ Macros.eventMatcherImpl[E] }
 
-/** Create a type-based state matcher for parameterized case classes.
+/** Match one state leaf by type.
   *
-  * Useful for matching states by type rather than by value, especially for states that carry data.
+  * A sealed parent or a union is not one leaf: write `all[S]`. Useful when the case carries data.
   *
   * @example
   *   {{{
