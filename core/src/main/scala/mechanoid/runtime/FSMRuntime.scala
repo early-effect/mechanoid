@@ -821,7 +821,6 @@ object FSMRuntime:
           case None =>
             // Event doesn't match current FSM definition - fail explicitly
             ZIO.fail(EventReplayError(fsmState.current, stored.event, stored.sequenceNr))
-        end match
       }
     }
 end FSMRuntime
@@ -1034,7 +1033,6 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       seqNr <- seqNrRef.get
       _     <- ZIO.foreachDiscard(specs)(armTimeout(state, seqNr, _))
     yield ()
-  end startTimeout
 
   /** Re-arm the timer that just fired, and any other payload timer whose instant moved. */
   private def rearmStay(event: E, old: S, next: S): UIO[Unit] =
@@ -1052,9 +1050,7 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
           rearm(next, spec)
         case _ =>
           ZIO.unit
-      end match
     }
-  end rearmStay
 
   private def rearm(state: S, spec: TimeoutSpec[S, E]): UIO[Unit] =
     for
@@ -1077,8 +1073,6 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
       }
       _ <- timeoutStrategy.schedule(instanceId, spec.name, stateHash, seqNr, deadline, onTimeout)
     yield ()
-    end for
-  end armTimeout
 
   override def currentState: UIO[S] = stateRef.get.map(_.current)
 
@@ -1213,7 +1207,6 @@ private[mechanoid] final class FSMRuntimeImpl[Id, S, E](
           _ <- ZIO.when(removed.nonEmpty)(idx.unbindIndexes(removed, instanceId).unit)
           _ <- ZIO.when(wantedSet.nonEmpty)(idx.touchIndex(instanceId, meta).unit)
         yield ()
-        end for
       case _ => ZIO.unit
 end FSMRuntimeImpl
 
@@ -1240,4 +1233,3 @@ final class SessionPartiallyApplied[Id, S, E, Env] private[runtime] (
         }
       }
     }
-end SessionPartiallyApplied

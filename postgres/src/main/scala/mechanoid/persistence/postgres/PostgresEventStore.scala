@@ -234,6 +234,5 @@ object PostgresEventStore:
     given JsonCodec[S] = JsonCodec.derived[S]
     given JsonCodec[E] = JsonCodec.derived[E]
     ZLayer.fromFunction((xa: SqlSession) => new PostgresEventStore[S, E](xa))
-  end makeLayer
 
 end PostgresEventStore

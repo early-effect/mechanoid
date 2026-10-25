@@ -28,6 +28,7 @@ object Customer:
     Customer("cust-2", "Bob Jones", "bob@example.com", "456 Oak Ave, Riverside"),
     Customer("cust-3", "Carol White", "carol@example.com", "789 Pine Rd, Lakewood"),
   )
+end Customer
 
 /** Order data stored with the FSM */
 case class OrderData(

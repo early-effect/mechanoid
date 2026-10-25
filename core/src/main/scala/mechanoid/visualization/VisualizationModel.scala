@@ -57,7 +57,6 @@ case class ExecutionTrace[S, E](
   def isTerminal: Boolean     = steps.lastOption.exists(s => s.to == s.from && s.isTimeout)
   def visitedStates: Set[S]   = steps.flatMap(s => Set(s.from, s.to)).toSet + initialState
   def triggeredEvents: Set[E] = steps.map(_.event).toSet
-end ExecutionTrace
 
 object ExecutionTrace:
   /** Create an empty trace starting from an initial state. */
@@ -66,4 +65,3 @@ object ExecutionTrace:
       initialState: S,
   ): ExecutionTrace[S, E] =
     ExecutionTrace(instanceId, initialState, initialState, Nil)
-end ExecutionTrace

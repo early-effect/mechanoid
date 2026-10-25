@@ -85,7 +85,6 @@ object Front extends DocSpecSuite:
         }
       }
     }.toSet
-  end machineEdges
 
   def doc = page("Typed machines")(
     md"""States and events are enums, and an illegal assembly does not compile.""",

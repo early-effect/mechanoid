@@ -91,6 +91,7 @@ object PetStoreApp extends ZIOAppDefault:
         _  <- printLine(s"${dim(ts)} ${Magenta}[NOTIFY]$Reset Sending '$notifType' to ${info(email)}").orDie
         _  <- delegate.sendNotification(email, notifType)
       yield ()
+  end LoggingNotificationService
 
   // ============================================
   // Order Processing
@@ -175,7 +176,6 @@ object PetStoreApp extends ZIOAppDefault:
       case Shipped           => info(state.toString)
       case Delivered         => success(state.toString)
       case Cancelled         => error(state.toString)
-  end stateColor
 
   // ============================================
   // Visualization Generation
@@ -302,7 +302,6 @@ object PetStoreApp extends ZIOAppDefault:
         case (Shipped, _: DeliveryConfirmed)            => Delivered
         case _                                          => state
     }
-  end getStateAfterEvent
 
   // ============================================
   // Main Application

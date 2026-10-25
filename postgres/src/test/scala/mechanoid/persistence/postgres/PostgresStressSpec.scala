@@ -572,18 +572,14 @@ object PostgresStressSpec extends ZIOSpecDefault:
         instanceId = uniqueId("interrupt-chaos")
 
         // Start heavy workload - append many events
-        heavyWorkload =
-          for
-            // Append many events
-            _ <- ZIO.foreach(1 to 100) { i =>
-              eventStore.append(instanceId, StressEvent.Progressed(i), i.toLong, java.time.Instant.EPOCH).either
-            }
-          yield ()
-
-        // Run with short timeout then interrupt
-        fiber <- heavyWorkload.fork
-        _     <- ZIO.sleep(Duration.fromMillis(50))
-        _     <- fiber.interrupt
+        fiber <- (for
+          // Append many events
+          _ <- ZIO.foreach(1 to 100) { i =>
+            eventStore.append(instanceId, StressEvent.Progressed(i), i.toLong, java.time.Instant.EPOCH).either
+          }
+        yield ()).fork
+        _ <- ZIO.sleep(Duration.fromMillis(50))
+        _ <- fiber.interrupt
 
         // Database should still be consistent
         events <- eventStore.loadEvents(instanceId).runCollect

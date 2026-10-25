@@ -115,7 +115,6 @@ object TicketIndexDemoUi:
     startAfter match
       case Some(c) => ranked.limit(limit).startAfter(c)
       case None    => ranked.limit(limit)
-  end queryOf
 
   private val testId = AttrKey("data-testid", Codec.StringAsIs)
 

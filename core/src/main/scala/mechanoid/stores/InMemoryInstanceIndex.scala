@@ -62,7 +62,6 @@ final class InMemoryInstanceIndex[Id] private (
               case None => acc
           }
           (existing.size.toLong, state.copy(forward = nextForward, reverse = nextReverse))
-        end if
       }
 
   override def aliasesOf(instanceId: Id, namespace: Option[String] = None): ZIO[Any, MechanoidError, Chunk[Alias]] =
@@ -159,7 +158,6 @@ final class InMemoryInstanceIndex[Id] private (
               else state.indexReverse + (instanceId -> next)
             case None => state.indexReverse
           (removed.size.toLong, state.copy(indexForward = nextForward, indexReverse = nextReverse))
-        end if
       }
 
   override def touchIndex(instanceId: Id, meta: IndexMeta): ZIO[Any, MechanoidError, Long] =
@@ -212,7 +210,6 @@ final class InMemoryInstanceIndex[Id] private (
           )
       }
       .toSeq
-  end coveringRows
 
   private def requiredIds(state: State[Id], require: Chunk[IndexKey]): Option[Set[Id]] =
     require.toList match

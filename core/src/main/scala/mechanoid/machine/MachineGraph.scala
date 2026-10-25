@@ -28,5 +28,4 @@ object MachineGraph:
           case TransitionKind.Stay | TransitionKind.Stop(_) =>
             machine.stateEnum.nameOf(from)
       }
-  end destLeaf
 end MachineGraph

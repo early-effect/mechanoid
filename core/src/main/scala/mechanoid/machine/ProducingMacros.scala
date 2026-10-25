@@ -68,7 +68,6 @@ private[machine] object ProducingMacros:
            |This ensures compile-time validation that the produced event matches the FSM's event type.""".stripMargin,
         f.asTerm.pos,
       )
-    end if
   end producingImpl
 
 end ProducingMacros

@@ -36,3 +36,4 @@ object TransitionResult:
   /** Convenience method to create a Stop result without a reason. */
   def stop[S]: TransitionResult[S] =
     Stop(None)
+end TransitionResult

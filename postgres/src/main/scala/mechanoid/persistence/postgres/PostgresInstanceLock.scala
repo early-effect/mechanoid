@@ -55,7 +55,6 @@ class PostgresInstanceLock(session: SqlSession) extends FSMInstanceLock[String]:
             }
       }
       .mapError(PersistenceError.fromError)
-  end tryAcquire
 
   override def acquire(
       instanceId: String,
@@ -115,7 +114,6 @@ class PostgresInstanceLock(session: SqlSession) extends FSMInstanceLock[String]:
       }
       .map(_.map(lockRow => LockToken(token.instanceId, lockRow.nodeId, lockRow.acquiredAt, lockRow.expiresAt)))
       .mapError(PersistenceError.fromError)
-  end extend
 
   override def get(instanceId: String, now: Instant): ZIO[Any, MechanoidError, Option[LockToken[String]]] =
     session

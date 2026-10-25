@@ -144,7 +144,6 @@ object TimeoutSweeperConfig:
       nodeId = scala.util.Random.alphanumeric.take(16).mkString,
       delivery = TimeoutDelivery.AtLeastOnce,
     )
-end TimeoutSweeperConfig
 
 /** Configuration for leader election in single-active-sweeper mode.
   *
@@ -225,4 +224,3 @@ object LeaderElectionConfig:
       renewalInterval = Duration.fromSeconds(10),
       leaseKey = "mechanoid-timeout-leader",
     )
-end LeaderElectionConfig

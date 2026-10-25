@@ -65,7 +65,6 @@ object IndexQueryEval:
     })
     val cursor = items.lastOption.map(IndexCursor.of(_, sort))
     IndexPage(items, cursor, hasMore = items.size == limit)
-  end page
 
   private def sinceOk[Id](row: Covering, query: IndexQuery[Id]): Boolean =
     query.since match
@@ -92,5 +91,4 @@ object IndexQueryEval:
     val cmp = sortValue(row, sort).compareTo(cursor.value)
     if isDesc(sort) then cmp > 0 || (cmp == 0 && ord.lt(id, cursor.instanceId))
     else cmp < 0 || (cmp == 0 && ord.lt(id, cursor.instanceId))
-  end isBefore
 end IndexQueryEval

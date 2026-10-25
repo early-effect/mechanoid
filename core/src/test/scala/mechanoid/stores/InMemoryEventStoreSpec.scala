@@ -179,37 +179,31 @@ object InMemoryEventStoreSpec extends ZIOSpecDefault:
     ),
     suite("layer")(
       test("provides EventStore service with default config") {
-        val program =
-          for seqNr <- ZIO.serviceWithZIO[EventStore[String, TestState, TestEvent]](
-              _.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
-            )
-          yield assertTrue(seqNr == 1L)
-
-        program.provide(InMemoryEventStore.layer[String, TestState, TestEvent])
+        (for seqNr <- ZIO.serviceWithZIO[EventStore[String, TestState, TestEvent]](
+            _.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+          )
+        yield assertTrue(seqNr == 1L)).provide(InMemoryEventStore.layer[String, TestState, TestEvent])
       },
       test("provides EventStore service with custom config") {
-        val program = for
-          store  <- ZIO.service[EventStore[String, TestState, TestEvent]]
-          _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
-          _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
-          _      <- store.append("fsm-1", Event1, 2L, java.time.Instant.EPOCH) // Should trigger eviction
-          events <- store.loadEvents("fsm-1").runCollect
-        yield assertTrue(events.size == 2) // Only 2 due to limit
-
-        program.provide(
+        (for
+            store  <- ZIO.service[EventStore[String, TestState, TestEvent]]
+            _      <- store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH)
+            _      <- store.append("fsm-1", Event2, 1L, java.time.Instant.EPOCH)
+            _      <- store.append("fsm-1", Event1, 2L, java.time.Instant.EPOCH) // Should trigger eviction
+            events <- store.loadEvents("fsm-1").runCollect
+          yield assertTrue(events.size == 2) // Only 2 due to limit
+        ).provide(
           InMemoryEventStore.layer[String, TestState, TestEvent](
             InMemoryEventStore.Config(maxEventsPerInstance = 2)
           )
         )
       },
       test("unboundedLayer provides unbounded store") {
-        val program = for
+        (for
           store  <- ZIO.service[EventStore[String, TestState, TestEvent]]
           _      <- ZIO.foreachDiscard(1 to 10)(_ => store.append("fsm-1", Event1, 0L, java.time.Instant.EPOCH))
           events <- store.loadEvents("fsm-1").runCollect
-        yield assertTrue(events.size == 10)
-
-        program.provide(InMemoryEventStore.unboundedLayer[String, TestState, TestEvent])
+        yield assertTrue(events.size == 10)).provide(InMemoryEventStore.unboundedLayer[String, TestState, TestEvent])
       },
     ),
     suite("EventStore trait default methods")(

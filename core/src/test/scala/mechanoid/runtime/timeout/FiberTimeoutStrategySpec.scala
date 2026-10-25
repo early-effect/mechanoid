@@ -132,31 +132,27 @@ object FiberTimeoutStrategySpec extends ZIOSpecDefault:
     ),
     suite("layer")(
       test("provides TimeoutStrategy service") {
-        val program = for
+        (for
           ref   <- Ref.make(false)
           at    <- deadline(50.millis)
           _     <- TimeoutStrategy.schedule("test", "t", 123, 1L, at, ref.set(true))
           _     <- TestClock.adjust(50.millis)
           _     <- ZIO.yieldNow
           fired <- ref.get
-        yield assertTrue(fired)
-
-        program.provide(FiberTimeoutStrategy.layer[String])
+        yield assertTrue(fired)).provide(FiberTimeoutStrategy.layer[String])
       },
       test("TimeoutStrategy.fiber convenience method provides layer") {
-        val program = for
+        (for
           ref   <- Ref.make(false)
           at    <- deadline(50.millis)
           _     <- TimeoutStrategy.schedule("test", "t", 123, 1L, at, ref.set(true))
           _     <- TestClock.adjust(50.millis)
           _     <- ZIO.yieldNow
           fired <- ref.get
-        yield assertTrue(fired)
-
-        program.provide(TimeoutStrategy.fiber[String])
+        yield assertTrue(fired)).provide(TimeoutStrategy.fiber[String])
       },
       test("TimeoutStrategy.cancel accessor method cancels timeout") {
-        val program = for
+        (for
           ref   <- Ref.make(false)
           at    <- deadline(100.millis)
           _     <- TimeoutStrategy.schedule("test", "t", 123, 1L, at, ref.set(true))
@@ -164,9 +160,7 @@ object FiberTimeoutStrategySpec extends ZIOSpecDefault:
           _     <- TestClock.adjust(150.millis)
           _     <- ZIO.yieldNow
           fired <- ref.get
-        yield assertTrue(!fired)
-
-        program.provide(TimeoutStrategy.fiber[String])
+        yield assertTrue(!fired)).provide(TimeoutStrategy.fiber[String])
       },
     ),
     suite("schedule return value")(

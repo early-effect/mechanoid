@@ -64,7 +64,6 @@ object NsMacros:
     }
     refined.asType match
       case '[t] => '{ $make.asInstanceOf[t] }
-  end refine
 
   private def indexBindImpl[S: Type](name: Expr[String])(using Quotes): Expr[IndexNsBind[S]] =
     val ns = literalName(name)
@@ -118,7 +117,6 @@ object NsMacros:
         case other =>
           report.errorAndAbort(s"Expected a member ident like assignee, got: ${other.show}")
     rec(expr.asTerm)
-  end simpleName
 
   private def validateMember[S: Type](using Quotes)(ns: String, indexAnnot: Boolean): Unit =
     import quotes.reflect.*
@@ -130,7 +128,6 @@ object NsMacros:
         s"'$ns' is not an ${if indexAnnot then "@index" else "@alias"} member of ${tpe.typeSymbol.name}. " +
           s"Known: ${names.toList.sorted.mkString(", ")}"
       )
-  end validateMember
 
   private def annotatedNames(using Quotes)(sym: quotes.reflect.Symbol, annot: quotes.reflect.Symbol): Set[String] =
     import quotes.reflect.*
@@ -145,7 +142,6 @@ object NsMacros:
     val cases = if sym.flags.is(Flags.Enum) || (sym.flags.is(Flags.Sealed) && sym.children.nonEmpty) then leaves(sym)
     else List(sym)
     cases.flatMap(paramsOf).filter(_.hasAnnotation(annot)).map(_.name).toSet
-  end annotatedNames
 
   private def leafNameImpl[S: Type, L: Type](using Quotes): Expr[String] =
     import quotes.reflect.*
@@ -161,7 +157,6 @@ object NsMacros:
           s"${lSym.name} is not a leaf or parent of ${sSym.name}. Known leaves: ${known.mkString(", ")}"
         )
     Expr(lSym.name)
-  end leafNameImpl
 
   private def parentLeafNamesImpl[S: Type, P: Type](using Quotes): Expr[List[String]] =
     import quotes.reflect.*
@@ -189,7 +184,6 @@ object NsMacros:
       }
     if sym.flags.is(Flags.Enum) || (sym.flags.is(Flags.Sealed) && sym.children.nonEmpty) then leaves(sym).map(_.name)
     else List(sym.name)
-  end leafSimpleNames
 
   private def parentNames(using Quotes)(sym: quotes.reflect.Symbol): List[String] =
     import quotes.reflect.*

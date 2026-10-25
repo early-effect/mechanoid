@@ -21,7 +21,6 @@ private[machine] object DuplicateDetection:
     def transitionDesc: String =
       if stateNames.nonEmpty && eventNames.nonEmpty then s"${stateNames.mkString(",")} via ${eventNames.mkString(",")}"
       else sourceDesc
-  end TransitionKey
 
   /** Error representing a duplicate transition without override marker. */
   case class DuplicateError(
@@ -38,7 +37,6 @@ private[machine] object DuplicateDetection:
          |  Duplicate at spec #${duplicateIndex + 1}: $targetDesc
          |
          |  To override, use: (...) @@ Aspect.overriding""".stripMargin
-  end DuplicateError
 
   /** Info about a resolved override (for informational messages). */
   case class OverrideInfo(

@@ -29,6 +29,7 @@ object PostgresSchema:
 
     /** All tables already existed and passed verification. */
     case Verified
+  end InitResult
 
   // ==================== Schema Definitions using Saferis Schema DSL ====================
 
@@ -156,7 +157,6 @@ object PostgresSchema:
             ) *> go(true)
         }
     go(false)
-  end ensureTable
 
   private def isMissingRankColumn(issue: SchemaIssue): Boolean =
     issue match

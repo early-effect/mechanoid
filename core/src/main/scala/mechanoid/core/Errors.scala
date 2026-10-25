@@ -81,6 +81,7 @@ object PersistenceError:
   /** Create from any error type, using its toString as the message. */
   def fromError[E](error: E): PersistenceError =
     PersistenceError(error.toString)
+end PersistenceError
 
 /** Error indicating a sequence conflict during distributed operation.
   *

@@ -41,7 +41,6 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
           stored.head.sequenceNr == SeqNr2,
           stored.head.deadline == deadline2,
         )
-        end for
       },
       test("handles multiple instances independently") {
         val store = new InMemoryTimeoutStore[String]()
@@ -56,7 +55,6 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
           t2.head.stateHash == StateHash2,
           store.size == 2,
         )
-        end for
       },
     ),
     suite("cancel")(
@@ -149,7 +147,6 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
               t.claimedUntil.exists(_.isAfter(now)),
             )
           case _ => assertTrue(false)
-        end for
       },
       test("fails for already claimed timeout") {
         val store = new InMemoryTimeoutStore[String]()
@@ -177,7 +174,6 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
           case ClaimResult.Claimed(t) =>
             assertTrue(t.claimedBy.contains("node-B"))
           case _ => assertTrue(false)
-        end for
       },
       test("returns NotFound for non-existent timeout") {
         val store = new InMemoryTimeoutStore[String]()
@@ -229,7 +225,6 @@ object TimeoutStoreSpec extends ZIOSpecDefault:
           stored.head.claimedBy.isEmpty,
           stored.head.claimedUntil.isEmpty,
         )
-        end for
       },
       test("allows re-claim after release") {
         val store = new InMemoryTimeoutStore[String]()

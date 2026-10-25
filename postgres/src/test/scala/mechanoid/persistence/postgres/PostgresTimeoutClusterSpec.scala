@@ -114,7 +114,6 @@ object PostgresTimeoutClusterSpec extends ZIOSpecDefault:
         fired == n,
         leftover.forall(_.isEmpty),
       )
-      end for
     },
     test("killing the first sweeper still delivers") {
       val id = uniqueId("failover")
@@ -137,7 +136,6 @@ object PostgresTimeoutClusterSpec extends ZIOSpecDefault:
         }
         state <- FSMRuntime.readState(id, machine, Idle).provide(ZLayer.succeed(events))
       yield assertTrue(state.contains(Done))
-      end for
     },
   ).provideShared(stores) @@ TestAspect.sequential @@ TestAspect.withLiveClock @@ TestAspect.timeout(60.seconds)
 end PostgresTimeoutClusterSpec

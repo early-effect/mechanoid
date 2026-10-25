@@ -121,7 +121,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         events.length == 1,
         events.head.event == Pay,
       )
-      end for
     },
     test("transitions through multiple states") {
       val id = uniqueId("order")
@@ -143,7 +142,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._2 == 3L,
         events.length == 3,
       )
-      end for
     },
     test("rejects invalid transitions") {
       val id = uniqueId("order")
@@ -180,7 +178,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._1 == Shipped,
         result._2 == 2L,
       )
-      end for
     },
     test("continues from replayed state") {
       val id = uniqueId("replay")
@@ -206,7 +203,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._1 == Delivered,
         result._2 == 3L,
       )
-      end for
     },
   )
 
@@ -240,7 +236,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._1 == Shipped,
         result._2 == 2L,
       )
-      end for
     },
     test("replays events after snapshot") {
       val id = uniqueId("snap")
@@ -262,7 +257,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           yield state
         }
       yield assertTrue(result == Shipped)
-      end for
     },
   )
 
@@ -326,7 +320,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         // FSM should have transitioned to Paid
         finalState == Paid,
       )
-      end for
     },
     test("rapid sequential transitions maintain consistency") {
       val id = uniqueId("rapid")
@@ -351,7 +344,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         // Verify correct order
         events.map(_.sequenceNr).toList == List(1L, 2L, 3L),
       )
-      end for
     },
     test("multiple FSM instances don't interfere with each other") {
       val id1 = uniqueId("multi-1")
@@ -394,7 +386,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         events2.length == 1,
         events3.length == 3,
       )
-      end for
     },
   )
 
@@ -420,7 +411,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._2 == 0L,
         events.isEmpty,
       )
-      end for
     },
     test("recovery from snapshot only (no events after snapshot)") {
       val id = uniqueId("snap-only")
@@ -452,7 +442,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._1 == Shipped,
         result._2 == 2L,
       )
-      end for
     },
     test("recovery with events after snapshot") {
       val id = uniqueId("snap-events")
@@ -479,7 +468,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._1 == Delivered,
         result._2 == 3L,
       )
-      end for
     },
     test("recovery after multiple sessions maintains correct state") {
       val id = uniqueId("multi-session")
@@ -516,7 +504,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._3 == Delivered, // Final state
         events.length == 3,
       )
-      end for
     },
     test("continues correctly after snapshot + events + snapshot") {
       val id = uniqueId("double-snap")
@@ -548,7 +535,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._1 == Shipped,
         result._2 == 2L,
       )
-      end for
     },
   )
 
@@ -660,7 +646,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         // Load from higher sequence than exists
         events <- store.loadEventsFrom(id, 100).runCollect
       yield assertTrue(events.isEmpty)
-      end for
     },
     test("loadSnapshot returns None for non-existent instance") {
       val id = uniqueId("no-snapshot")
@@ -730,7 +715,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         result._3 == Paid, // State didn't change
         events.length == 1, // No invalid event persisted
       )
-      end for
     },
     test("recovery fails for changed FSM definition (EventReplayError)") {
       val id = uniqueId("changed-def")
@@ -769,7 +753,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         case Right(_) =>
           // Should have failed
           assertTrue(false)
-      end for
     },
     test("handles rapid back-to-back transitions") {
       // Test that rapid sequential transitions work correctly
@@ -796,7 +779,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         events.length == 3,
         seqNrs == List(1L, 2L, 3L),
       )
-      end for
     },
     test("saveSnapshot after recovery maintains correct sequence") {
       val id = uniqueId("snap-recover-snap")
@@ -823,7 +805,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         snapshot.get.state == Shipped,
         snapshot.get.sequenceNr == 2L,
       )
-      end for
     },
     test("sequence conflict detection (store-specific behavior)") {
       // Note: In-memory stores don't implement conflict detection (by design)
@@ -849,7 +830,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         case Left(_) =>
           // Unexpected error
           assertTrue(false)
-      end for
     },
   )
 
@@ -869,7 +849,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           FSMRuntime.lookup[String, OrderState, OrderEvent](alias, orderDefinition, Pending).flatMap(_.currentState)
         }
       yield assertTrue(state == Shipped)
-      end for
     }
   )
 

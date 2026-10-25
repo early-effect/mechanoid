@@ -26,7 +26,6 @@ enum RuntimeTicketState derives Finite:
       @indexCreated createdAt: Instant,
       @indexUpdated editedAt: Instant,
   )
-end RuntimeTicketState
 
 enum RuntimeTicketEvent derives Finite:
   case Edit(title: String, editedAt: Instant)

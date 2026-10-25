@@ -51,7 +51,6 @@ object NamedTimeoutDemoUi:
     else if prev != Live then Armed(Some(dailyAt), Some(cycleAt))
     else if nextSeq > prevSeq then current.copy(daily = Some(dailyAt))
     else current
-  end syncArmed
 
   val machine: Machine[Campaign, CampaignEvent] = Machine(
     assembly[Campaign, CampaignEvent](
@@ -174,5 +173,4 @@ object NamedTimeoutDemoUi:
               ),
             ),
           )
-  end panel
 end NamedTimeoutDemoUi

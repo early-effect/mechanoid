@@ -77,7 +77,6 @@ object AliasExtractorMacros:
                 report.errorAndAbort(
                   s"No AliasCodec available for ${Type.show[t]} on @alias field ${param.name}"
                 )
-        end match
       }
 
     def fieldsOf(caseSym: Symbol, instance: Expr[Any]): Expr[Chunk[Alias]] =
@@ -107,7 +106,6 @@ object AliasExtractorMacros:
               def aliases(state: S): Chunk[Alias] =
                 ${ Match('state.asTerm, matchCases :+ fallback).asExprOf[Chunk[Alias]] }
           }
-        end if
       else if tpe <:< TypeRepr.of[Product] || sym.flags.is(Flags.Case) then
         '{
           new AliasExtractor[S]:

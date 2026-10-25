@@ -120,7 +120,6 @@ class PostgresTimeoutStore(session: SqlSession) extends TimeoutStore[String]:
         case e: MechanoidError => e
         case e                 => PersistenceError.fromError(e)
       }
-  end claim
 
   override def complete(instanceId: String, name: String, sequenceNr: Long): ZIO[Any, MechanoidError, Boolean] =
     session

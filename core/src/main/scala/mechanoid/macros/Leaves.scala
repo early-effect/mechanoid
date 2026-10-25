@@ -102,8 +102,6 @@ private[mechanoid] object Leaves:
           }
         else if sym.exists && isDenotedLeaf(sym) then Right(List(sym))
         else Left(LeafError.NotFinite(label))
-    end match
-  end expand
 
   /** `Empty` is the empty set inside a union. `all[Empty]` itself never goes through here. */
   private def unionSide(using Quotes)(tpe: quotes.reflect.TypeRepr): Either[LeafError, List[quotes.reflect.Symbol]] =
@@ -126,7 +124,6 @@ private[mechanoid] object Leaves:
         else Right(soFar)
       }
     }
-  end collect
 
   private def addLeaves(using
       Quotes

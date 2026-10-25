@@ -306,16 +306,14 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         import mechanoid.runtime.timeout.FiberTimeoutStrategy
         import mechanoid.runtime.locking.OptimisticLockingStrategy
 
-        val program = for
+        (for
           runtime <- FSMRuntime[String, TestState, TestEvent](
             "test-instance",
             simpleMachine,
             A,
           )
           state <- runtime.currentState
-        yield assertTrue(state == A)
-
-        program.provideSome[Scope](
+        yield assertTrue(state == A)).provideSome[Scope](
           InMemoryEventStore.layer[String, TestState, TestEvent],
           FiberTimeoutStrategy.layer[String],
           OptimisticLockingStrategy.layer[String],
@@ -627,7 +625,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
               err.cause._2.getMessage == "entry effect failed",
             )
           case _ => assertTrue(false)
-        end for
       },
       test("exit effect error is wrapped in ActionFailedError") {
         val failingMachine = Machine(
@@ -647,7 +644,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
               err.cause._2.getMessage == "exit effect failed",
             )
           case _ => assertTrue(false)
-        end for
       },
     ),
     suite("producing effects")(
@@ -772,7 +768,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           state == C, // A -> B (E1) -> C (E2)
           seqNr == 2L,
         )
-        end for
       },
       test("replay fails with EventReplayError for invalid transition") {
         import mechanoid.runtime.timeout.FiberTimeoutStrategy
@@ -794,7 +789,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
         yield result match
           case Left(_: EventReplayError[?, ?]) => assertTrue(true)
           case _                               => assertTrue(false)
-        end for
       },
     ),
     suite("timeout scheduling integration")(
@@ -817,7 +811,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           state1 == Waiting,
           state2 == TimedOut,
         )
-        end for
       },
       test("timeout is cancelled when state changes before expiry") {
         val machineWithTimeout = Machine(
@@ -844,7 +837,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           state2 == Done,
           state3 == Done, // Should still be Done, not TimedOut
         )
-        end for
       },
       test("timeout callback does not block on self-cancellation") {
         // This test verifies the fix for the self-interruption bug where
@@ -889,7 +881,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           snapshot.isDefined,
           snapshot.get.state == B,
         )
-        end for
       }
     ),
     suite("edge cases")(
@@ -918,7 +909,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           }
           wasIt <- wasRunning.get
         yield assertTrue(wasIt) // Runtime was running before scope closed
-        end for
       },
       test("replay handles TransitionResult.Stay during replay") {
         // Test FSMRuntime.scala line 334: case _ => fsmState (Stay/Stop during replay)
@@ -952,7 +942,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           state == A, // Stayed in A
           seqNr == 1L, // Event was replayed
         )
-        end for
       },
       test("replay handles TransitionResult.Stop during replay") {
         // Test FSMRuntime.scala line 334: case _ => fsmState (Stay/Stop during replay)
@@ -986,7 +975,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           state == A, // Still at initial state (stop doesn't change state)
           seqNr == 1L, // Event was replayed
         )
-        end for
       },
       test("timeout is not scheduled when no timeout configured for state") {
         // Test FSMRuntime.scala line 554: ZIO.when(currentHash == stateHash) - state mismatch
@@ -1042,7 +1030,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           afterDaily == Live,
           afterWeek == Idle,
         )
-        end for
       },
       test("Goto from a named timeout cancels the sibling") {
         enum DualState derives Finite:
@@ -1073,7 +1060,6 @@ object FSMRuntimeSpec extends ZIOSpecDefault:
           afterDaily == Done,
           later == Done,
         )
-        end for
       },
       test("non-timeout Stay leaves both named timeouts armed") {
         enum DualState derives Finite:

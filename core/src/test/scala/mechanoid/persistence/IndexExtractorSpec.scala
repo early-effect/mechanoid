@@ -23,7 +23,6 @@ enum IndexedTicketState derives Finite:
       @indexCreated createdAt: Instant,
       @indexUpdated editedAt: Instant,
   )
-end IndexedTicketState
 
 final case class IndexedTicketBody(assignee: IndexPersonId, createdAt: Instant, editedAt: Instant)
 

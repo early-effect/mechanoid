@@ -160,7 +160,6 @@ object MachineSpec extends ZIOSpecDefault:
           _  <- r2.send(ShipmentTimeout)
           s2 <- r2.currentState
         yield assertTrue(s1 == TimedOut, s2 == TimedOut)
-        end for
       },
       test("timeout event in wrong state is rejected") {
         for
