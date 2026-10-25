@@ -79,7 +79,6 @@ object DocsDiagram:
       layout = layout,
       customStylesheet = Some(Stylesheet.merge(Theme.toStylesheet(colors), extras)),
     )
-  end chalkboard
 
   /** A literal that already parsed. */
   def paint(mermaid: Mermaid, viewport: Option[Viewport] = None): _root_.ascent.ast.UI[Any] =

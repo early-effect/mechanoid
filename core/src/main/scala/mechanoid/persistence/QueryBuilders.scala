@@ -16,6 +16,7 @@ final class AliasOf[S]()(using @unused ev: Finite[S]) extends Selectable:
   /** Handwritten extractors: `Alias.of[S].ns(campaign)(id)`. A string literal is a compile error. */
   transparent inline def ns(inline ident: Any): AliasNsBind[S] =
     AliasNsBind(NsMacros.aliasIdent[S](ident))
+end AliasOf
 
 final class AliasNsBind[S](namespace: String):
   def apply[A: AliasCodec](value: A): Alias =
@@ -29,6 +30,7 @@ final class IndexQueryOf[S: Finite]() extends Selectable:
   /** Handwritten extractors: `IndexQuery.of[S].ns(assignee)(id)`. A string literal is a compile error. */
   transparent inline def ns(inline ident: Any): IndexNsBind[S] =
     NsMacros.indexIdent[S](ident)
+end IndexQueryOf
 
 final class IndexNsBind[S: Finite](val namespace: String):
   def apply[A: AliasCodec](value: A): IndexQueryBuilder[S] =

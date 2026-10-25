@@ -58,7 +58,6 @@ private[machine] object AssemblyMacros:
                   .name}.""".stripMargin,
               term.pos,
             )
-          end if
         case None => () // No producing effect on this spec
     }
 
@@ -142,7 +141,6 @@ private[machine] object AssemblyMacros:
         if stateHashes.nonEmpty || eventHashes.nonEmpty then
           Some(MacroUtils.SpecHashInfo(stateHashes, eventHashes, stateNames, eventNames, targetDesc, isOverride, "?"))
         else None
-      end extractFromArgs
 
       term match
         case Apply(_, args) if args.length >= 6 => extractFromArgs(args)
@@ -160,7 +158,6 @@ private[machine] object AssemblyMacros:
           ApplyFinder.foldTree((), other)(Symbol.spliceOwner)
           result
         case _ => None
-      end match
     end extractSingleHashInfoFromTerm
 
     val selfInfos  = extractHashInfos(selfExpr.asTerm)
@@ -296,7 +293,6 @@ private[machine] object AssemblyMacros:
                   .name}.""".stripMargin,
               term.pos,
             )
-          end if
         case None => () // No producing effect on this spec
     }
 

@@ -107,7 +107,6 @@ object SharedFSMRuntime:
       LockingStrategy.distributed[String],
       ZLayer.succeed[InstanceIndex[String]](stores.index),
     )
-  end openRuntime
 
   final case class SharedStores[S, E](
       events: EventStore[String, S, E],

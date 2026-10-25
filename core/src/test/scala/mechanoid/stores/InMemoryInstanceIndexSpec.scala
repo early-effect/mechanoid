@@ -64,7 +64,6 @@ object InMemoryInstanceIndexSpec extends ZIOSpecDefault:
           last.contains("init-1"),
           listed.size == 100,
         )
-        end for
       },
       test("empty bindAll is a no-op") {
         for

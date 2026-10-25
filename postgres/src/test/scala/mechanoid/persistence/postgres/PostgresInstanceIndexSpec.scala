@@ -116,7 +116,6 @@ object PostgresInstanceIndexSpec extends ZIOSpecDefault:
           )
           n <- index.count(IndexQuery.of[PgTicket].assignee(person).only(state[PgTicket.Archived]))
         yield assertTrue(page.items.size == 3, n == 3L, page.items.forall(_.stateName == "Archived"))
-        end for
       } @@ TestAspect.timeout(60.seconds),
       test("unbind and unbindInstance") {
         val id       = unique("init")

@@ -99,7 +99,6 @@ private[machine] object MacroUtils:
           case _                       => foldOverTree((), tree)(owner)
     Collector.foldTree((), setTerm)(Symbol.spliceOwner)
     ints.toSet
-  end extractSetInts
 
   /** Extract string literals from a List expression like List("name1", "name2").
     *
@@ -143,7 +142,6 @@ private[machine] object MacroUtils:
               case Some(name) => strs += name
               case None       => foldOverTree((), tree)(owner)
           case _ => foldOverTree((), tree)(owner)
-    end Collector
     Collector.foldTree((), listTerm)(Symbol.spliceOwner)
     strs.toList
   end extractListStrings
@@ -517,8 +515,6 @@ private[machine] object MacroUtils:
         val names  = if args.length >= 3 then extractListStrings(args(2)).map(leafLabel) else Nil
         if hashes.nonEmpty then Some((hashes, names)) else None
       else None
-      end if
-    end ctorSide
 
     t match
       case TypeApply(fn, List(tpt)) =>
@@ -536,7 +532,6 @@ private[machine] object MacroUtils:
         anyOfSide(fn, args).orElse(fromType(t.tpe)).orElse(valueLeaf(t).map(sym => packLeaves(List(sym))))
       case _ =>
         fromType(t.tpe).orElse(valueLeaf(t).map(sym => packLeaves(List(sym))))
-    end match
   end matcherSide
 
   private def isMatcherTerm(using Quotes)(term: quotes.reflect.Term): Boolean =
@@ -567,8 +562,6 @@ private[machine] object MacroUtils:
             val full = con.typeSymbol.fullName
             DenotedMatcherNames.contains(full) || full == AnyOfMatcherName || full == AnyOfEventMatcherName
           case _ => false
-    end match
-  end isMatcherTerm
 
   /** `via` / `viaAll` / `viaAnyOf` whose receiver or argument is a matcher. Both sides are denotations. */
   private def extractDenotedSpec(using Quotes)(term: quotes.reflect.Term): (Option[SpecHashInfo], String) =
@@ -702,10 +695,8 @@ private[machine] object MacroUtils:
               foldOverTree((), tree)(owner)
             case _ =>
               foldOverTree((), tree)(owner)
-      end Walk
       Walk.foldTree((), root)(Symbol.spliceOwner)
       (hashes, names)
-    end allMatcherLiterals
 
     val (matcherHashes, matcherNames) = allMatcherLiterals(term)
 
@@ -726,10 +717,8 @@ private[machine] object MacroUtils:
               foldOverTree((), tree)(owner)
             case _ =>
               foldOverTree((), tree)(owner)
-      end Walk
       Walk.foldTree((), root)(Symbol.spliceOwner)
       bound
-    end localIntVals
 
     val intVals = localIntVals(term)
 
@@ -749,10 +738,8 @@ private[machine] object MacroUtils:
               foldOverTree((), tree)(owner)
             case _ =>
               foldOverTree((), tree)(owner)
-      end Walk
       Walk.foldTree((), term)(Symbol.spliceOwner)
       bound
-    end stringVals
 
     def resolveInts(setTerm: Term): Set[Int] =
       val direct = extractSetInts(setTerm)
@@ -765,10 +752,8 @@ private[machine] object MacroUtils:
               foldOverTree((), tree)(owner)
             case _ =>
               foldOverTree((), tree)(owner)
-      end Ids
       Ids.foldTree((), setTerm)(Symbol.spliceOwner)
       direct ++ extra
-    end resolveInts
 
     def withMatcherLeaves(stateHashes: Set[Int], stateNames: List[String]): (Set[Int], List[String]) =
       if stateHashes.nonEmpty then (stateHashes, stateNames)
@@ -787,10 +772,8 @@ private[machine] object MacroUtils:
               foldOverTree((), tree)(owner)
             case _ =>
               foldOverTree((), tree)(owner)
-      end BindWalk
       BindWalk.foldTree((), term)(Symbol.spliceOwner)
       bound
-    end matcherBindings
 
     def identsOf(root: Term): Set[String] =
       var names = Set.empty[String]
@@ -802,10 +785,8 @@ private[machine] object MacroUtils:
               foldOverTree((), tree)(owner)
             case _ =>
               foldOverTree((), tree)(owner)
-      end Ids
       Ids.foldTree((), root)(Symbol.spliceOwner)
       names
-    end identsOf
 
     def nestedCtor(arg: Term): Option[(Set[Int], List[String])] =
       var found = Option.empty[(Set[Int], List[String])]
@@ -820,10 +801,8 @@ private[machine] object MacroUtils:
               case _ =>
                 foldOverTree((), tree)(owner)
           else ()
-      end Walk
       Walk.foldTree((), arg)(Symbol.spliceOwner)
       found
-    end nestedCtor
 
     def sideFromArg(arg: Term): Option[(Set[Int], List[String])] =
       val boundSides   = identsOf(arg).toList.flatMap(matcherBindings.get)
@@ -840,7 +819,6 @@ private[machine] object MacroUtils:
         else if boundNames.nonEmpty then boundNames
         else nested.fold(List.empty[String])(_._2)
       if chosenHashes.nonEmpty then Some((chosenHashes, chosenNames)) else None
-    end sideFromArg
 
     def viaBuilderSides: (Option[(Set[Int], List[String])], Option[(Set[Int], List[String])]) =
       var stateSide                        = Option.empty[(Set[Int], List[String])]
@@ -880,7 +858,6 @@ private[machine] object MacroUtils:
               case _ =>
                 foldOverTree((), tree)(owner)
           else ()
-      end Walk
       Walk.foldTree((), term)(Symbol.spliceOwner)
       (stateSide, eventSide)
     end viaBuilderSides
@@ -905,8 +882,6 @@ private[machine] object MacroUtils:
             else names
           (keptHashes, keptNames)
         case None => (hashes, names)
-      end match
-    end fillSide
 
     def enrich(info: SpecHashInfo): SpecHashInfo =
       val state       = fillSide(info.stateHashes, info.stateNames, builtSides._1)
@@ -926,7 +901,6 @@ private[machine] object MacroUtils:
         eventNames = event._2,
         targetDesc = target,
       )
-    end enrich
 
     // First try to extract from DSL pattern (unexpanded inline macro)
     extractHashInfoFromDSL(term) match
@@ -951,10 +925,8 @@ private[machine] object MacroUtils:
               if stateNames.nonEmpty || eventNames.nonEmpty then result = Some((stateNames, eventNames))
               foldOverTree((), tree)(owner)
             case _ => foldOverTree((), tree)(owner)
-      end ViaBuilderFinder
       ViaBuilderFinder.foldTree((), t)(Symbol.spliceOwner)
       result
-    end extractViaBuilderNames
 
     // Pre-collect ViaBuilder names from the entire term tree
     val viaBuilderInfo = extractViaBuilderNames(term)
@@ -1080,7 +1052,6 @@ private[machine] object MacroUtils:
         $isOverrideExpr,
       )
     }
-  end hashInfoToExpr
 
   /** Generate OrphanInfo expression from SpecHashInfo.
     *
@@ -1114,7 +1085,6 @@ private[machine] object MacroUtils:
         )
       case None =>
         SpecHashInfo(Set.empty, Set.empty, Nil, Nil, "?", hasOverrideAtCallSite, s"spec #${idx + 1}")
-  end getSpecInfo
 
   /** Compute orphan override expressions from spec infos.
     *
@@ -1206,7 +1176,6 @@ private[machine] object MacroUtils:
               foldOverTree((), tree)(owner)
             case _ =>
               foldOverTree((), tree)(owner)
-    end HashFinder
 
     HashFinder.foldTree((), term)(Symbol.spliceOwner)
     result
@@ -1236,8 +1205,6 @@ private[machine] object MacroUtils:
       // Plain val reference
       case Ident(_) => Some(term.symbol)
       case _        => None
-    end match
-  end getBaseSymbol
 
   /** Check if a term has override at the call site (e.g., `t1 @@ Aspect.overriding`). */
   def hasOverrideAtCallSite(using Quotes)(term: quotes.reflect.Term): Boolean =
@@ -1254,8 +1221,6 @@ private[machine] object MacroUtils:
       case Apply(Select(_, "@@"), List(aspectArg)) =>
         aspectArg.show.contains("overriding")
       case _ => false
-    end match
-  end hasOverrideAtCallSite
 
   // ====== Duplicate Detection Logic ======
 

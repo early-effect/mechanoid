@@ -17,3 +17,4 @@ object AliasCodec extends AliasCodecLowPriority:
   def apply[A](using codec: AliasCodec[A]): AliasCodec[A] = codec
 
   given string: AliasCodec[String] = (value: String) => value
+end AliasCodec

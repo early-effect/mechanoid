@@ -158,7 +158,6 @@ final class ViaBuilder[S, E](
       Macros.hashForType[Leaf],
       Macros.nameForType[Leaf],
     )
-  end to
 
   /** Transition to a timed target state (starts timeout timer on entry).
     *

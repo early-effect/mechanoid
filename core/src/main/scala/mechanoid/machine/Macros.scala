@@ -185,7 +185,6 @@ object Macros:
     val hash = leafHash(tpe)
     val name = sym.name
     '{ new EventMatcher[E](${ Expr(hash) }, ${ Expr(name) }) }
-  end eventMatcherImpl
 
   /** Implementation of `state[T]` - creates a type-based state matcher.
     *
@@ -199,7 +198,6 @@ object Macros:
     val hash = leafHash(tpe)
     val name = sym.name
     '{ new StateMatcher[S](${ Expr(hash) }, ${ Expr(name) }) }
-  end stateMatcherImpl
 
   /** `state[T]` and `event[T]` denote one leaf. A parent or a union is `all[T]`. */
   private def requireOneLeaf(using Quotes)(tpe: quotes.reflect.TypeRepr): Unit =
@@ -220,8 +218,6 @@ object Macros:
           )
         case Left(error) =>
           report.errorAndAbort(Leaves.message(error), Position.ofMacroExpansion)
-    end if
-  end requireOneLeaf
 
 end Macros
 
@@ -529,4 +525,3 @@ extension [S, E](inline self: Assembly[S, E])
     */
   transparent inline def ++(inline other: Assembly[S, E]): Assembly[S, E] =
     ${ AssemblyMacros.combineImpl[S, E]('self, 'other) }
-end extension

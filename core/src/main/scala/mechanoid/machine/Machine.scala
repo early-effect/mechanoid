@@ -65,6 +65,7 @@ private[machine] enum AssemblyDefect:
       s"Duplicate transition $state via $event without override"
     case DuplicateTimeout(leaf, name) =>
       s"Duplicate timeout name '$name' on leaf $leaf"
+end AssemblyDefect
 
 object Machine:
 
@@ -151,8 +152,6 @@ object Machine:
               )
             case None =>
               stateTimeouts = stateTimeouts.updated(leafHash, existing :+ spec)
-          end match
-        end if
       }
 
     def wrapReducer(reducer: PayloadReducer[S, E, S])(s: S, e: E): ZIO[Any, MechanoidError, S] =
@@ -273,7 +272,6 @@ object Machine:
         case Handler.ComputeGoto(leafHash, _) if spec.targetTimeouts.nonEmpty =>
           addTimeouts(leafHash, spec.targetTimeouts)
         case _ =>
-      end match
     end for
 
     rejected match
@@ -291,7 +289,6 @@ object Machine:
             specs,
           )
         )
-    end match
   end fromSpecs
 
   /** Create an empty Machine. */

@@ -389,7 +389,6 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
       underlying.release(instanceId, name, nodeId)
     override def get(instanceId: String)               = underlying.get(instanceId)
     override def get(instanceId: String, name: String) = underlying.get(instanceId, name)
-  end DelegatingStore
 
   /** First `Tick` append persists `Ping` instead, then fails the tick. Later appends pass through. */
   private final class PingThenConflict(
@@ -414,7 +413,6 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
       underlying.highestSequenceNr(instanceId)
     override def deleteInstance(instanceId: String) =
       underlying.deleteInstance(instanceId)
-  end PingThenConflict
 
   /** After `queryExpired`, the row a sweeper claims has a future deadline. */
   private final class FutureOnClaim(underlying: TimeoutStore[String]) extends DelegatingStore(underlying):
@@ -439,7 +437,6 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
         case None =>
           underlying.claim(instanceId, name, nodeId, claimDuration, now)
       }
-  end FutureOnClaim
 
   /** The row returned from `claim` has a new sequence. The query snapshot does not. */
   private final class BumpSequenceOnClaim(underlying: TimeoutStore[String], bump: Long)
@@ -465,7 +462,6 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
         case None =>
           underlying.claim(instanceId, name, nodeId, claimDuration, now)
       }
-  end BumpSequenceOnClaim
 
   private final class RecordingClaims(underlying: TimeoutStore[String], claimed: Ref[List[String]])
       extends DelegatingStore(underlying):
@@ -478,7 +474,6 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
     ) =
       claimed.update(_ :+ instanceId) *>
         underlying.claim(instanceId, name, nodeId, claimDuration, now)
-  end RecordingClaims
 
   private final class ClaimSignal(underlying: TimeoutStore[String], claimed: Promise[Nothing, Unit])
       extends DelegatingStore(underlying):
@@ -493,5 +488,4 @@ object TimeoutDeliverySpec extends ZIOSpecDefault:
         case ClaimResult.Claimed(_) => claimed.succeed(()).unit
         case _                      => ZIO.unit
       }
-  end ClaimSignal
 end TimeoutDeliverySpec

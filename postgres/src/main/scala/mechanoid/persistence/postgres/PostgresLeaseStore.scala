@@ -38,7 +38,6 @@ class PostgresLeaseStore(session: SqlSession) extends LeaseStore:
       }
       .map(_.map(rowToLease))
       .mapError(PersistenceError.fromError)
-  end tryAcquire
 
   override def renew(
       key: String,
@@ -62,7 +61,6 @@ class PostgresLeaseStore(session: SqlSession) extends LeaseStore:
       }
       .map(_ > 0)
       .mapError(PersistenceError.fromError)
-  end renew
 
   override def release(key: String, holder: String): ZIO[Any, MechanoidError, Boolean] =
     session

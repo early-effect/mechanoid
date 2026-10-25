@@ -48,4 +48,5 @@ package object visualization:
     /** Generate a GraphViz timeline. */
     def toGraphVizTimeline(using stateEnum: Finite[S], eventEnum: Finite[E]): String =
       GraphVizVisualizer.timeline(trace, stateEnum, eventEnum)
+  end extension
 end visualization

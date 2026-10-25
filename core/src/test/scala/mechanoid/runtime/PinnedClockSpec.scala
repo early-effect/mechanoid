@@ -64,7 +64,6 @@ object PinnedClockSpec extends ZIOSpecDefault:
         before <- ZIO.succeed(hit.get)
         _      <- TestClock.adjust(500.millis)
       yield assertTrue(!before, hit.get)
-      end for
     ,
     test("sleep inside the pin wakes when the outer TestClock advances, and the pin does not move"):
       for

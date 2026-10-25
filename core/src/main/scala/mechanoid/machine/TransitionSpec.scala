@@ -13,6 +13,7 @@ object EntryEffect:
   def apply[E, S](f: (E, S) => ZIO[Any, Any, Unit]): EntryEffect[E, S] = f
 
   extension [E, S](effect: EntryEffect[E, S]) def run(event: E, state: S): ZIO[Any, Any, Unit] = effect(event, state)
+end EntryEffect
 
 /** Type-safe wrapper for producing effects.
   *
@@ -25,6 +26,7 @@ object ProducingEffect:
 
   extension [E, S, R](effect: ProducingEffect[E, S, R])
     def run(event: E, state: S): ZIO[Any, Any, R] = effect(event, state)
+end ProducingEffect
 
 /** Reducer that builds the next state instance from `(current, event)`. */
 opaque type PayloadReducer[-S, -E, +S2] = (S, E) => ZIO[Any, Any, S2]
@@ -36,6 +38,7 @@ object PayloadReducer:
   def effect[S, E, S2](f: (S, E) => ZIO[Any, Any, S2]): PayloadReducer[S, E, S2] = f
 
   extension [S, E, S2](reducer: PayloadReducer[S, E, S2]) def run(s: S, e: E): ZIO[Any, Any, S2] = reducer(s, e)
+end PayloadReducer
 
 /** Handler for what happens when a transition fires.
   *

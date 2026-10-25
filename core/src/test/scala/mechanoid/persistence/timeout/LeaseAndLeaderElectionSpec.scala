@@ -263,7 +263,6 @@ object LeaseAndLeaderElectionSpec extends ZIOSpecDefault:
             )
           }
         yield waiterLeads
-        end for
       },
       test("resign releases leadership") {
         val store  = new InMemoryLeaseStore()

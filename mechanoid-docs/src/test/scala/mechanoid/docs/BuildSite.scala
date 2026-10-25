@@ -101,7 +101,6 @@ libraryDependencies += "dev.zio" %%% "zio" % "2.1.26\"""",
           )
         ),
       )
-  end site
 
   override def layers: ZLayer[Any, Nothing, SiteBuilder] =
     DocsChrome.layers
@@ -117,7 +116,6 @@ libraryDependencies += "dev.zio" %%% "zio" % "2.1.26\"""",
         SiteError.WriteFailed(index, err)
       }
     promote *> EarlyEffectTheme.writeLogo(out) *> copyClientBundle(out)
-  end afterBuild
 
   private def copyClientBundle(out: Path): IO[SiteError, Unit] =
     findClientJs match
@@ -159,8 +157,6 @@ libraryDependencies += "dev.zio" %%% "zio" % "2.1.26\"""",
           .findFirst()
         if found.isPresent then Some(found.get.nn) else None
       finally stream.close()
-    end if
-  end walkTargetOut
 
   private def clientJsMarker: Path =
     repoRoot.resolve("target/specular-client-js.path")

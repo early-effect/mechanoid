@@ -30,6 +30,7 @@ trait Redactor[T]:
   def redactPretty(value: T, @unused indent: Int = 2): String =
     // Default implementation - subclasses can override for better formatting
     redact(value)
+end Redactor
 
 object Redactor:
 
@@ -136,7 +137,6 @@ object Redactor:
                     val elems = (0 until p.productArity).map(i => p.productElement(i)).mkString(sep)
                     if sep.contains("\n") then s"$prefix(\n$initialPad$elems\n)"
                     else s"$prefix($elems)"
-              end match
             case other => other.toString
     }
   end sumImpl

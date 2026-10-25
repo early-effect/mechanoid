@@ -66,4 +66,3 @@ object FSMState:
       startedAt = at,
       lastTransitionAt = at,
     )
-end FSMState

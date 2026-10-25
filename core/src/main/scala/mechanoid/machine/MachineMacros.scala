@@ -62,7 +62,6 @@ private[machine] object MachineMacros:
             case Right(machine) => machine
             case Left(defect)   => throw new IllegalStateException(defect.message)
         }
-    end match
   end applyImpl
 
   /** Data class for orphan override info extracted from AST. */

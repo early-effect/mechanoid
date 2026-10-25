@@ -29,7 +29,6 @@ object IndexExtractorMacros:
           s"Field ${param.name} cannot have both @alias and @index"
         )
       if param.hasAnnotation(indexSym) then Some(param.name) else None
-    end namespaceOf
 
     def encodeField(owner: Expr[Any], param: Symbol): Option[Expr[Chunk[IndexKey]]] =
       namespaceOf(param).map { ns =>
@@ -89,7 +88,6 @@ object IndexExtractorMacros:
                 report.errorAndAbort(
                   s"No AliasCodec available for ${Type.show[t]} on @index field ${param.name}"
                 )
-        end match
       }
 
     def instantSelect(owner: Expr[Any], param: Symbol): Expr[Instant] =
@@ -117,8 +115,6 @@ object IndexExtractorMacros:
             case Some(p) => '{ Some(${ instantSelect(instance, p) }) }
             case None    => '{ None }
           '{ Some(IndexClocks($createdExpr, $updatedExpr)) }
-      end match
-    end clocksOf
 
     def rankOf(caseSym: Symbol, instance: Expr[Any]): Expr[Option[Long]] =
       val params = caseSym.primaryConstructor.paramSymss.headOption.getOrElse(Nil)
@@ -135,8 +131,6 @@ object IndexExtractorMacros:
             case '[Short] => '{ Some(${ select.asExprOf[Short] }.toLong) }
             case _        =>
               report.errorAndAbort(s"@indexRank field ${p.name} must be Int, Long, or Short")
-      end match
-    end rankOf
 
     def keysOf(caseSym: Symbol, instance: Expr[Any]): Expr[Chunk[IndexKey]] =
       val params = caseSym.primaryConstructor.paramSymss.headOption.getOrElse(Nil)
@@ -160,8 +154,6 @@ object IndexExtractorMacros:
           else if bindPrefix == "c" then clocksOf(caseSym, inst).asTerm
           else rankOf(caseSym, inst).asTerm
         CaseDef(bindPat, None, rhs)
-      end if
-    end leafCase
 
     val extractorExpr: Expr[IndexExtractor[S]] =
       if sym.flags.is(Flags.Enum) || (sym.flags.is(Flags.Sealed) && sym.children.nonEmpty) then
@@ -180,7 +172,6 @@ object IndexExtractorMacros:
           val rankFn: Expr[S => Option[Long]] =
             '{ (st: S) => ${ Match('st.asTerm, rankCases :+ noneFallback).asExprOf[Option[Long]] } }
           '{ IndexExtractor.apply[S]($keysFn, $clocksFn, $rankFn) }
-        end if
       else if tpe <:< TypeRepr.of[Product] || sym.flags.is(Flags.Case) then
         val keysFn: Expr[S => Chunk[IndexKey]] =
           '{ (st: S) => ${ keysOf(sym, 'st.asExprOf[Any]) } }

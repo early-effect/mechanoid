@@ -41,8 +41,6 @@ final class IndexedDbEventStore[S: JsonCodec, E: JsonCodec] private (
       }
       _ <- notify(instanceId)
     yield newSeqNr
-    end for
-  end append
 
   override def loadEvents(instanceId: String): ZStream[Any, MechanoidError, StoredEvent[String, E]] =
     ZStream.unwrap {
@@ -88,7 +86,6 @@ final class IndexedDbEventStore[S: JsonCodec, E: JsonCodec] private (
         Idb.request(Idb.store(tx, Idb.SnapshotsStore).put(row.toJs))
       }
       .unit <* notify(snapshot.instanceId)
-  end saveSnapshot
 
   override def deleteInstance(instanceId: String): ZIO[Any, MechanoidError, Unit] =
     for
@@ -168,7 +165,6 @@ object IndexedDbEventStore:
         eventJson = eventJson,
         timestampEpoch = timestampEpoch.toDouble,
       )
-  end EventRow
 
   object EventRow:
     def fromJs(raw: js.Dynamic): EventRow =
@@ -193,7 +189,6 @@ object IndexedDbEventStore:
         sequenceNr = sequenceNr.toDouble,
         timestampEpoch = timestampEpoch.toDouble,
       )
-  end SnapshotRow
 
   object SnapshotRow:
     def fromJs(raw: js.Dynamic): SnapshotRow =

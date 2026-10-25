@@ -397,7 +397,6 @@ object PayloadLawsSpec extends ZIOSpecDefault:
               }
               .provide(layers)
           yield assertTrue(recovered == expected)
-          end for
         }
       }
     ),

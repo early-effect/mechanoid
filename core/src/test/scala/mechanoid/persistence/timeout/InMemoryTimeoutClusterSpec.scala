@@ -107,7 +107,6 @@ object InMemoryTimeoutClusterSpec extends ZIOSpecDefault:
         states.forall(_._2.contains(Done)),
         leftover.forall(_.isEmpty),
       )
-      end for
     },
     test("stopping the first sweeper still delivers") {
       for
@@ -216,5 +215,4 @@ object InMemoryTimeoutClusterSpec extends ZIOSpecDefault:
     override def saveSnapshot(snapshot: FSMSnapshot[String, ClusterState]) = underlying.saveSnapshot(snapshot)
     override def highestSequenceNr(instanceId: String)                     = underlying.highestSequenceNr(instanceId)
     override def deleteInstance(instanceId: String)                        = underlying.deleteInstance(instanceId)
-  end SequencingStore
 end InMemoryTimeoutClusterSpec

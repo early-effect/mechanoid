@@ -102,7 +102,6 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
             lastTransitionAt = now,
           )
         )
-      end state
 
       override def history: UIO[List[TestState]] = ZIO.succeed(Nil)
 
@@ -170,7 +169,6 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
         duration: Duration,
         now: Instant,
     ) = ZIO.succeed(ClaimResult.NotFound)
-  end StubTimeoutStore
 
   def spec = suite("TimeoutSweeper")(
     suite("basic operation")(
@@ -1195,7 +1193,6 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           observed._4.timeoutsFired == 1,
           observed._5.exists(_.isHeldBy("survivor")),
         )
-        end for
       },
       test("closing the leader scope lets the next sweeper fire") {
         val key = "leader-handoff"
@@ -1236,7 +1233,6 @@ object TimeoutSweeperSpec extends ZIOSpecDefault:
           firedB.timeoutsFired == 1,
           holder.exists(_.isHeldBy("node-b")),
         )
-        end for
       },
     ),
     suite("jitter schedule")(

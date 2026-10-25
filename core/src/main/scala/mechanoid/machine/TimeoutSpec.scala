@@ -24,7 +24,6 @@ object TimeoutDeadline:
         ZIO.succeed(instant)
       case TimeoutDeadline.FromPayload(compute) =>
         ZIO.succeed(compute(state))
-end TimeoutDeadline
 
 /** A timeout attached to a transition before the leaf name is resolved.
   *

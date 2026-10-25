@@ -54,7 +54,6 @@ final class IndexedDbInstanceIndex private (
               aliases.zipWithIndex.foreach { (alias, i) =>
                 if found(i).isEmpty then store.put(AliasRow.fromAlias(alias, instanceId, now).toJs)
               }
-          end afterGets
 
           aliases.zipWithIndex.foreach { (alias, i) =>
             val req = store.get(AliasRow.keyOf(alias))

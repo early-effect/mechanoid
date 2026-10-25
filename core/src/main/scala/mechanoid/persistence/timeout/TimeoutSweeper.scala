@@ -108,6 +108,7 @@ trait TimeoutSweeper:
 
   /** Stop the sweeper gracefully. */
   def stop: UIO[Unit]
+end TimeoutSweeper
 
 /** TimeoutSweeper implementation as a case class with services/config as fields.
   *
@@ -140,7 +141,6 @@ final case class TimeoutSweeperImpl[Id, S, E](
   /** Look up the timeout event by armed name on the current leaf. */
   def resolveTimeoutEvent(runtime: FSMRuntime[Id, S, E], state: S, name: String): Option[E] =
     runtime.timeoutConfigForState(state).find(_.name == name).map(_.event)
-end TimeoutSweeperImpl
 
 object TimeoutSweeper:
 
@@ -196,7 +196,6 @@ object TimeoutSweeper:
         )
       )
     }
-  end pinned
 
   private def start[Id, S, E](
       impl: TimeoutSweeperImpl[Id, S, E]
@@ -302,38 +301,36 @@ object TimeoutSweeper:
     else
       impl.mailbox.run(timeout.instanceId) {
         Ref.make(false).flatMap { settled =>
-          val body =
-            for
-              now         <- Clock.instant
-              claimResult <- impl.timeoutStore.claim(
-                timeout.instanceId,
-                timeout.name,
-                impl.config.nodeId,
-                impl.config.claimDuration,
-                now,
-              )
-              fired <- claimResult match
-                case ClaimResult.Claimed(claimed) =>
-                  val row = timeout.copy(
-                    stateHash = claimed.stateHash,
-                    sequenceNr = claimed.sequenceNr,
-                    deadline = claimed.deadline,
-                    claimedBy = claimed.claimedBy,
-                    claimedUntil = claimed.claimedUntil,
-                  )
-                  if row.isExpired(now) then fireClaimed(impl, row, metricsRef, settled)
-                  else
-                    releaseOwned(impl, timeout).tap(_ => settled.set(true)) *>
-                      skip(metricsRef)
+          (for
+            now         <- Clock.instant
+            claimResult <- impl.timeoutStore.claim(
+              timeout.instanceId,
+              timeout.name,
+              impl.config.nodeId,
+              impl.config.claimDuration,
+              now,
+            )
+            fired <- claimResult match
+              case ClaimResult.Claimed(claimed) =>
+                val row = timeout.copy(
+                  stateHash = claimed.stateHash,
+                  sequenceNr = claimed.sequenceNr,
+                  deadline = claimed.deadline,
+                  claimedBy = claimed.claimedBy,
+                  claimedUntil = claimed.claimedUntil,
+                )
+                if row.isExpired(now) then fireClaimed(impl, row, metricsRef, settled)
+                else
+                  releaseOwned(impl, timeout).tap(_ => settled.set(true)) *>
+                    skip(metricsRef)
 
-                case ClaimResult.AlreadyClaimed(_, _) =>
-                  settled.set(true) *>
-                    metricsRef.update(m => m.copy(claimConflicts = m.claimConflicts + 1)).as(false)
+              case ClaimResult.AlreadyClaimed(_, _) =>
+                settled.set(true) *>
+                  metricsRef.update(m => m.copy(claimConflicts = m.claimConflicts + 1)).as(false)
 
-                case ClaimResult.NotFound | ClaimResult.StateChanged(_) | ClaimResult.NotDue =>
-                  settled.set(true) *> skip(metricsRef)
-            yield fired
-          body.ensuring {
+              case ClaimResult.NotFound | ClaimResult.StateChanged(_) | ClaimResult.NotDue =>
+                settled.set(true) *> skip(metricsRef)
+          yield fired).ensuring {
             settled.get.flatMap {
               case true  => ZIO.unit
               case false => releaseOwned(impl, timeout).ignore

@@ -94,7 +94,6 @@ object DuplicatePairLawSpec extends ZIOSpecDefault:
       Some(
         s"$name recorded=$recorded runtime=$runtime meta=${metaPairs(machine)} names=$names"
       )
-  end agrees
 
   inline def phaseDrift(name: String, inline asm: Assembly[Phase, Cmd]): Option[String] =
     agrees(name, asm, Machine(asm))

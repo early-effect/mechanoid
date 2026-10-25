@@ -22,7 +22,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
               token.isValid(now),
             )
           case _ => assertTrue(false)
-        end for
       },
       test("fails when locked by another node") {
         for
@@ -91,7 +90,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
           case LockResult.Acquired(token) =>
             assertTrue(token.nodeId == "node-B")
           case _ => assertTrue(false)
-        end for
       },
       test("times out when lock not released") {
         for
@@ -115,7 +113,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
         yield result match
           case LockResult.TimedOut() => assertTrue(true)
           case _                     => assertTrue(false)
-        end for
       },
     ),
     suite("release")(
@@ -133,7 +130,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
           released,
           afterRelease.isEmpty,
         )
-        end for
       },
       test("returns false for non-existent lock") {
         for
@@ -160,7 +156,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
               newToken.expiresAt.isAfter(token.expiresAt),
             )
           case None => assertTrue(false)
-        end for
       },
       test("returns None when lock lost") {
         for
@@ -224,7 +219,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
         yield result match
           case Left(_: LockError) => assertTrue(true)
           case _                  => assertTrue(false)
-        end for
       },
     ),
     suite("concurrent access")(
@@ -250,7 +244,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
             case _                      => false
           }
         yield assertTrue(acquiredCount == 1)
-        end for
       }
     ),
     suite("withLock error mapping")(
@@ -272,7 +265,6 @@ object FSMInstanceLockSpec extends ZIOSpecDefault:
         yield result match
           case Left(LockError.LockTimeout(_, _)) => assertTrue(true)
           case _                                 => assertTrue(false)
-        end for
       },
       test("withLock releases lock even after effect failure") {
         for

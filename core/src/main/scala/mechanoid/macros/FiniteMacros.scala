@@ -71,7 +71,6 @@ object FiniteMacros:
           s"The following cases have the same hash:\n$collisionMsg\n" +
           s"Consider using CaseHasher.murmur3 for better distribution."
       )
-    end if
 
     // Generate array with pre-computed hashes
     val caseInfoExprs = caseInfosWithHashes.map { case (simple, full, hash) =>
@@ -255,7 +254,6 @@ object FiniteMacros:
       val ordinal = value.asInstanceOf[scala.reflect.Enum].ordinal
       $table(ordinal)
     }
-  end enumOrdinalHash
 
   private def finiteLeafMessage(using Quotes)(symbol: quotes.reflect.Symbol, error: Leaves.LeafError): String =
     error match

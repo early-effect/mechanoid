@@ -17,7 +17,6 @@ object ClientMain extends ZIOAppDefault:
       }
       _ <- ZIO.never
     yield ()
-  end run
 
   private def mountExample(id: String, body: URIO[Scope, ascent.ast.UI[Any]]): URIO[Scope, Unit] =
     Dom.document.getElementById(id) match
@@ -29,7 +28,6 @@ object ClientMain extends ZIOAppDefault:
           ui <- body
           _  <- AscentApp.mount(ui, el)
         yield ()
-  end mountExample
 
   private def clearChildren(el: dom.Element): Unit =
     el.innerHTML = ""

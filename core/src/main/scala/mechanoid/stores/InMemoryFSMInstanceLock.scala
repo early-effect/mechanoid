@@ -139,3 +139,4 @@ object InMemoryFSMInstanceLock:
 
   def layer[Id: Tag]: ULayer[FSMInstanceLock[Id]] =
     ZLayer.fromZIO(make[Id])
+end InMemoryFSMInstanceLock

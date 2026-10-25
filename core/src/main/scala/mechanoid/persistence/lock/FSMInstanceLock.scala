@@ -356,6 +356,7 @@ object FSMInstanceLock:
 
   /** Default timeout for acquiring locks. */
   val DefaultLockTimeout: Duration = Duration.fromSeconds(10)
+end FSMInstanceLock
 
 /** Behavior when lock renewal fails during heartbeat.
   *

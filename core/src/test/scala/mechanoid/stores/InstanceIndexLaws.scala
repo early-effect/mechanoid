@@ -118,7 +118,6 @@ object InstanceIndexLaws:
                 assertTrue(e.heldBy == i1, e.requested == i2, still.contains(i1)) || assertTrue(i1 == i2)
               case Right(_) => assertTrue(i1 == i2)
               case Left(_)  => assertTrue(false)
-            end for
           }
         }
       },
@@ -297,7 +296,6 @@ object InstanceIndexLaws:
               row.exists(_.touchedAt == t1),
               row.exists(_.editedAt == t1),
             )
-            end for
           }
         }
       },
@@ -335,7 +333,6 @@ object InstanceIndexLaws:
                   if sort.toString.endsWith("Desc") then c >= 0 else c <= 0
                 }
             yield assertTrue(page.items.map(_.instanceId) == again.items.map(_.instanceId), ordered || true)
-            end for
           }
         }
       },

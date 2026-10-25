@@ -30,6 +30,7 @@ object Transition:
   /** Create a transition that stays in the current instance. */
   def stay[S, E]: Transition[S, E, S] =
     Transition((s, _) => ZIO.succeed(TransitionResult.Stay(s)), None)
+end Transition
 
 /** Timeout configuration for a state.
   *
