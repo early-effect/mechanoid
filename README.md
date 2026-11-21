@@ -82,7 +82,7 @@ Full guide with Mermaid diagrams and docs-as-tests examples:
 ## Development
 
 ```bash
-./scripts/install-git-hooks  # once per clone: pre-commit runs scalafmtCheckAll
+./scripts/install-git-hooks  # once per clone: pre-commit runs scalafmtCheckAll, commit-msg rejects agent attribution
 git config core.hooksPath hooks
 npm ci                       # jsdom + fake-indexeddb for Scala.js tests
 sbt testJVM                  # JVM tests + docs site
