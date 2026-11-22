@@ -20,12 +20,12 @@ object MyVersions extends ZipxVersions:
   val zioTest          = zio.mod("zio-test")
   val zioTestSbt       = zio.mod("zio-test-sbt")
   val zioTestMagnolia  = zio.mod("zio-test-magnolia")
-  val zioJson          = Lib("dev.zio", "zio-json", "1.1.0")
-  val zioLogging       = Lib("dev.zio", "zio-logging", "2.5.3")
+  val zioJson          = Lib("dev.zio", "zio-json", "1.1.3")
+  val zioLogging       = Lib("dev.zio", "zio-logging", "2.5.5")
   val zioLoggingSlf4j  = zioLogging.mod("zio-logging-slf4j")
   val zioLoggingBridge = zioLogging.mod("zio-logging-slf4j-bridge")
 
-  val scalaJavaTime     = Lib("io.github.cquiroz", "scala-java-time", "2.8.0")
+  val scalaJavaTime     = Lib("io.github.cquiroz", "scala-java-time", "2.11.0")
   val scalaJavaTimeTzdb = scalaJavaTime.mod("scala-java-time-tzdb")
 
   val saferis                  = Lib("rocks.earlyeffect", "saferis", "0.21.0")
@@ -36,7 +36,7 @@ object MyVersions extends ZipxVersions:
   val scalajsDom               = Lib("org.scala-js", "scalajs-dom", "2.8.1")
   val scaluzzi                 = Lib("com.github.vovapolu", "scaluzzi", "0.1.23")
 
-  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.21.1")
+  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.21.5")
   val specularZioTest = specular.mod("specular-zio-test")
   val specularSite    = specular.mod("specular-site")
   val specularTheme   = specular.mod("early-effect-docs-theme")
@@ -50,7 +50,7 @@ object MyVersions extends ZipxVersions:
   val ascentHtml = Lib("rocks.earlyeffect", "ascent-html", "0.10.1")
   val ascentJs   = Lib("rocks.earlyeffect", "ascent-js", "0.11.1")
 
-  val scalajs = Plugin("org.scala-js", "sbt-scalajs", "1.22.0")
+  val scalajs = Plugin("org.scala-js", "sbt-scalajs", "1.23.0")
   // sbt-scalafmt pulls _2.13 variants via scalafmt-dynamic (for3Use2_13), which clash with _3 variants
   // from sbt-scalafix and sbt-scoverage on sbt 2. Keep the exclude on the row so generate preserves it.
   val scalafmt = Plugin("org.scalameta", "sbt-scalafmt", "2.6.2")
@@ -59,9 +59,9 @@ object MyVersions extends ZipxVersions:
       ZipxExclude.org("org.scala-lang.modules", "scala-collection-compat_2.13"),
       ZipxExclude.org("com.github.plokhotnyuk.jsoniter-scala", "jsoniter-scala-core_2.13"),
     )
-  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.21.1")
+  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.21.5")
   val sbtAssembly    = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
-  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.9")
+  val scalafix       = Plugin("ch.epfl.scala", "sbt-scalafix", "0.14.10")
   val scoverage      = Plugin("org.scoverage", "sbt-scoverage", "2.4.4")
 
   def zioLib           = library(zio, zioStreams, zioJson)
